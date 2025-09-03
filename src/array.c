@@ -54,7 +54,7 @@ void _internal_array_set_len(void *arr, size_t len) {
   h->len = len;
 }
 
-size_t _internal_array_len(void *arr) { return (((_InternalArrayHeader *)arr) - 1)->len; }
+size_t _internal_array_len(const void *arr) { return (((_InternalArrayHeader *)arr) - 1)->len; }
 
 void _internal_array_free(void *arr) {
   _InternalArrayHeader *h = ((_InternalArrayHeader *)arr) - 1;

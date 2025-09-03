@@ -21,7 +21,7 @@ void *_internal_array_new(size_t capacity, size_t item_size, Allocator *allocato
 
 void _internal_array_set_len(void *arr, size_t len);
 
-size_t _internal_array_len(void *arr);
+size_t _internal_array_len(const void *arr);
 
 void _internal_array_free(void *arr);
 
