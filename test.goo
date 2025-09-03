@@ -1,0 +1,3 @@
+main :: <T: add(T, T) -> T>() {
+  println("Hello, silly :3")
+}
