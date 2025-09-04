@@ -1,7 +1,10 @@
 #include "alloc.h"
 #include "array.h"
+#include <ctype.h>
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdio.h>
+#include <string.h>
 
 typedef enum {
   TOKEN_IDENT,
@@ -115,7 +118,7 @@ static bool next_char(Lexer *lexer) {
 static void tokenize(Lexer *lexer, const char *src) {
   lexer->cur_char = src;
 
-  while (*lexer->cur_char + 1 != '\0') {
+  while (*lexer->cur_char != '\0') {
     Token tok;
     if (*lexer->cur_char == ' ' || *lexer->cur_char == '\n') {
       do {
@@ -124,20 +127,28 @@ static void tokenize(Lexer *lexer, const char *src) {
       continue;
     } else if (*lexer->cur_char == '\0') {
       return;
-    } else if ((*lexer->cur_char >= 'a' && *lexer->cur_char <= 'z') ||
-               (*lexer->cur_char >= 'A' && *lexer->cur_char <= 'Z') ||
-               *lexer->cur_char == '_') {
-      char *ident = malloc(256 * sizeof(char));
+    } else if (isalpha(*lexer->cur_char) || *lexer->cur_char == '_') {
+      size_t cap = 256;
+      char *ident = malloc(cap);
+      if (!ident) {
+        perror("malloc");
+        exit(1);
+      }
+
       size_t i = 0;
       do {
+        if (i >= cap - 1) {
+          fprintf(stderr, "Ident too long\n");
+          exit(1);
+        }
         ident[i++] = *lexer->cur_char;
         next_char(lexer);
-      } while ((*lexer->cur_char >= 'a' && *lexer->cur_char <= 'z') ||
-               (*lexer->cur_char >= 'A' && *lexer->cur_char <= 'Z') ||
-               *lexer->cur_char == '_');
+      } while (isalpha(*lexer->cur_char) || *lexer->cur_char == '_');
+
       lexer->cur_char--;
       ident[i] = '\0';
-      tok = (Token){.type = TOKEN_IDENT, .var = {.ident = ident}};
+      tok.type = TOKEN_IDENT;
+      tok.var.ident = strdup(ident); // heap-owned copy
     } else if (*lexer->cur_char == '"') {
       char *string = malloc(256 * sizeof(char));
       next_char(lexer);
@@ -146,9 +157,11 @@ static void tokenize(Lexer *lexer, const char *src) {
         string[i++] = *lexer->cur_char;
         next_char(lexer);
       }
-      tok = (Token){.type = TOKEN_STRING, .var = {.string = string}};
+      string[i] = '\0';
+      tok = (Token){.type = TOKEN_STRING, .var = {.string = strdup(string)}};
+      free(string);
     } else if (*lexer->cur_char >= '0' && *lexer->cur_char <= '9') {
-      char *int_lit = malloc(256);
+      char *int_lit = malloc(sizeof(int));
       size_t i = 0;
       do {
         int_lit[i++] = *lexer->cur_char;
@@ -157,6 +170,7 @@ static void tokenize(Lexer *lexer, const char *src) {
       lexer->cur_char--;
       int_lit[i] = '\0';
       tok = (Token){.type = TOKEN_INT, .var = {.integer = atoi(int_lit)}};
+      free(int_lit);
     } else if (*lexer->cur_char == ':') {
       if (*(lexer->cur_char + 1) == ':') {
         tok = (Token){.type = TOKEN_DECL_CONST};
@@ -188,8 +202,12 @@ static void tokenize(Lexer *lexer, const char *src) {
       tok = (Token){.type = TOKEN_ILLEGAL};
     }
     array_add(lexer->tokens, tok);
-    tok_print(&lexer->tokens[array_len(lexer->tokens) - 1]);
     next_char(lexer);
+
+    printf("Cur token: ");
+    tok_print(&lexer->tokens[array_len(lexer->tokens) - 1]);
+    printf("First token: ");
+    tok_print(&lexer->tokens[0]);
   }
 }
 
@@ -208,9 +226,15 @@ typedef struct {
   Type ret_type;
 } FuncDescriptor;
 
+typedef struct {
+  struct _generic *generics;
+  Type *arg_types;
+  Type ret_type;
+} FuncSignature;
+
 typedef struct _generic {
   Ident name;
-  FuncDescriptor *bounds;
+  FuncSignature *bounds;
 } Generic;
 
 typedef struct _expr {
@@ -271,87 +295,176 @@ static void next_token(Parser *parser) {
   parser->peek_tok++;
 }
 
-static void expr_print(const Expression *expr, int indent);
+static void generic_print(char *buf, const Generic *generic);
 
-static void indent_print(int indent) {
-  for (int i = 0; i < indent; i++) {
-    putchar(' ');
+static void func_signature_print(char *buf, const FuncSignature *desc) {
+  char generics_buf[256] = {'\0'};
+  if (desc->generics != NULL) {
+    for (size_t i = 0; i < array_len(desc->generics); i++) {
+      char generic_buf[64];
+      generic_print(generic_buf, &desc->generics[i]);
+      strcat(generics_buf, generic_buf);
+      strcat(generics_buf, ", ");
+    }
+    if (array_len(desc->generics) >= 1) {
+      generics_buf[strlen(generics_buf) - 2] = '\0';
+    }
   }
+  char args_buf[256] = {'\0'};
+  if (desc->arg_types != NULL) {
+    for (size_t i = 0; i < array_len(desc->arg_types); i++) {
+      char arg_buf[64];
+      sprintf(arg_buf, "Type{type=%s}", desc->arg_types[i]);
+      strcat(args_buf, arg_buf);
+      strcat(args_buf, ", ");
+    }
+    if (array_len(desc->arg_types) >= 1) {
+      args_buf[strlen(args_buf) - 2] = '\0';
+    }
+  }
+  sprintf(buf, "FuncSignature{generics=[%s], args=[%s], ret_type=%s}",
+          generics_buf, args_buf, desc->ret_type);
 }
 
-static void stmt_print(const Statement *stmt, int indent) {
-  indent_print(indent);
-  switch (stmt->type) {
-  case STMT_DECL:
-    printf("STMT_DECL{name=%s, mutable=%s, value=\n", stmt->var.stmt_decl.name,
-           stmt->var.stmt_decl.mutable ? "true" : "false");
-    expr_print(&stmt->var.stmt_decl.value, indent + 2);
-    indent_print(indent);
-    printf("}\n");
-    break;
-
-  case STMT_EXPR:
-    printf("STMT_EXPR{expr=\n");
-    expr_print(&stmt->var.stmt_expr.expr, indent + 2);
-    indent_print(indent);
-    printf("}\n");
-    break;
+static void generic_print(char *buf, const Generic *generic) {
+  char bounds_buf[256] = {'\0'};
+  if (generic->bounds != NULL) {
+    for (size_t i = 0; i < array_len(generic->bounds); i++) {
+      char bound_buf[64];
+      func_signature_print(bounds_buf, &generic->bounds[i]);
+      strcat(bounds_buf, bound_buf);
+      strcat(bounds_buf, ", ");
+    }
+    bounds_buf[strlen(bounds_buf) - 2] = '\0';
   }
+  sprintf(buf, "Generic{name=%s, bounds=[%s]}", generic->name, bounds_buf);
 }
 
-static void expr_print(const Expression *expr, int indent) {
-  indent_print(indent);
+static void typed_ident_print(char *buf, const TypedIdent *ident) {
+  sprintf(buf, "TypedIdent{ident=%s, type=%s}", ident->ident, ident->type);
+}
+
+static void func_desc_print(char *buf, const FuncDescriptor *desc) {
+  char generics_buf[256] = {'\0'};
+  if (desc->generics != NULL) {
+    for (size_t i = 0; i < array_len(desc->generics); i++) {
+      char generic_buf[64];
+      generic_print(generic_buf, &desc->generics[i]);
+      strcat(generics_buf, generic_buf);
+      strcat(generics_buf, ", ");
+    }
+    if (array_len(desc->generics) >= 1) {
+      generics_buf[strlen(generics_buf) - 2] = '\0';
+    }
+  }
+  char args_buf[256] = {'\0'};
+  if (desc->args != NULL) {
+    for (size_t i = 0; i < array_len(desc->args); i++) {
+      char arg_buf[64];
+      typed_ident_print(arg_buf, &desc->args[i]);
+      strcat(args_buf, arg_buf);
+      strcat(args_buf, ", ");
+    }
+    if (array_len(desc->args) >= 1) {
+      args_buf[strlen(args_buf) - 2] = '\0';
+    }
+  }
+  sprintf(buf, "FuncDescriptor{generics=[%s], args=[%s], ret_type=%s}",
+          generics_buf, args_buf, desc->ret_type);
+}
+
+static void stmt_print(char *buf, const Statement *stmt);
+
+static void expr_print(char *buf, const Expression *expr) {
   switch (expr->type) {
-  case EXPR_FUNCTION:
-    printf("EXPR_FUNCTION{desc=..., block=\n");
-    if (expr->var.expr_function.block) {
-      // print the block’s statements
+  case EXPR_FUNCTION: {
+    char func_desc_buf[512] = {'\0'};
+    func_desc_print(func_desc_buf, &expr->var.expr_function.desc);
+    char block_buf[4096] = {'\0'};
+    if (expr->var.expr_function.block != NULL) {
       Statement *stmts =
           expr->var.expr_function.block->var.expr_block.statements;
-      if (stmts) {
-        for (size_t i = 0; stmts[i].type;
-             i++) { // assume array terminated or tracked elsewhere
-          stmt_print(&stmts[i], indent + 2);
+      if (stmts != NULL) {
+        for (size_t i = 0; i < array_len(stmts); i++) {
+          char stmt_buf[512];
+          stmt_print(stmt_buf, &stmts[i]);
+          strcat(block_buf, stmt_buf);
+          strcat(block_buf, ", ");
+        }
+        if (array_len(stmts) >= 1) {
+          printf("block is not empty\n");
+          block_buf[strlen(block_buf) - 2] = '\0';
         }
       }
     }
-    indent_print(indent);
-    printf("}\n");
+    sprintf(buf, "ExprFunction{func_desc=%s, block=[%s]}", func_desc_buf,
+            block_buf);
     break;
-
-  case EXPR_STRING_LIT:
-    printf("EXPR_STRING_LIT{string=\"%s\"}\n",
-           expr->var.expr_string_literal.string);
+  }
+  case EXPR_STRING_LIT: {
+    sprintf(buf, "StringLiteral{value=\"%s\"}",
+            expr->var.expr_string_literal.string);
     break;
-
-  case EXPR_INTEGER_LIT:
-    printf("EXPR_INTEGER_LIT{integer=%d}\n",
-           expr->var.expr_integer_literal.integer);
+  }
+  case EXPR_INTEGER_LIT: {
+    sprintf(buf, "IntegerLiteral{value=%d}",
+            expr->var.expr_integer_literal.integer);
     break;
-
-  case EXPR_CALL:
-    printf("EXPR_CALL{function=%s, args=\n", expr->var.expr_call.function);
-    if (expr->var.expr_call.args) {
-      Expression *args = expr->var.expr_call.args;
-      for (size_t i = 0; args[i].type; i++) { // same termination assumption
-        expr_print(&args[i], indent + 2);
+  }
+  case EXPR_CALL: {
+    char args_buf[512] = {'\0'};
+    if (expr->var.expr_call.args != NULL) {
+      for (size_t i = 0; i < array_len(expr->var.expr_call.args); i++) {
+        char arg_buf[128];
+        Expression arg_expr = expr->var.expr_call.args[i];
+        expr_print(arg_buf, &arg_expr);
+        strcat(args_buf, arg_buf);
+        strcat(args_buf, ", ");
+      }
+      if (array_len(expr->var.expr_call.args) >= 1) {
+        args_buf[strlen(args_buf) - 2] = '\0';
       }
     }
-    indent_print(indent);
-    printf("}\n");
+    sprintf(buf, "ExprCall{function=%s, args=[%s]}",
+            expr->var.expr_call.function, args_buf);
     break;
-
-  case EXPR_BLOCK:
-    printf("EXPR_BLOCK{statements=\n");
-    if (expr->var.expr_block.statements) {
-      Statement *stmts = expr->var.expr_block.statements;
-      for (size_t i = 0; stmts[i].type; i++) {
-        stmt_print(&stmts[i], indent + 2);
+  }
+  case EXPR_BLOCK: {
+    char block_buf[4096] = {'\0'};
+    Statement *stmts = expr->var.expr_block.statements;
+    if (stmts != NULL) {
+      for (size_t i = 0; i < array_len(stmts); i++) {
+        char stmt_buf[512];
+        stmt_print(stmt_buf, &stmts[i]);
+        strcat(block_buf, stmt_buf);
+        strcat(block_buf, ", ");
+      }
+      if (array_len(expr->var.expr_block.statements) >= 1) {
+        block_buf[strlen(block_buf) - 2] = '\0';
       }
     }
-    indent_print(indent);
-    printf("}\n");
+    sprintf(buf, "%s", block_buf);
+  }
+  }
+}
+
+static void stmt_print(char *buf, const Statement *stmt) {
+  switch (stmt->type) {
+  case STMT_DECL: {
+    char expr_buf[1024];
+    expr_print(expr_buf, &stmt->var.stmt_decl.value);
+    sprintf(buf, "StmtDecl{name=%s, mutable=%s, value=%s}",
+            stmt->var.stmt_decl.name,
+            stmt->var.stmt_decl.mutable ? "true" : "false", expr_buf);
+    printf("Name: %s\n", stmt->var.stmt_decl.name);
     break;
+  }
+  case STMT_EXPR: {
+    char expr_buf[1024];
+    expr_print(expr_buf, &stmt->var.stmt_expr.expr);
+    sprintf(buf, "StmtExpr{expr=%s}", expr_buf);
+    break;
+  }
   }
 }
 
@@ -400,6 +513,33 @@ static TypedIdent *parse_typed_ident_list(Parser *parser, TokenType end) {
   return idents;
 }
 
+// begin: cur_tok must be first type or end
+// end: cur_tok is end
+static Type *parse_type_list(Parser *parser, TokenType end) {
+  Type *types = array_new_capacity(Type, 8, &HEAP_ALLOCATOR);
+  while (parser->cur_tok->type != end) {
+    Type t = {};
+    if (parser->cur_tok->type == TOKEN_IDENT) {
+      t = parser->cur_tok->var.ident;
+    } else {
+      fprintf(stderr, "Expected type");
+      exit(1);
+    }
+
+    if (parser->peek_tok->type == TOKEN_COMMA) {
+      // cur_tok is comma
+      next_token(parser);
+      // cur_tok is ident or end
+      next_token(parser);
+    } else if (parser->peek_tok->type == end) {
+      // cur_tok is end
+      next_token(parser);
+    }
+    array_add(types, t);
+  }
+  return types;
+}
+
 // begin: cur_tok must be first token of first statement
 // end: cur_tok is end
 static Statement *parse_block_statements(Parser *parser, TokenType end) {
@@ -429,11 +569,31 @@ static Expression *parse_expr_list(Parser *parser, TokenType end) {
   return exprs;
 }
 
-
 // TODO: Generic functions
 // begin: cur_tok must be left parenthesis
 // end: cur_tok is return_type ident or right parenthesis
 static FuncDescriptor parse_func_desc(Parser *parser);
+
+static FuncSignature parse_func_signature(Parser *parser) {
+  FuncSignature signature = {};
+  // cur_tok is first ident or end of args
+  next_token(parser);
+  signature.arg_types = parse_type_list(parser, TOKEN_RPAREN);
+  if (parser->peek_tok->type == TOKEN_ARROW) {
+    // cur_tok is arrow
+    next_token(parser);
+
+    if (parser->peek_tok->type == TOKEN_IDENT) {
+      // cur_tok is ident
+      next_token(parser);
+      signature.ret_type = parser->cur_tok->var.ident;
+    } else {
+      EXPECTED_TOKEN_ERR(TOKEN_IDENT, parser->peek_tok);
+    }
+  }
+
+  return signature;
+}
 
 // begin: cur_tok must be generic name
 // end: cur_tok is end of func descriptor or generic ident
@@ -444,9 +604,9 @@ static Generic parse_generic(Parser *parser) {
     next_token(parser);
     // cur_tok is first tok of func descriptor
     next_token(parser);
-    generic.bounds = array_new(FuncDescriptor, &HEAP_ALLOCATOR);
-    FuncDescriptor desc = parse_func_desc(parser);
-    array_add(generic.bounds, desc);
+    generic.bounds = array_new(FuncSignature, &HEAP_ALLOCATOR);
+    FuncSignature signature = parse_func_signature(parser);
+    array_add(generic.bounds, signature);
   }
   return generic;
 }
@@ -455,7 +615,7 @@ static Generic parse_generic(Parser *parser) {
 // begin: cur_tok must be left parenthesis
 // end: cur_tok is return_type ident or right parenthesis
 static FuncDescriptor parse_func_desc(Parser *parser) {
-  FuncDescriptor desc;
+  FuncDescriptor desc = {};
   // cur_tok is first ident or end of args
   next_token(parser);
   desc.args = parse_typed_ident_list(parser, TOKEN_RPAREN);
@@ -585,7 +745,9 @@ static Statement parse_stmt(Parser *parser) {
   case TOKEN_IDENT: {
     if (parser->peek_tok->type == TOKEN_DECL_CONST ||
         parser->peek_tok->type == TOKEN_DECL_VAR) {
+      tok_print(parser->cur_tok);
       Ident name = parser->cur_tok->var.ident;
+      puts(name);
       bool mutable = parser->peek_tok->type == TOKEN_DECL_VAR;
       // cur token is DECL
       next_token(parser);
@@ -658,8 +820,8 @@ static void parse(Parser *parser) {
 
   while (parser->cur_tok->type != TOKEN_EOF) {
     Statement stmt = parse_stmt(parser);
-    stmt_print(&stmt, 0);
     array_add(parser->statements, stmt);
+    next_token(parser);
   }
 }
 
@@ -676,9 +838,9 @@ int main(void) {
   tokenize(&lexer, file_buf);
   array_add(lexer.tokens, (Token){.type = TOKEN_EOF});
 
-  for (size_t i = 0; i < array_len(lexer.tokens); i++) {
-    tok_print(&lexer.tokens[i]);
-  }
+  // for (size_t i = 0; i < array_len(lexer.tokens); i++) {
+  //   tok_print(&lexer.tokens[i]);
+  // }
 
   Parser parser = {.tokens = lexer.tokens,
                    .statements = array_new(Statement, &HEAP_ALLOCATOR)};
@@ -686,6 +848,8 @@ int main(void) {
   parse(&parser);
 
   for (size_t i = 0; i < array_len(parser.statements); i++) {
-    stmt_print(&parser.statements[i], 0);
+    char print_buf[8192] = {'\0'};
+    stmt_print(print_buf, &parser.statements[i]);
+    puts(print_buf);
   }
 }
