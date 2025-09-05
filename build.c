@@ -54,6 +54,9 @@ int main(int argc, char **argv) {
     } else if (STR_CMP_OR(argv[1], "d", "dbg")) {
       dbg(OPTS.out_dir, out_name, OPTS.debug);
       return 0;
+    } else if (STR_CMP_OR(argv[1], "v", "vg")) {
+      system(str_fmt("valgrind --leak-check=full --show-leak-kinds=all ./%s/%s", OPTS.out_dir, out_name));
+      return 0;
     } else if (STR_CMP_OR(argv[1], "-r", "--release")) {} else {
       fprintf(stderr, "[Error]: Invalid first arg: %s\n", argv[1]);
       return 1;

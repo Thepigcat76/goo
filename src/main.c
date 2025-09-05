@@ -115,6 +115,8 @@ static bool next_char(Lexer *lexer) {
   return *lexer->cur_char != '\0';
 }
 
+static char *first_ident = NULL;
+
 static void tokenize(Lexer *lexer, const char *src) {
   lexer->cur_char = src;
 
@@ -129,11 +131,7 @@ static void tokenize(Lexer *lexer, const char *src) {
       return;
     } else if (isalpha(*lexer->cur_char) || *lexer->cur_char == '_') {
       size_t cap = 256;
-      char *ident = malloc(cap);
-      if (!ident) {
-        perror("malloc");
-        exit(1);
-      }
+      char ident[cap];
 
       size_t i = 0;
       do {
@@ -148,7 +146,9 @@ static void tokenize(Lexer *lexer, const char *src) {
       lexer->cur_char--;
       ident[i] = '\0';
       tok.type = TOKEN_IDENT;
-      tok.var.ident = strdup(ident); // heap-owned copy
+      tok.var.ident = malloc(strlen(ident) + 1); // heap-owned copy
+      if (first_ident == NULL) first_ident = tok.var.ident;
+      strcpy(tok.var.ident, ident);
     } else if (*lexer->cur_char == '"') {
       char *string = malloc(256 * sizeof(char));
       next_char(lexer);
@@ -159,18 +159,21 @@ static void tokenize(Lexer *lexer, const char *src) {
       }
       string[i] = '\0';
       tok = (Token){.type = TOKEN_STRING, .var = {.string = strdup(string)}};
-      free(string);
     } else if (*lexer->cur_char >= '0' && *lexer->cur_char <= '9') {
-      char *int_lit = malloc(sizeof(int));
+      size_t cap = 32;
+      char *int_lit = malloc(cap);
       size_t i = 0;
       do {
+        if (i >= cap - 1) {
+          fprintf(stderr, "int too long\n");
+          exit(1);
+        }
         int_lit[i++] = *lexer->cur_char;
         next_char(lexer);
       } while (*lexer->cur_char >= '0' && *lexer->cur_char <= '9');
       lexer->cur_char--;
       int_lit[i] = '\0';
       tok = (Token){.type = TOKEN_INT, .var = {.integer = atoi(int_lit)}};
-      free(int_lit);
     } else if (*lexer->cur_char == ':') {
       if (*(lexer->cur_char + 1) == ':') {
         tok = (Token){.type = TOKEN_DECL_CONST};
@@ -199,15 +202,13 @@ static void tokenize(Lexer *lexer, const char *src) {
     } else if (*lexer->cur_char == ',') {
       tok = (Token){.type = TOKEN_COMMA};
     } else {
+      printf("%c", *lexer->cur_char);
       tok = (Token){.type = TOKEN_ILLEGAL};
     }
     array_add(lexer->tokens, tok);
     next_char(lexer);
-
-    printf("Cur token: ");
-    tok_print(&lexer->tokens[array_len(lexer->tokens) - 1]);
-    printf("First token: ");
-    tok_print(&lexer->tokens[0]);
+    //tok_print(&tok);
+    printf("First token: %s\n", first_ident);
   }
 }
 
@@ -227,6 +228,7 @@ typedef struct {
 } FuncDescriptor;
 
 typedef struct {
+  Ident name;
   struct _generic *generics;
   Type *arg_types;
   Type ret_type;
@@ -330,7 +332,7 @@ static void generic_print(char *buf, const Generic *generic) {
   char bounds_buf[256] = {'\0'};
   if (generic->bounds != NULL) {
     for (size_t i = 0; i < array_len(generic->bounds); i++) {
-      char bound_buf[64];
+      char bound_buf[64] = {'\0'};
       func_signature_print(bounds_buf, &generic->bounds[i]);
       strcat(bounds_buf, bound_buf);
       strcat(bounds_buf, ", ");
@@ -345,10 +347,10 @@ static void typed_ident_print(char *buf, const TypedIdent *ident) {
 }
 
 static void func_desc_print(char *buf, const FuncDescriptor *desc) {
-  char generics_buf[256] = {'\0'};
+  char generics_buf[512] = {'\0'};
   if (desc->generics != NULL) {
     for (size_t i = 0; i < array_len(desc->generics); i++) {
-      char generic_buf[64];
+      char generic_buf[128] = {'\0'};
       generic_print(generic_buf, &desc->generics[i]);
       strcat(generics_buf, generic_buf);
       strcat(generics_buf, ", ");
@@ -392,7 +394,6 @@ static void expr_print(char *buf, const Expression *expr) {
           strcat(block_buf, ", ");
         }
         if (array_len(stmts) >= 1) {
-          printf("block is not empty\n");
           block_buf[strlen(block_buf) - 2] = '\0';
         }
       }
@@ -456,7 +457,6 @@ static void stmt_print(char *buf, const Statement *stmt) {
     sprintf(buf, "StmtDecl{name=%s, mutable=%s, value=%s}",
             stmt->var.stmt_decl.name,
             stmt->var.stmt_decl.mutable ? "true" : "false", expr_buf);
-    printf("Name: %s\n", stmt->var.stmt_decl.name);
     break;
   }
   case STMT_EXPR: {
@@ -522,6 +522,7 @@ static Type *parse_type_list(Parser *parser, TokenType end) {
     if (parser->cur_tok->type == TOKEN_IDENT) {
       t = parser->cur_tok->var.ident;
     } else {
+      tok_print(parser->cur_tok);
       fprintf(stderr, "Expected type");
       exit(1);
     }
@@ -575,9 +576,12 @@ static Expression *parse_expr_list(Parser *parser, TokenType end) {
 static FuncDescriptor parse_func_desc(Parser *parser);
 
 static FuncSignature parse_func_signature(Parser *parser) {
-  FuncSignature signature = {};
+  FuncSignature signature = {.name = parser->cur_tok->var.ident};
+  // cur_tok is left parenthesis
+  next_token(parser);
   // cur_tok is first ident or end of args
   next_token(parser);
+  // cur_tok is end
   signature.arg_types = parse_type_list(parser, TOKEN_RPAREN);
   if (parser->peek_tok->type == TOKEN_ARROW) {
     // cur_tok is arrow
@@ -745,9 +749,7 @@ static Statement parse_stmt(Parser *parser) {
   case TOKEN_IDENT: {
     if (parser->peek_tok->type == TOKEN_DECL_CONST ||
         parser->peek_tok->type == TOKEN_DECL_VAR) {
-      tok_print(parser->cur_tok);
       Ident name = parser->cur_tok->var.ident;
-      puts(name);
       bool mutable = parser->peek_tok->type == TOKEN_DECL_VAR;
       // cur token is DECL
       next_token(parser);
@@ -762,8 +764,6 @@ static Statement parse_stmt(Parser *parser) {
     } else if (parser->peek_tok->type == TOKEN_LPAREN) {
       goto parse_expr;
     }
-    printf("ident without decl, cur:\n");
-    tok_print(parser->cur_tok);
     exit(1);
   }
   case TOKEN_STRING:
@@ -830,17 +830,19 @@ int main(void) {
 
   char file_buf[4096];
   FILE *file = fopen("test.goo", "r");
-  fread(file_buf, 4096, sizeof(char), file);
-  printf("%s\n", file_buf);
+  size_t n = fread(file_buf, 1, sizeof(file_buf) - 1, file);
+  file_buf[n] = '\0';
+
+  printf("File: %s\n", file_buf);
 
   Lexer lexer = {.tokens = array_new(Token, &HEAP_ALLOCATOR)};
 
   tokenize(&lexer, file_buf);
   array_add(lexer.tokens, (Token){.type = TOKEN_EOF});
 
-  // for (size_t i = 0; i < array_len(lexer.tokens); i++) {
-  //   tok_print(&lexer.tokens[i]);
-  // }
+  for (size_t i = 0; i < array_len(lexer.tokens); i++) {
+    tok_print(&lexer.tokens[i]);
+  }
 
   Parser parser = {.tokens = lexer.tokens,
                    .statements = array_new(Statement, &HEAP_ALLOCATOR)};
@@ -851,5 +853,6 @@ int main(void) {
     char print_buf[8192] = {'\0'};
     stmt_print(print_buf, &parser.statements[i]);
     puts(print_buf);
+    printf("String len: %zu\n", strlen(print_buf));
   }
 }

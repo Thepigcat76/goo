@@ -1,4 +1,5 @@
 #include "array.h"
+#include <stdio.h>
 #include <string.h>
 
 void *_internal_array_new(size_t capacity, size_t item_size, Allocator *allocator) {
@@ -17,37 +18,51 @@ void *_internal_array_new(size_t capacity, size_t item_size, Allocator *allocato
 }
 
 static void *_internal_array_double_size(void *arr, size_t item_size) {
-  _InternalArrayHeader *h = ((_InternalArrayHeader *)arr) - 1;
-  size_t arr_len = h->len;
-  size_t arr_new_capacity = h->capacity * 2;
-  Allocator *arr_allocator = h->allocator;
-  size_t size = item_size * arr_new_capacity + sizeof(_InternalArrayHeader);
-  void *temp = h->allocator->alloc(size);
-  memcpy(temp, h, sizeof(_InternalArrayHeader) + h->len * item_size);
-  h->allocator->dealloc(h);
-  return ((_InternalArrayHeader *)temp) + 1;
+    _InternalArrayHeader *h = ((_InternalArrayHeader *)arr) - 1;
+    size_t arr_len = h->len;
+    size_t arr_new_capacity = h->capacity * 2;
+    Allocator *arr_allocator = h->allocator;
+
+    size_t size = item_size * arr_new_capacity + sizeof(_InternalArrayHeader);
+    void *temp = arr_allocator->alloc(size);
+    if (!temp) {
+        perror("alloc");
+        exit(1);
+    }
+
+    memcpy(temp, h, sizeof(_InternalArrayHeader) + arr_len * item_size);
+    arr_allocator->dealloc(h);
+
+    _InternalArrayHeader *new_h = (_InternalArrayHeader *)temp;
+    new_h->capacity = arr_new_capacity;
+    return (void *)(new_h + 1);
 }
 
-static size_t _internal_array_prepare_add(void *arr, size_t item_size) {
-  _InternalArrayHeader *h = ((_InternalArrayHeader *)(arr)) - 1;
-  if (h->len >= h->capacity) {
-    arr = _internal_array_double_size(arr, item_size);
-    h = ((_InternalArrayHeader *)(arr)) - 1;
-  }
-  return h->len;
+/* notice: now takes void **arr_ptr so we can update caller’s pointer */
+static size_t _internal_array_prepare_add(void **arr_ptr, size_t item_size) {
+    void *arr = *arr_ptr;
+    _InternalArrayHeader *h = ((_InternalArrayHeader *)arr) - 1;
+
+    if (h->len >= h->capacity) {
+        arr = _internal_array_double_size(arr, item_size);
+        *arr_ptr = arr;  // <-- update caller’s array pointer
+        h = ((_InternalArrayHeader *)arr) - 1;
+    }
+
+    return h->len;
 }
 
 inline void _internal_array_add(void **arr_ptr, void *item, size_t item_size) {
     void *arr = *arr_ptr;
-    size_t len = _internal_array_prepare_add(arr, item_size);
+    size_t len = _internal_array_prepare_add(&arr, item_size);
 
     _InternalArrayHeader *h = ((_InternalArrayHeader *)arr) - 1;
     memcpy((char *)arr + len * item_size, item, item_size);
-    _internal_array_set_len(arr, len + 1);
+    h->len = len + 1;
 
-    // In case realloc happened
-    *arr_ptr = arr;
+    *arr_ptr = arr; // in case pointer changed
 }
+
 
 void _internal_array_set_len(void *arr, size_t len) {
   _InternalArrayHeader *h = ((_InternalArrayHeader *)arr) - 1;

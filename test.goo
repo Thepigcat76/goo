@@ -1,4 +1,4 @@
-main :: <T>() {
+main :: <T: add(T, T) -> T>() -> void {
   println("Hello, silly :3")
   exit(0)
 }
