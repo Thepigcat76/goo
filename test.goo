@@ -1,8 +1,10 @@
-main :: <T: add(T, T) -> T>() -> void {
-  println("Hello, silly :3")
-  exit(0)
+foo :: () {
+  println("Hiiiiii")
 }
 
-foo :: () {
-  println("Deez nuts")
+test :: <T: add(T, T) -> T + sub(T, T) -> T>(x: i32, y: i32) -> void {
+  println("Hello, silly :3")
+  exit(1)
 }
+
+foo()

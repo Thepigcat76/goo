@@ -1,6 +1,7 @@
 #include "alloc.h"
 #include "array.h"
 #include <ctype.h>
+#include <stdarg.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdio.h>
@@ -22,6 +23,9 @@ typedef enum {
   TOKEN_RANGLE,
   TOKEN_ARROW,
   TOKEN_COMMA,
+  TOKEN_DOT,
+  TOKEN_PLUS,
+  TOKEN_MINUS,
   TOKEN_EOF,
   TOKEN_ILLEGAL,
 } TokenType;
@@ -93,6 +97,18 @@ static void tok_print(const Token *tok) {
     printf("TOKEN_COMMA (',')\n");
     break;
   }
+  case TOKEN_DOT: {
+    printf("TOKEN_DOT ('.')\n");
+    break;
+  }
+  case TOKEN_PLUS: {
+    printf("TOKEN_PLUS ('+')\n");
+    break;
+  }
+  case TOKEN_MINUS: {
+    printf("TOKEN_MINUS ('-')\n");
+    break;
+  }
   case TOKEN_EOF: {
     printf("TOKEN_EOF\n");
     break;
@@ -141,13 +157,14 @@ static void tokenize(Lexer *lexer, const char *src) {
         }
         ident[i++] = *lexer->cur_char;
         next_char(lexer);
-      } while (isalpha(*lexer->cur_char) || *lexer->cur_char == '_');
+      } while (isalnum(*lexer->cur_char) || *lexer->cur_char == '_');
 
       lexer->cur_char--;
       ident[i] = '\0';
       tok.type = TOKEN_IDENT;
       tok.var.ident = malloc(strlen(ident) + 1); // heap-owned copy
-      if (first_ident == NULL) first_ident = tok.var.ident;
+      if (first_ident == NULL)
+        first_ident = tok.var.ident;
       strcpy(tok.var.ident, ident);
     } else if (*lexer->cur_char == '"') {
       char *string = malloc(256 * sizeof(char));
@@ -201,14 +218,20 @@ static void tokenize(Lexer *lexer, const char *src) {
       next_char(lexer);
     } else if (*lexer->cur_char == ',') {
       tok = (Token){.type = TOKEN_COMMA};
+    } else if (*lexer->cur_char == '+') {
+      tok = (Token){.type = TOKEN_PLUS};
+    } else if (*lexer->cur_char == '-') {
+      tok = (Token){.type = TOKEN_MINUS};
+    } else if (*lexer->cur_char == '.') {
+      tok = (Token){.type = TOKEN_DOT};
     } else {
       printf("%c", *lexer->cur_char);
       tok = (Token){.type = TOKEN_ILLEGAL};
     }
     array_add(lexer->tokens, tok);
     next_char(lexer);
-    //tok_print(&tok);
-    printf("First token: %s\n", first_ident);
+    // tok_print(&tok);
+    // printf("First token: %s\n", first_ident);
   }
 }
 
@@ -239,6 +262,20 @@ typedef struct _generic {
   FuncSignature *bounds;
 } Generic;
 
+typedef struct {
+  struct _stmt *statements;
+} ExprBlock;
+
+typedef struct {
+  FuncDescriptor desc;
+  ExprBlock *block;
+} ExprFunction;
+
+typedef struct {
+  Ident function;
+  struct _expr *args;
+} ExprCall;
+
 typedef struct _expr {
   enum {
     EXPR_FUNCTION,
@@ -248,25 +285,27 @@ typedef struct _expr {
     EXPR_BLOCK,
   } type;
   union {
-    struct {
-      FuncDescriptor desc;
-      struct _expr *block;
-    } expr_function;
+    ExprFunction expr_function;
+    ExprBlock expr_block;
     struct {
       char *string;
     } expr_string_literal;
     struct {
       int integer;
     } expr_integer_literal;
-    struct {
-      Ident function;
-      struct _expr *args;
-    } expr_call;
-    struct {
-      struct _stmt *statements;
-    } expr_block;
+    ExprCall expr_call;
   } var;
 } Expression;
+
+typedef struct {
+  Ident name;
+  Expression value;
+  bool mutable;
+} StmtDecl;
+
+typedef struct {
+  Expression expr;
+} StmtExpr;
 
 typedef struct _stmt {
   enum {
@@ -274,14 +313,8 @@ typedef struct _stmt {
     STMT_EXPR,
   } type;
   union {
-    struct {
-      Ident name;
-      Expression value;
-      bool mutable;
-    } stmt_decl;
-    struct {
-      Expression expr;
-    } stmt_expr;
+    StmtDecl stmt_decl;
+    StmtExpr stmt_expr;
   } var;
 } Statement;
 
@@ -303,7 +336,7 @@ static void func_signature_print(char *buf, const FuncSignature *desc) {
   char generics_buf[256] = {'\0'};
   if (desc->generics != NULL) {
     for (size_t i = 0; i < array_len(desc->generics); i++) {
-      char generic_buf[64];
+      char generic_buf[128];
       generic_print(generic_buf, &desc->generics[i]);
       strcat(generics_buf, generic_buf);
       strcat(generics_buf, ", ");
@@ -324,16 +357,16 @@ static void func_signature_print(char *buf, const FuncSignature *desc) {
       args_buf[strlen(args_buf) - 2] = '\0';
     }
   }
-  sprintf(buf, "FuncSignature{generics=[%s], args=[%s], ret_type=%s}",
-          generics_buf, args_buf, desc->ret_type);
+  sprintf(buf, "FuncSignature{name=%s, generics=[%s], args=[%s], ret_type=%s}",
+          desc->name, generics_buf, args_buf, desc->ret_type);
 }
 
 static void generic_print(char *buf, const Generic *generic) {
-  char bounds_buf[256] = {'\0'};
+  char bounds_buf[512] = {'\0'};
   if (generic->bounds != NULL) {
     for (size_t i = 0; i < array_len(generic->bounds); i++) {
-      char bound_buf[64] = {'\0'};
-      func_signature_print(bounds_buf, &generic->bounds[i]);
+      char bound_buf[128] = {'\0'};
+      func_signature_print(bound_buf, &generic->bounds[i]);
       strcat(bounds_buf, bound_buf);
       strcat(bounds_buf, ", ");
     }
@@ -350,7 +383,7 @@ static void func_desc_print(char *buf, const FuncDescriptor *desc) {
   char generics_buf[512] = {'\0'};
   if (desc->generics != NULL) {
     for (size_t i = 0; i < array_len(desc->generics); i++) {
-      char generic_buf[128] = {'\0'};
+      char generic_buf[256] = {'\0'};
       generic_print(generic_buf, &desc->generics[i]);
       strcat(generics_buf, generic_buf);
       strcat(generics_buf, ", ");
@@ -384,8 +417,7 @@ static void expr_print(char *buf, const Expression *expr) {
     func_desc_print(func_desc_buf, &expr->var.expr_function.desc);
     char block_buf[4096] = {'\0'};
     if (expr->var.expr_function.block != NULL) {
-      Statement *stmts =
-          expr->var.expr_function.block->var.expr_block.statements;
+      Statement *stmts = expr->var.expr_function.block->statements;
       if (stmts != NULL) {
         for (size_t i = 0; i < array_len(stmts); i++) {
           char stmt_buf[512];
@@ -575,6 +607,8 @@ static Expression *parse_expr_list(Parser *parser, TokenType end) {
 // end: cur_tok is return_type ident or right parenthesis
 static FuncDescriptor parse_func_desc(Parser *parser);
 
+// begin: cur_tok must be function name
+// end: cur_tok is return_type ident or right parenthesis
 static FuncSignature parse_func_signature(Parser *parser) {
   FuncSignature signature = {.name = parser->cur_tok->var.ident};
   // cur_tok is left parenthesis
@@ -609,8 +643,21 @@ static Generic parse_generic(Parser *parser) {
     // cur_tok is first tok of func descriptor
     next_token(parser);
     generic.bounds = array_new(FuncSignature, &HEAP_ALLOCATOR);
-    FuncSignature signature = parse_func_signature(parser);
-    array_add(generic.bounds, signature);
+    while (parser->cur_tok->type != TOKEN_COMMA &&
+           parser->cur_tok->type != TOKEN_RANGLE) {
+      FuncSignature signature = parse_func_signature(parser);
+      array_add(generic.bounds, signature);
+
+      if (parser->peek_tok->type == TOKEN_PLUS) {
+        // cur_tok is plus
+        next_token(parser);
+      } else if (parser->peek_tok->type == TOKEN_RANGLE) {
+        break;
+      }
+
+      // next token is next function name or comma or rangle
+      next_token(parser);
+    }
   }
   return generic;
 }
@@ -648,7 +695,7 @@ static Expression parse_expr(Parser *parser) {
   }
   case TOKEN_LPAREN: {
     FuncDescriptor desc = parse_func_desc(parser);
-    Expression *block_expr = malloc(sizeof(Expression));
+    ExprBlock *block_expr = malloc(sizeof(ExprBlock));
 
     if (parser->peek_tok->type == TOKEN_LCURLY) {
       // cur_tok is left curly
@@ -657,9 +704,8 @@ static Expression parse_expr(Parser *parser) {
       next_token(parser);
 
       Statement *stmts = parse_block_statements(parser, TOKEN_RCURLY);
-      Expression block = {.type = EXPR_BLOCK,
-                          .var = {.expr_block = {.statements = stmts}}};
-      memcpy(block_expr, &block, sizeof(Expression));
+      ExprBlock block = {.statements = stmts};
+      memcpy(block_expr, &block, sizeof(ExprBlock));
     } else {
       EXPECTED_TOKEN_ERR(TOKEN_LCURLY, parser->peek_tok);
     }
@@ -707,7 +753,7 @@ static Expression parse_expr(Parser *parser) {
     FuncDescriptor desc = parse_func_desc(parser);
     desc.generics = array_new(Generic, &HEAP_ALLOCATOR);
     array_add(desc.generics, generic);
-    Expression *block_expr = malloc(sizeof(Expression));
+    ExprBlock *block_expr = malloc(sizeof(ExprBlock));
 
     if (parser->peek_tok->type == TOKEN_LCURLY) {
       // cur_tok is left curly
@@ -716,9 +762,8 @@ static Expression parse_expr(Parser *parser) {
       next_token(parser);
 
       Statement *stmts = parse_block_statements(parser, TOKEN_RCURLY);
-      Expression block = {.type = EXPR_BLOCK,
-                          .var = {.expr_block = {.statements = stmts}}};
-      memcpy(block_expr, &block, sizeof(Expression));
+      ExprBlock block = {.statements = stmts};
+      memcpy(block_expr, &block, sizeof(ExprBlock));
     } else {
       EXPECTED_TOKEN_ERR(TOKEN_LCURLY, parser->peek_tok);
     }
@@ -737,6 +782,9 @@ static Expression parse_expr(Parser *parser) {
   case TOKEN_DECL_VAR:
   case TOKEN_COLON:
   case TOKEN_EOF:
+  case TOKEN_DOT:
+  case TOKEN_PLUS:
+  case TOKEN_MINUS:
   case TOKEN_ILLEGAL: {
     printf("nyi/illegal token\n");
     exit(1);
@@ -805,6 +853,15 @@ static Statement parse_stmt(Parser *parser) {
   case TOKEN_COMMA: {
     ILLEGAL_TOKEN_ERR(TOKEN_COMMA);
   }
+  case TOKEN_DOT: {
+    ILLEGAL_TOKEN_ERR(TOKEN_DOT);
+  }
+  case TOKEN_PLUS: {
+    ILLEGAL_TOKEN_ERR(TOKEN_PLUS);
+  }
+  case TOKEN_MINUS: {
+    ILLEGAL_TOKEN_ERR(TOKEN_MINUS);
+  }
   case TOKEN_EOF: {
     ILLEGAL_TOKEN_ERR(TOKEN_EOF);
   }
@@ -825,6 +882,161 @@ static void parse(Parser *parser) {
   }
 }
 
+typedef struct {
+  char **symbols;
+  Expression *values;
+} SymbolTable;
+
+typedef struct {
+  Statement *cur_stmt;
+  Statement *stmts;
+
+  SymbolTable table;
+} Evaluator;
+
+typedef struct {
+  TypedIdent *args;
+  ExprBlock block;
+} ObjectFunction;
+
+typedef struct {
+  enum {
+    OBJECT_INT,
+    OBJECT_STRING,
+    OBJECT_FUNCTION,
+    OBJECT_NULL,
+  } type;
+  union {
+    int obj_int;
+    char *obj_string;
+    ObjectFunction obj_function;
+  } var;
+} Object;
+
+static Object OBJ_NULL = {.type = OBJECT_NULL};
+
+static void symbol_table_insert(SymbolTable *table, const char *symbol,
+                                Expression value) {
+  array_add(table->symbols, symbol);
+  array_add(table->values, value);
+}
+
+static Expression *symbol_table_get(SymbolTable *table, const char *symbol) {
+  for (size_t i = 0; i < array_len(table->symbols); i++) {
+    if (strcmp(table->symbols[i], symbol) == 0) {
+      return &table->values[i];
+    }
+  }
+  return NULL;
+}
+
+static void eval_stmt_decl(Evaluator *evaluator, StmtDecl *stmt_decl) {
+  symbol_table_insert(&evaluator->table, stmt_decl->name, stmt_decl->value);
+}
+
+static void eval_stmt(Evaluator *evaluator, Statement *stmt);
+
+static Object eval_expr(Evaluator *evaluator, const Expression *expr);
+
+static Object eval_expr_block(Evaluator *evaluator,
+                              const ExprBlock *expr_block) {
+  size_t len = array_len(expr_block->statements);
+  for (size_t i = 0; i < len; i++) {
+    if (i == len - 1) {
+      Statement *stmt = &expr_block->statements[i];
+      if (stmt->type == STMT_EXPR) {
+        return eval_expr(evaluator, &stmt->var.stmt_expr.expr);
+      } else {
+        eval_stmt(evaluator, &expr_block->statements[i]);
+      }
+    } else {
+      eval_stmt(evaluator, &expr_block->statements[i]);
+    }
+  }
+  return OBJ_NULL;
+}
+
+static Object eval_expr_function(Evaluator *evaluator,
+                                 const ExprFunction *expr_function) {
+  return eval_expr_block(evaluator, expr_function->block);
+}
+
+static Object eval_expr_call(Evaluator *evaluator, const ExprCall *expr_call) {
+  Ident function = expr_call->function;
+  if (strcmp(function, "println") == 0) {
+    Expression *arg0 = &expr_call->args[0];
+    if (arg0->type == EXPR_STRING_LIT) {
+      char *expr_string = arg0->var.expr_string_literal.string;
+      puts(expr_string);
+      return OBJ_NULL;
+    } else {
+      printf("Arg to println not a string\n");
+    }
+  } else if (strcmp(function, "exit") == 0) {
+    Expression *arg0 = &expr_call->args[0];
+    if (arg0->type == EXPR_INTEGER_LIT) {
+      exit(arg0->var.expr_integer_literal.integer);
+      return OBJ_NULL;
+    }
+  }
+
+  Expression *expr = symbol_table_get(&evaluator->table, expr_call->function);
+  char print_buf[2048];
+  expr_print(print_buf, expr);
+  puts(print_buf);
+  if (expr->type == EXPR_FUNCTION) {
+    return eval_expr_function(evaluator, &expr->var.expr_function);
+  }
+  return OBJ_NULL;
+}
+
+static Object eval_expr(Evaluator *evaluator, const Expression *expr) {
+  switch (expr->type) {
+  case EXPR_FUNCTION: {
+    return eval_expr_function(evaluator, &expr->var.expr_function);
+  }
+  case EXPR_CALL: {
+    ExprCall expr_call = expr->var.expr_call;
+    return eval_expr_call(evaluator, &expr_call);
+  }
+  case EXPR_BLOCK: {
+    return eval_expr_block(evaluator, &expr->var.expr_block);
+  }
+  case EXPR_STRING_LIT: {
+    return (Object){
+        .type = OBJECT_STRING,
+        .var = {.obj_string = expr->var.expr_string_literal.string}};
+  }
+  case EXPR_INTEGER_LIT: {
+    return (Object){.type = OBJECT_INT,
+                    .var = {.obj_int = expr->var.expr_integer_literal.integer}};
+  }
+  }
+}
+
+static void eval_stmt(Evaluator *evaluator, Statement *stmt) {
+  switch (stmt->type) {
+  case STMT_DECL: {
+    StmtDecl stmt_decl = stmt->var.stmt_decl;
+    eval_stmt_decl(evaluator, &stmt_decl);
+    break;
+  }
+  case STMT_EXPR: {
+    Expression expr = stmt->var.stmt_expr.expr;
+    eval_expr(evaluator, &expr);
+    break;
+  }
+  }
+}
+
+static void eval(Evaluator *evaluator) {
+  evaluator->cur_stmt = evaluator->stmts;
+
+  eval_stmt(evaluator, evaluator->cur_stmt++);
+  eval_stmt(evaluator, evaluator->cur_stmt++);
+  eval_stmt(evaluator, evaluator->cur_stmt);
+}
+
 int main(void) {
   alloc_init();
 
@@ -840,19 +1052,33 @@ int main(void) {
   tokenize(&lexer, file_buf);
   array_add(lexer.tokens, (Token){.type = TOKEN_EOF});
 
-  for (size_t i = 0; i < array_len(lexer.tokens); i++) {
-    tok_print(&lexer.tokens[i]);
-  }
+  // for (size_t i = 0; i < array_len(lexer.tokens); i++) {
+  //   tok_print(&lexer.tokens[i]);
+  // }
 
   Parser parser = {.tokens = lexer.tokens,
                    .statements = array_new(Statement, &HEAP_ALLOCATOR)};
 
   parse(&parser);
 
-  for (size_t i = 0; i < array_len(parser.statements); i++) {
-    char print_buf[8192] = {'\0'};
-    stmt_print(print_buf, &parser.statements[i]);
-    puts(print_buf);
-    printf("String len: %zu\n", strlen(print_buf));
-  }
+  // for (size_t i = 0; i < array_len(parser.statements); i++) {
+  //   char print_buf[8192] = {'\0'};
+  //   stmt_print(print_buf, &parser.statements[i]);
+  //   puts(print_buf);
+  // }
+
+  puts("-- -- --");
+
+  Evaluator evaluator = {
+      .stmts = parser.statements,
+      .table = {.symbols = array_new(char *, &HEAP_ALLOCATOR),
+                .values = array_new(Expression, &HEAP_ALLOCATOR)}};
+  eval(&evaluator);
+
+  // for (size_t i = 0; i < array_len(evaluator.table.symbols); i++) {
+  //   printf("Symbol: %s -> Value: \n", evaluator.table.symbols[i]);
+  //   char print_buf[256];
+  //   expr_print(print_buf, &evaluator.table.values[i]);
+  //   puts(print_buf);
+  // }
 }
