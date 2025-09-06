@@ -3,8 +3,10 @@ foo :: () {
 }
 
 test :: <T: add(T, T) -> T + sub(T, T) -> T>(x: i32, y: i32) -> void {
+  x := "Slaaaaay"
+  println(x)
   println("Hello, silly :3")
   exit(1)
 }
 
-foo()
+test()

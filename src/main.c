@@ -26,6 +26,7 @@ typedef enum {
   TOKEN_DOT,
   TOKEN_PLUS,
   TOKEN_MINUS,
+  TOKEN_ASSIGN,
   TOKEN_EOF,
   TOKEN_ILLEGAL,
 } TokenType;
@@ -107,6 +108,10 @@ static void tok_print(const Token *tok) {
   }
   case TOKEN_MINUS: {
     printf("TOKEN_MINUS ('-')\n");
+    break;
+  }
+  case TOKEN_ASSIGN: {
+    printf("TOKEN_ASSIGN ('=')\n");
     break;
   }
   case TOKEN_EOF: {
@@ -224,14 +229,14 @@ static void tokenize(Lexer *lexer, const char *src) {
       tok = (Token){.type = TOKEN_MINUS};
     } else if (*lexer->cur_char == '.') {
       tok = (Token){.type = TOKEN_DOT};
+    } else if (*lexer->cur_char == '=') {
+      tok = (Token){.type = TOKEN_ASSIGN};
     } else {
-      printf("%c", *lexer->cur_char);
+      printf("Illegal token cur char: %c\n", *lexer->cur_char);
       tok = (Token){.type = TOKEN_ILLEGAL};
     }
     array_add(lexer->tokens, tok);
     next_char(lexer);
-    // tok_print(&tok);
-    // printf("First token: %s\n", first_ident);
   }
 }
 
@@ -279,26 +284,31 @@ typedef struct {
 typedef struct _expr {
   enum {
     EXPR_FUNCTION,
+    EXPR_BLOCK,
+    EXPR_CALL,
     EXPR_STRING_LIT,
     EXPR_INTEGER_LIT,
-    EXPR_CALL,
-    EXPR_BLOCK,
+    EXPR_IDENT,
   } type;
   union {
     ExprFunction expr_function;
     ExprBlock expr_block;
+    ExprCall expr_call;
+    struct {
+      Ident ident;
+    } expr_ident;
     struct {
       char *string;
     } expr_string_literal;
     struct {
       int integer;
     } expr_integer_literal;
-    ExprCall expr_call;
   } var;
 } Expression;
 
 typedef struct {
   Ident name;
+  Type type;
   Expression value;
   bool mutable;
 } StmtDecl;
@@ -477,6 +487,11 @@ static void expr_print(char *buf, const Expression *expr) {
       }
     }
     sprintf(buf, "%s", block_buf);
+    break;
+  }
+  case EXPR_IDENT: {
+    sprintf(buf, "ExprIdent{ident=%s}", expr->var.expr_ident.ident);
+    break;
   }
   }
 }
@@ -486,8 +501,8 @@ static void stmt_print(char *buf, const Statement *stmt) {
   case STMT_DECL: {
     char expr_buf[1024];
     expr_print(expr_buf, &stmt->var.stmt_decl.value);
-    sprintf(buf, "StmtDecl{name=%s, mutable=%s, value=%s}",
-            stmt->var.stmt_decl.name,
+    sprintf(buf, "StmtDecl{name=%s, type=%s, mutable=%s, value=%s}",
+            stmt->var.stmt_decl.name, stmt->var.stmt_decl.type,
             stmt->var.stmt_decl.mutable ? "true" : "false", expr_buf);
     break;
   }
@@ -723,7 +738,7 @@ static Expression parse_expr(Parser *parser) {
                         .var = {.expr_block = {.statements = stmts}}};
   }
   case TOKEN_IDENT: {
-    Ident function = parser->cur_tok->var.ident;
+    Ident ident = parser->cur_tok->var.ident;
     if (parser->peek_tok->type == TOKEN_LPAREN) {
       // cur_tok is left parenthesis
       next_token(parser);
@@ -734,8 +749,10 @@ static Expression parse_expr(Parser *parser) {
       // end: right parenthesis
       return (Expression){
           .type = EXPR_CALL,
-          .var = {.expr_call = {.function = function, .args = exprs}}};
+          .var = {.expr_call = {.function = ident, .args = exprs}}};
     }
+    return (Expression){.type = EXPR_IDENT,
+                        .var = {.expr_ident = {.ident = ident}}};
   }
   case TOKEN_INT: {
     return (Expression){.type = EXPR_INTEGER_LIT,
@@ -785,6 +802,7 @@ static Expression parse_expr(Parser *parser) {
   case TOKEN_DOT:
   case TOKEN_PLUS:
   case TOKEN_MINUS:
+  case TOKEN_ASSIGN:
   case TOKEN_ILLEGAL: {
     printf("nyi/illegal token\n");
     exit(1);
@@ -809,7 +827,33 @@ static Statement parse_stmt(Parser *parser) {
           .var = {
               .stmt_decl = {.name = name, .mutable = mutable, .value = value}}};
       return stmt;
-    } else if (parser->peek_tok->type == TOKEN_LPAREN) {
+    } else if (parser->peek_tok->type == TOKEN_COLON) {
+      StmtDecl stmt_decl = {0};
+      stmt_decl.name = parser->cur_tok->var.ident;
+      // cur_tok is colon
+      next_token(parser);
+      if (parser->peek_tok->type == TOKEN_IDENT) {
+        next_token(parser);
+        stmt_decl.type = parser->cur_tok->var.ident;
+      } else {
+        EXPECTED_TOKEN_ERR(TOKEN_IDENT, parser->peek_tok);
+      }
+
+      if (parser->peek_tok->type == TOKEN_ASSIGN ||
+          parser->peek_tok->type == TOKEN_COLON) {
+        // cur_tok is assign/colon
+        next_token(parser);
+
+        stmt_decl.mutable = parser->cur_tok->type == TOKEN_ASSIGN;
+      } else {
+        EXPECTED_TOKEN_ERR(TOKEN_ASSIGN | TOKEN_COLON, parser->peek_tok);
+      }
+
+      next_token(parser);
+      Expression value = parse_expr(parser);
+      stmt_decl.value = value;
+      return (Statement){.type = STMT_DECL, .var = {.stmt_decl = stmt_decl}};
+    } else {
       goto parse_expr;
     }
     exit(1);
@@ -868,6 +912,8 @@ static Statement parse_stmt(Parser *parser) {
   case TOKEN_ILLEGAL: {
     ILLEGAL_TOKEN_ERR(TOKEN_ILLEGAL);
   }
+  case TOKEN_ASSIGN:
+    ILLEGAL_TOKEN_ERR(TOKEN_ASSIGN);
   }
 }
 
@@ -888,7 +934,6 @@ typedef struct {
 } SymbolTable;
 
 typedef struct {
-  Statement *cur_stmt;
   Statement *stmts;
 
   SymbolTable table;
@@ -964,9 +1009,9 @@ static Object eval_expr_function(Evaluator *evaluator,
 static Object eval_expr_call(Evaluator *evaluator, const ExprCall *expr_call) {
   Ident function = expr_call->function;
   if (strcmp(function, "println") == 0) {
-    Expression *arg0 = &expr_call->args[0];
-    if (arg0->type == EXPR_STRING_LIT) {
-      char *expr_string = arg0->var.expr_string_literal.string;
+    Object arg0 = eval_expr(evaluator, &expr_call->args[0]);
+    if (arg0.type == OBJECT_STRING) {
+      char *expr_string = arg0.var.obj_string;
       puts(expr_string);
       return OBJ_NULL;
     } else {
@@ -981,17 +1026,20 @@ static Object eval_expr_call(Evaluator *evaluator, const ExprCall *expr_call) {
   }
 
   Expression *expr = symbol_table_get(&evaluator->table, expr_call->function);
-  char print_buf[2048];
-  expr_print(print_buf, expr);
-  puts(print_buf);
   if (expr->type == EXPR_FUNCTION) {
     return eval_expr_function(evaluator, &expr->var.expr_function);
   }
   return OBJ_NULL;
 }
 
+// TODO: symbol_table should be char * -> Object
+
 static Object eval_expr(Evaluator *evaluator, const Expression *expr) {
   switch (expr->type) {
+  case EXPR_IDENT: {
+    return eval_expr(evaluator, symbol_table_get(&evaluator->table,
+                                                 expr->var.expr_ident.ident));
+  }
   case EXPR_FUNCTION: {
     return eval_expr_function(evaluator, &expr->var.expr_function);
   }
@@ -1030,11 +1078,34 @@ static void eval_stmt(Evaluator *evaluator, Statement *stmt) {
 }
 
 static void eval(Evaluator *evaluator) {
-  evaluator->cur_stmt = evaluator->stmts;
+  for (size_t i = 0; i < array_len(evaluator->stmts); i++) {
+    eval_stmt(evaluator, &evaluator->stmts[i]);
+  }
+}
 
-  eval_stmt(evaluator, evaluator->cur_stmt++);
-  eval_stmt(evaluator, evaluator->cur_stmt++);
-  eval_stmt(evaluator, evaluator->cur_stmt);
+typedef struct {
+  Statement *stmts;
+  SymbolTable symbol_table;
+} TypeChecker;
+
+static void check_stmt(TypeChecker *checker, const Statement *stmt) {
+  switch (stmt->type) {
+  case STMT_DECL: {
+    symbol_table_insert(&checker->symbol_table, stmt->var.stmt_decl.name,
+                        stmt->var.stmt_expr.expr);
+    break;
+  }
+  case STMT_EXPR: {
+
+    break;
+  }
+  }
+}
+
+static void check(TypeChecker *checker) {
+  for (size_t i = 0; i < array_len(checker->stmts); i++) {
+    check_stmt(checker, &checker->stmts[i]);
+  }
 }
 
 int main(void) {
@@ -1061,18 +1132,22 @@ int main(void) {
 
   parse(&parser);
 
-  // for (size_t i = 0; i < array_len(parser.statements); i++) {
-  //   char print_buf[8192] = {'\0'};
-  //   stmt_print(print_buf, &parser.statements[i]);
-  //   puts(print_buf);
-  // }
+  for (size_t i = 0; i < array_len(parser.statements); i++) {
+    char print_buf[8192] = {'\0'};
+    stmt_print(print_buf, &parser.statements[i]);
+    puts(print_buf);
+  }
+
+  TypeChecker checker = {
+      .stmts = parser.statements,
+      .symbol_table = {.symbols = array_new(char *, &HEAP_ALLOCATOR),
+                       .values = array_new(Expression, &HEAP_ALLOCATOR)}};
+
+  // check(&checker);
 
   puts("-- -- --");
 
-  Evaluator evaluator = {
-      .stmts = parser.statements,
-      .table = {.symbols = array_new(char *, &HEAP_ALLOCATOR),
-                .values = array_new(Expression, &HEAP_ALLOCATOR)}};
+  Evaluator evaluator = {.stmts = checker.stmts, .table = checker.symbol_table};
   eval(&evaluator);
 
   // for (size_t i = 0; i < array_len(evaluator.table.symbols); i++) {
