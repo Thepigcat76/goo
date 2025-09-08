@@ -25,7 +25,7 @@ static BuildOptions OPTS = {.compiler = "clang",
                             .std = "gnu23",
                             .target = TARGET_LINUX,
                             .out_dir = "./build/",
-                            .out_name = "flies"};
+                            .out_name = "goo"};
 
 int main(int argc, char **argv) {
   if (argc >= 2) {

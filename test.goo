@@ -2,11 +2,12 @@ foo :: () {
   println("Hiiiiii")
 }
 
-test :: <T: add(T, T) -> T + sub(T, T) -> T>(x: i32, y: i32) -> void {
-  x := "Slaaaaay"
+test :: <T: print(T)>(x: i32, y: i32) -> void {
+  x: string = "Slaaaaay"
+  arr: [2]string = [2]string{":3", ""}
   println(x)
   println("Hello, silly :3")
   exit(1)
 }
 
-test()
+test(0, 0)

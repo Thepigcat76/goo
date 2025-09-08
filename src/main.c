@@ -1,6 +1,7 @@
 #include "alloc.h"
 #include "array.h"
 #include <ctype.h>
+#include <linux/limits.h>
 #include <stdarg.h>
 #include <stdbool.h>
 #include <stddef.h>
@@ -21,6 +22,8 @@ typedef enum {
   TOKEN_RCURLY,
   TOKEN_LANGLE,
   TOKEN_RANGLE,
+  TOKEN_LSQUARE,
+  TOKEN_RSQUARE,
   TOKEN_ARROW,
   TOKEN_COMMA,
   TOKEN_DOT,
@@ -88,6 +91,14 @@ static void tok_print(const Token *tok) {
   }
   case TOKEN_RANGLE: {
     printf("TOKEN_RANGLE ('>')\n");
+    break;
+  }
+  case TOKEN_LSQUARE: {
+    printf("TOKEN_LSQUARE ('[')\n");
+    break;
+  }
+  case TOKEN_RSQUARE: {
+    printf("TOKEN_RSQUARE (']')\n");
     break;
   }
   case TOKEN_ARROW: {
@@ -231,6 +242,10 @@ static void tokenize(Lexer *lexer, const char *src) {
       tok = (Token){.type = TOKEN_DOT};
     } else if (*lexer->cur_char == '=') {
       tok = (Token){.type = TOKEN_ASSIGN};
+    } else if (*lexer->cur_char == '[') {
+      tok = (Token){.type = TOKEN_LSQUARE};
+    } else if (*lexer->cur_char == ']') {
+      tok = (Token){.type = TOKEN_RSQUARE};
     } else {
       printf("Illegal token cur char: %c\n", *lexer->cur_char);
       tok = (Token){.type = TOKEN_ILLEGAL};
@@ -242,7 +257,44 @@ static void tokenize(Lexer *lexer, const char *src) {
 
 typedef char *Ident;
 
-typedef Ident Type;
+typedef enum {
+  TYPE_ARRAY_VARIANT_DYNAMIC,
+  TYPE_ARRAY_VARIANT_SIZED,
+  TYPE_ARRAY_VARIANT_SIZE_UNKNOWN,
+} TypeArrayVariant;
+
+typedef struct {
+  TypeArrayVariant variant;
+  size_t size;
+  struct _type *type;
+} TypeArray;
+
+typedef struct {
+  struct _generic *generics;
+  struct _type *arg_types;
+  struct _type *ret_type;
+} TypeFunc;
+
+typedef struct {
+  struct _type *types;
+} TypeTuple;
+
+typedef struct _type {
+  enum {
+    TYPE_IDENT,
+    TYPE_ARRAY,
+    TYPE_FUNCTION,
+    TYPE_TUPLE,
+    // unit is just an empty tuple and used as the "void" type
+    TYPE_UNIT,
+  } type;
+  union {
+    Ident type_ident;
+    TypeArray type_array;
+    TypeFunc type_func;
+    TypeTuple type_tuple;
+  } var;
+} Type;
 
 typedef struct {
   Ident ident;
@@ -281,8 +333,14 @@ typedef struct {
   struct _expr *args;
 } ExprCall;
 
+typedef struct {
+  TypeArray type;
+  struct _expr *items;
+} ExprArray;
+
 typedef struct _expr {
   enum {
+    EXPR_ARRAY,
     EXPR_FUNCTION,
     EXPR_BLOCK,
     EXPR_CALL,
@@ -291,6 +349,7 @@ typedef struct _expr {
     EXPR_IDENT,
   } type;
   union {
+    ExprArray expr_array;
     ExprFunction expr_function;
     ExprBlock expr_block;
     ExprCall expr_call;
@@ -307,8 +366,13 @@ typedef struct _expr {
 } Expression;
 
 typedef struct {
-  Ident name;
   Type type;
+  bool present;
+} OptionalType;
+
+typedef struct {
+  Ident name;
+  OptionalType type;
   Expression value;
   bool mutable;
 } StmtDecl;
@@ -340,6 +404,55 @@ static void next_token(Parser *parser) {
   parser->peek_tok++;
 }
 
+static void type_print(char *buf, const Type *type) {
+  switch (type->type) {
+  case TYPE_IDENT: {
+    sprintf(buf, "TypeIdent{ident=%s}", type->var.type_ident);
+    break;
+  }
+  case TYPE_ARRAY: {
+    TypeArray type_array = type->var.type_array;
+    char *array_variant;
+    char size_buf[32];
+    switch (type_array.variant) {
+    case TYPE_ARRAY_VARIANT_DYNAMIC: {
+      array_variant = "DYNAMIC";
+      sprintf(size_buf, "dyn");
+      break;
+    }
+    case TYPE_ARRAY_VARIANT_SIZED: {
+      array_variant = "SIZED";
+      sprintf(size_buf, "%zu", type_array.size);
+      break;
+    }
+    case TYPE_ARRAY_VARIANT_SIZE_UNKNOWN: {
+      array_variant = "SIZE_UNKNOWN";
+      sprintf(size_buf, "?");
+      break;
+    }
+    }
+    char type_buf[256];
+    type_print(type_buf, type_array.type);
+    sprintf(buf, "TypeArray{variant=%s, size=%s, type=%s}", array_variant,
+            size_buf, type_buf);
+    break;
+  }
+  case TYPE_UNIT: {
+    sprintf(buf, "TypeUnit");
+    break;
+  }
+  // TODO: Implement both of these
+  case TYPE_FUNCTION: {
+    sprintf(buf, "TypeFunction - NYI");
+    break;
+  }
+  case TYPE_TUPLE: {
+    sprintf(buf, "TypeTuple - NYI");
+    break;
+  }
+  }
+}
+
 static void generic_print(char *buf, const Generic *generic);
 
 static void func_signature_print(char *buf, const FuncSignature *desc) {
@@ -359,7 +472,9 @@ static void func_signature_print(char *buf, const FuncSignature *desc) {
   if (desc->arg_types != NULL) {
     for (size_t i = 0; i < array_len(desc->arg_types); i++) {
       char arg_buf[64];
-      sprintf(arg_buf, "Type{type=%s}", desc->arg_types[i]);
+      char type_buf[512];
+      type_print(type_buf, &desc->arg_types[i]);
+      sprintf(arg_buf, "Type{type=%s}", type_buf);
       strcat(args_buf, arg_buf);
       strcat(args_buf, ", ");
     }
@@ -367,8 +482,10 @@ static void func_signature_print(char *buf, const FuncSignature *desc) {
       args_buf[strlen(args_buf) - 2] = '\0';
     }
   }
+  char type_buf[512];
+  type_print(type_buf, &desc->ret_type);
   sprintf(buf, "FuncSignature{name=%s, generics=[%s], args=[%s], ret_type=%s}",
-          desc->name, generics_buf, args_buf, desc->ret_type);
+          desc->name, generics_buf, args_buf, type_buf);
 }
 
 static void generic_print(char *buf, const Generic *generic) {
@@ -386,7 +503,9 @@ static void generic_print(char *buf, const Generic *generic) {
 }
 
 static void typed_ident_print(char *buf, const TypedIdent *ident) {
-  sprintf(buf, "TypedIdent{ident=%s, type=%s}", ident->ident, ident->type);
+  char type_buf[512];
+  type_print(type_buf, &ident->type);
+  sprintf(buf, "TypedIdent{ident=%s, type=%s}", ident->ident, type_buf);
 }
 
 static void func_desc_print(char *buf, const FuncDescriptor *desc) {
@@ -414,8 +533,10 @@ static void func_desc_print(char *buf, const FuncDescriptor *desc) {
       args_buf[strlen(args_buf) - 2] = '\0';
     }
   }
+  char type_buf[512];
+  type_print(type_buf, &desc->ret_type);
   sprintf(buf, "FuncDescriptor{generics=[%s], args=[%s], ret_type=%s}",
-          generics_buf, args_buf, desc->ret_type);
+          generics_buf, args_buf, type_buf);
 }
 
 static void stmt_print(char *buf, const Statement *stmt);
@@ -493,6 +614,24 @@ static void expr_print(char *buf, const Expression *expr) {
     sprintf(buf, "ExprIdent{ident=%s}", expr->var.expr_ident.ident);
     break;
   }
+  case EXPR_ARRAY: {
+    Type type = {.type = TYPE_ARRAY,
+                 .var = {.type_array = expr->var.expr_array.type}};
+    char type_buf[128];
+    type_print(type_buf, &type);
+    char exprs_buf[512] = {'\0'};
+    for (size_t i = 0; i < array_len(expr->var.expr_array.items); i++) {
+      char expr_buf[128];
+      expr_print(expr_buf, &expr->var.expr_array.items[i]);
+      strcat(exprs_buf, expr_buf);
+      strcat(exprs_buf, ", ");
+    }
+    if (array_len(expr->var.expr_array.items) > 0) {
+      exprs_buf[strlen(exprs_buf) - 2] = '\0';
+    }
+    sprintf(buf, "ExprArray{type=%s, items=%s}", type_buf, exprs_buf);
+    break;
+  }
   }
 }
 
@@ -501,8 +640,12 @@ static void stmt_print(char *buf, const Statement *stmt) {
   case STMT_DECL: {
     char expr_buf[1024];
     expr_print(expr_buf, &stmt->var.stmt_decl.value);
+    char type_buf[512] = {'\0'};
+    if (stmt->var.stmt_decl.type.present) {
+      type_print(type_buf, &stmt->var.stmt_decl.type.type);
+    }
     sprintf(buf, "StmtDecl{name=%s, type=%s, mutable=%s, value=%s}",
-            stmt->var.stmt_decl.name, stmt->var.stmt_decl.type,
+            stmt->var.stmt_decl.name, type_buf,
             stmt->var.stmt_decl.mutable ? "true" : "false", expr_buf);
     break;
   }
@@ -526,6 +669,67 @@ static void stmt_print(char *buf, const Statement *stmt) {
 
 static Statement parse_stmt(Parser *parser);
 
+// begin: cur_tok must be first token of type
+// end: cur_tok is last token of type
+static Type parse_type(Parser *parser) {
+  switch (parser->cur_tok->type) {
+  case TOKEN_IDENT: {
+    return (Type){.type = TYPE_IDENT,
+                  .var = {.type_ident = parser->cur_tok->var.ident}};
+  }
+  case TOKEN_LPAREN: {
+    if (parser->peek_tok->type == TOKEN_RPAREN) {
+      // cur_tok is right parenthesis
+      next_token(parser);
+      return (Type){.type = TYPE_UNIT};
+    }
+    Type *types = array_new(Type, &HEAP_ALLOCATOR);
+    while (parser->peek_tok->type != TOKEN_RPAREN) {
+      // cur_tok is first token of type
+      next_token(parser);
+      Type type = parse_type(parser);
+      array_add(types, type);
+      if (parser->peek_tok->type == TOKEN_COMMA) {
+        // cur_tok is comma
+        next_token(parser);
+      }
+    }
+    return (Type){.type = TYPE_TUPLE, .var = {.type_tuple = {.types = types}}};
+  }
+  case TOKEN_LSQUARE: {
+    TypeArray type_array = {};
+    if (parser->peek_tok->type == TOKEN_IDENT &&
+        strcmp(parser->peek_tok->var.ident, "dyn") == 0) {
+      type_array.variant = TYPE_ARRAY_VARIANT_DYNAMIC;
+      // cur_tok is ident
+      next_token(parser);
+    } else if (parser->peek_tok->type == TOKEN_INT) {
+      type_array.variant = TYPE_ARRAY_VARIANT_SIZED;
+      type_array.size = parser->peek_tok->var.integer;
+      // cur_tok is int
+      next_token(parser);
+    } else if (parser->peek_tok->type == TOKEN_RSQUARE) {
+      type_array.variant = TYPE_ARRAY_VARIANT_SIZE_UNKNOWN;
+    }
+    // cur_tok is right parenthesis
+    next_token(parser);
+    // cur_tok is first token of type
+    next_token(parser);
+    type_array.type = malloc(sizeof(Type));
+    Type type = parse_type(parser);
+    memcpy(type_array.type, &type, sizeof(Type));
+    return (Type){.type = TYPE_ARRAY, .var = {.type_array = type_array}};
+  }
+  // case TOKEN_LANGLE: {
+  //   break;
+  // }
+  default: {
+    printf("Type parsing nyi for type\n");
+    exit(1);
+  }
+  }
+}
+
 // begin: cur_tok must be first ident or end
 // end: cur_tok is end
 static TypedIdent *parse_typed_ident_list(Parser *parser, TokenType end) {
@@ -543,7 +747,7 @@ static TypedIdent *parse_typed_ident_list(Parser *parser, TokenType end) {
     // cur_tok is type
     next_token(parser);
     if (parser->cur_tok->type == TOKEN_IDENT) {
-      ti.type = parser->cur_tok->var.ident;
+      ti.type = parse_type(parser);
     }
 
     if (parser->peek_tok->type == TOKEN_COMMA) {
@@ -567,7 +771,7 @@ static Type *parse_type_list(Parser *parser, TokenType end) {
   while (parser->cur_tok->type != end) {
     Type t = {};
     if (parser->cur_tok->type == TOKEN_IDENT) {
-      t = parser->cur_tok->var.ident;
+      t = parse_type(parser);
     } else {
       tok_print(parser->cur_tok);
       fprintf(stderr, "Expected type");
@@ -639,7 +843,7 @@ static FuncSignature parse_func_signature(Parser *parser) {
     if (parser->peek_tok->type == TOKEN_IDENT) {
       // cur_tok is ident
       next_token(parser);
-      signature.ret_type = parser->cur_tok->var.ident;
+      signature.ret_type = parse_type(parser);
     } else {
       EXPECTED_TOKEN_ERR(TOKEN_IDENT, parser->peek_tok);
     }
@@ -692,7 +896,7 @@ static FuncDescriptor parse_func_desc(Parser *parser) {
     if (parser->peek_tok->type == TOKEN_IDENT) {
       // cur_tok is ident
       next_token(parser);
-      desc.ret_type = parser->cur_tok->var.ident;
+      desc.ret_type = parse_type(parser);
     } else {
       EXPECTED_TOKEN_ERR(TOKEN_IDENT, parser->peek_tok);
     }
@@ -790,6 +994,29 @@ static Expression parse_expr(Parser *parser) {
         .type = EXPR_FUNCTION,
         .var = {.expr_function = {.desc = desc, .block = block_expr}}};
   }
+  case TOKEN_LSQUARE: {
+    Type type = parse_type(parser);
+    if (parser->peek_tok->type != TOKEN_LCURLY) {
+      EXPECTED_TOKEN_ERR(TOKEN_LCURLY, parser->peek_tok);
+    }
+    // cur_tok is left curly
+    next_token(parser);
+    // cur_tok is first token of expr
+    next_token(parser);
+    Expression *exprs = array_new(Expression, &HEAP_ALLOCATOR);
+    while (parser->cur_tok->type != TOKEN_RCURLY) {
+      array_add(exprs, parse_expr(parser));
+      if (parser->peek_tok->type == TOKEN_COMMA) {
+        // cur_tok is comma
+        next_token(parser);
+      }
+      // cur_tok is right parenthesis or next expr
+      next_token(parser);
+    }
+    return (Expression){
+        .type = EXPR_ARRAY,
+        .var = {.expr_array = {.type = type.var.type_array, .items = exprs}}};
+  }
   case TOKEN_RANGLE:
   case TOKEN_ARROW:
   case TOKEN_COMMA:
@@ -803,8 +1030,10 @@ static Expression parse_expr(Parser *parser) {
   case TOKEN_PLUS:
   case TOKEN_MINUS:
   case TOKEN_ASSIGN:
+  case TOKEN_RSQUARE:
   case TOKEN_ILLEGAL: {
-    printf("nyi/illegal token\n");
+    printf("nyi/illegal token: ");
+    tok_print(parser->cur_tok);
     exit(1);
   }
   }
@@ -832,12 +1061,10 @@ static Statement parse_stmt(Parser *parser) {
       stmt_decl.name = parser->cur_tok->var.ident;
       // cur_tok is colon
       next_token(parser);
-      if (parser->peek_tok->type == TOKEN_IDENT) {
-        next_token(parser);
-        stmt_decl.type = parser->cur_tok->var.ident;
-      } else {
-        EXPECTED_TOKEN_ERR(TOKEN_IDENT, parser->peek_tok);
-      }
+      // cur_tok is first token of type
+      next_token(parser);
+      stmt_decl.type =
+          (OptionalType){.type = parse_type(parser), .present = true};
 
       if (parser->peek_tok->type == TOKEN_ASSIGN ||
           parser->peek_tok->type == TOKEN_COLON) {
@@ -858,6 +1085,7 @@ static Statement parse_stmt(Parser *parser) {
     }
     exit(1);
   }
+  case TOKEN_LSQUARE:
   case TOKEN_STRING:
   case TOKEN_INT:
   parse_expr: {
@@ -912,8 +1140,14 @@ static Statement parse_stmt(Parser *parser) {
   case TOKEN_ILLEGAL: {
     ILLEGAL_TOKEN_ERR(TOKEN_ILLEGAL);
   }
-  case TOKEN_ASSIGN:
+  case TOKEN_ASSIGN: {
     ILLEGAL_TOKEN_ERR(TOKEN_ASSIGN);
+    break;
+  }
+  case TOKEN_RSQUARE: {
+    ILLEGAL_TOKEN_ERR(TOKEN_RSQUARE);
+    break;
+  }
   }
 }
 
@@ -929,8 +1163,16 @@ static void parse(Parser *parser) {
 }
 
 typedef struct {
+  Expression expr;
+  OptionalType type;
+} SymbolTableValue;
+
+#define SYMBOL_TABLE_VAL(_expr, _type)                                         \
+  (SymbolTableValue) { .expr = _expr, .type = _type }
+
+typedef struct {
   char **symbols;
-  Expression *values;
+  SymbolTableValue *values;
 } SymbolTable;
 
 typedef struct {
@@ -958,15 +1200,61 @@ typedef struct {
   } var;
 } Object;
 
-static Object OBJ_NULL = {.type = OBJECT_NULL};
+static const Object NULL_OBJ = {.type = OBJECT_NULL};
+
+#define BUILTIN_FUNCTION_DEFINE(_ret_type)                                     \
+  (Expression) {                                                               \
+    .type = EXPR_FUNCTION, .var = {                                            \
+      .expr_function = {.desc = {.ret_type = _ret_type,                        \
+                                 .args =                                       \
+                                     array_new(TypedIdent, &HEAP_ALLOCATOR)}}  \
+    }                                                                          \
+  }
+#define BUILTIN_FUNCTION_SET_ARG_TYPES(func, ...)                              \
+  do {                                                                         \
+    TypedIdent *args = func.var.expr_function.desc.args;                       \
+    TypedIdent provided[] = {__VA_ARGS__ __VA_OPT__(, )(TypedIdent){0}};       \
+    for (size_t i = 0; provided[i].ident != NULL; i++) {                       \
+      array_add(args, provided[i]);                                            \
+    }                                                                          \
+  } while (0)
+
+#define BUILTIN_FUNCTION(func, _ret_type, ...)                                 \
+  do {                                                                         \
+    func = BUILTIN_FUNCTION_DEFINE(_ret_type);                                 \
+    BUILTIN_FUNCTION_SET_ARG_TYPES(func, __VA_ARGS__);                         \
+  } while (0)
+
+#define ARG(_ident, _type)                                                     \
+  (TypedIdent) { .ident = _ident, .type = _type }
+
+#define BUILTIN_TYPE_IDENT(_ident)                                             \
+  (Type) {                                                                     \
+    .type = TYPE_IDENT, .var = {.type_ident = _ident }                         \
+  }
+
+static const Type UNIT_BUILTIN_TYPE = {.type = TYPE_UNIT};
+static const Type STRING_BUILTIN_TYPE = BUILTIN_TYPE_IDENT("string");
+static const Type INT_BUILTIN_TYPE = BUILTIN_TYPE_IDENT("i32");
+
+static Expression PRINTLN_FUNCTION_EXPR;
+static Expression EXIT_FUNCTION_EXPR;
+
+static void builtin_functions_init(void) {
+  BUILTIN_FUNCTION(PRINTLN_FUNCTION_EXPR, UNIT_BUILTIN_TYPE,
+                   ARG("value", STRING_BUILTIN_TYPE));
+  BUILTIN_FUNCTION(EXIT_FUNCTION_EXPR, UNIT_BUILTIN_TYPE,
+                   ARG("code", INT_BUILTIN_TYPE));
+}
 
 static void symbol_table_insert(SymbolTable *table, const char *symbol,
-                                Expression value) {
+                                SymbolTableValue value) {
   array_add(table->symbols, symbol);
   array_add(table->values, value);
 }
 
-static Expression *symbol_table_get(SymbolTable *table, const char *symbol) {
+static SymbolTableValue *symbol_table_get(SymbolTable *table,
+                                          const char *symbol) {
   for (size_t i = 0; i < array_len(table->symbols); i++) {
     if (strcmp(table->symbols[i], symbol) == 0) {
       return &table->values[i];
@@ -976,7 +1264,9 @@ static Expression *symbol_table_get(SymbolTable *table, const char *symbol) {
 }
 
 static void eval_stmt_decl(Evaluator *evaluator, StmtDecl *stmt_decl) {
-  symbol_table_insert(&evaluator->table, stmt_decl->name, stmt_decl->value);
+  OptionalType type = stmt_decl->type;
+  symbol_table_insert(&evaluator->table, stmt_decl->name,
+                      SYMBOL_TABLE_VAL(stmt_decl->value, type));
 }
 
 static void eval_stmt(Evaluator *evaluator, Statement *stmt);
@@ -998,7 +1288,7 @@ static Object eval_expr_block(Evaluator *evaluator,
       eval_stmt(evaluator, &expr_block->statements[i]);
     }
   }
-  return OBJ_NULL;
+  return NULL_OBJ;
 }
 
 static Object eval_expr_function(Evaluator *evaluator,
@@ -1013,7 +1303,7 @@ static Object eval_expr_call(Evaluator *evaluator, const ExprCall *expr_call) {
     if (arg0.type == OBJECT_STRING) {
       char *expr_string = arg0.var.obj_string;
       puts(expr_string);
-      return OBJ_NULL;
+      return NULL_OBJ;
     } else {
       printf("Arg to println not a string\n");
     }
@@ -1021,15 +1311,16 @@ static Object eval_expr_call(Evaluator *evaluator, const ExprCall *expr_call) {
     Expression *arg0 = &expr_call->args[0];
     if (arg0->type == EXPR_INTEGER_LIT) {
       exit(arg0->var.expr_integer_literal.integer);
-      return OBJ_NULL;
+      return NULL_OBJ;
     }
   }
 
-  Expression *expr = symbol_table_get(&evaluator->table, expr_call->function);
-  if (expr->type == EXPR_FUNCTION) {
-    return eval_expr_function(evaluator, &expr->var.expr_function);
+  SymbolTableValue *value =
+      symbol_table_get(&evaluator->table, expr_call->function);
+  if (value->expr.type == EXPR_FUNCTION) {
+    return eval_expr_function(evaluator, &value->expr.var.expr_function);
   }
-  return OBJ_NULL;
+  return NULL_OBJ;
 }
 
 // TODO: symbol_table should be char * -> Object
@@ -1037,8 +1328,9 @@ static Object eval_expr_call(Evaluator *evaluator, const ExprCall *expr_call) {
 static Object eval_expr(Evaluator *evaluator, const Expression *expr) {
   switch (expr->type) {
   case EXPR_IDENT: {
-    return eval_expr(evaluator, symbol_table_get(&evaluator->table,
-                                                 expr->var.expr_ident.ident));
+    return eval_expr(
+        evaluator,
+        &symbol_table_get(&evaluator->table, expr->var.expr_ident.ident)->expr);
   }
   case EXPR_FUNCTION: {
     return eval_expr_function(evaluator, &expr->var.expr_function);
@@ -1059,6 +1351,8 @@ static Object eval_expr(Evaluator *evaluator, const Expression *expr) {
     return (Object){.type = OBJECT_INT,
                     .var = {.obj_int = expr->var.expr_integer_literal.integer}};
   }
+  case EXPR_ARRAY:
+    return NULL_OBJ;
   }
 }
 
@@ -1088,16 +1382,142 @@ typedef struct {
   SymbolTable symbol_table;
 } TypeChecker;
 
-static void check_stmt(TypeChecker *checker, const Statement *stmt) {
+static bool type_eq(const Type *a, const Type *b) {
+  if (a->type != b->type)
+    return false;
+
+  switch (a->type) {
+  case TYPE_IDENT: {
+    return strcmp(a->var.type_ident, b->var.type_ident) == 0;
+  }
+  case TYPE_ARRAY: {
+    bool sizes_match = false;
+    if (a->var.type_array.variant == b->var.type_array.variant) {
+      if (a->var.type_array.variant == TYPE_ARRAY_VARIANT_SIZED) {
+        sizes_match = a->var.type_array.size == b->var.type_array.size;
+      } else {
+        sizes_match = true;
+      }
+    }
+    return type_eq(a->var.type_array.type, b->var.type_array.type) &&
+           sizes_match;
+  }
+  case TYPE_FUNCTION: {
+    return false;
+  }
+  case TYPE_TUPLE: {
+    // TODO: Implement this case
+    bool tuple_types_match = false;
+    return tuple_types_match;
+  }
+  case TYPE_UNIT: {
+    return true;
+  }
+  }
+}
+
+static Type check_stmt(TypeChecker *checker, Statement *stmt);
+
+static void symbol_table_print_symbols(SymbolTable *table) {
+  for (size_t i = 0; i < array_len(table->symbols); i++) {
+    printf("Symbol table %zu: %s\n", i, table->symbols[i]);
+  }
+}
+
+// TODO: Create a type table ident -> type
+static Type check_expr(TypeChecker *checker, Expression *expr) {
+  switch (expr->type) {
+  case EXPR_ARRAY: {
+    Type *expected_item_type = expr->var.expr_array.type.type;
+    size_t declared_items_len = array_len(expr->var.expr_array.items);
+    for (size_t i = 0; i < declared_items_len; i++) {
+      Type item_type = check_expr(checker, &expr->var.expr_array.items[i]);
+      if (!type_eq(&item_type, expected_item_type)) {
+        fprintf(stderr,
+                "Expected and provided array item types do not match\n");
+        exit(1);
+      }
+    }
+    return (Type){.type = TYPE_ARRAY,
+                  .var = {.type_array = expr->var.expr_array.type}};
+  }
+  case EXPR_FUNCTION: {
+    // TODO: implement function types
+    Expression block_expr = {
+        .type = EXPR_BLOCK,
+        .var = {.expr_block = expr->var.expr_function.block->statements}};
+    check_expr(checker, &block_expr);
+    return UNIT_BUILTIN_TYPE;
+  }
+  case EXPR_BLOCK: {
+    size_t len = array_len(expr->var.expr_block.statements);
+    Type last_type = UNIT_BUILTIN_TYPE;
+    for (size_t i = 0; i < len; i++) {
+      Statement stmt = expr->var.expr_block.statements[i];
+      last_type = check_stmt(checker, &stmt);
+    }
+    return last_type;
+  }
+  case EXPR_CALL: {
+    ExprFunction expr_function =
+        symbol_table_get(&checker->symbol_table, expr->var.expr_call.function)
+            ->expr.var.expr_function;
+    size_t args_len = array_len(expr->var.expr_call.args);
+    if (args_len != array_len(expr_function.desc.args)) {
+      fprintf(stderr,
+              "Arg count for caller and function do not match, function: %s\n",
+              expr->var.expr_call.function);
+      exit(1);
+    }
+    for (size_t i = 0; i < args_len; i++) {
+      Type arg_type = check_expr(checker, &expr->var.expr_call.args[i]);
+      if (!type_eq(&arg_type, &expr_function.desc.args[i].type)) {
+        fprintf(stderr,
+                "Arg type of caller and function do not match, function: %s, "
+                "arg: %zu\n",
+                expr->var.expr_call.function, i);
+        exit(1);
+      }
+    }
+    return expr_function.desc.ret_type;
+  }
+  case EXPR_STRING_LIT: {
+    return STRING_BUILTIN_TYPE;
+  }
+  case EXPR_INTEGER_LIT: {
+    return INT_BUILTIN_TYPE;
+  }
+  case EXPR_IDENT: {
+    SymbolTableValue *expr1 =
+        symbol_table_get(&checker->symbol_table, expr->var.expr_ident.ident);
+    return check_expr(checker, &expr1->expr);
+  }
+  }
+}
+
+static Type check_stmt(TypeChecker *checker, Statement *stmt) {
   switch (stmt->type) {
   case STMT_DECL: {
+    Type value_type = check_expr(checker, &stmt->var.stmt_decl.value);
+
+    OptionalType opt_type = stmt->var.stmt_decl.type;
+    if (opt_type.present) {
+      if (!type_eq(&value_type, &opt_type.type)) {
+        fprintf(stderr,
+                "Type of declaration and value do not match, decl name: %s\n",
+                stmt->var.stmt_decl.name);
+        exit(1);
+      }
+    } else {
+      opt_type.type = value_type;
+      opt_type.present = true;
+    }
     symbol_table_insert(&checker->symbol_table, stmt->var.stmt_decl.name,
-                        stmt->var.stmt_expr.expr);
-    break;
+                        SYMBOL_TABLE_VAL(stmt->var.stmt_decl.value, opt_type));
+    return UNIT_BUILTIN_TYPE;
   }
   case STMT_EXPR: {
-
-    break;
+    return check_expr(checker, &stmt->var.stmt_expr.expr);
   }
   }
 }
@@ -1110,6 +1530,7 @@ static void check(TypeChecker *checker) {
 
 int main(void) {
   alloc_init();
+  builtin_functions_init();
 
   char file_buf[4096];
   FILE *file = fopen("test.goo", "r");
@@ -1141,9 +1562,15 @@ int main(void) {
   TypeChecker checker = {
       .stmts = parser.statements,
       .symbol_table = {.symbols = array_new(char *, &HEAP_ALLOCATOR),
-                       .values = array_new(Expression, &HEAP_ALLOCATOR)}};
+                       .values = array_new(SymbolTableValue, &HEAP_ALLOCATOR)}};
 
-  // check(&checker);
+  symbol_table_insert(
+      &checker.symbol_table, "println",
+      SYMBOL_TABLE_VAL(PRINTLN_FUNCTION_EXPR, UNIT_BUILTIN_TYPE));
+  symbol_table_insert(&checker.symbol_table, "exit",
+                      SYMBOL_TABLE_VAL(EXIT_FUNCTION_EXPR, UNIT_BUILTIN_TYPE));
+
+  check(&checker);
 
   puts("-- -- --");
 
