@@ -1,13 +1,8 @@
-foo :: () {
-  println("Hiiiiii")
+foo :: (x: i32) {
+  println(cast<string>(x))
+  println(cast<string>(x))
 }
 
-test :: <T: print(T)>(x: i32, y: i32) -> void {
-  x: string = "Slaaaaay"
-  arr: [2]string = [2]string{":3", ""}
-  println(x)
-  println("Hello, silly :3")
-  exit(1)
+main :: () {
+  foo(cast<i32>("240"))
 }
-
-test(0, 0)
