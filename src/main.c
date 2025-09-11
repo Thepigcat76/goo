@@ -1364,12 +1364,7 @@ typedef struct {
   SymbolTableValueType *values;
 } SymbolTableType;
 
-typedef struct {
-  Statement *stmts;
-
-  SymbolTableExpr table;
-} Evaluator;
-
+// Why do we have the types here?
 typedef struct {
   TypedIdent *args;
   ExprBlock block;
@@ -1388,6 +1383,58 @@ typedef struct {
     ObjectFunction obj_function;
   } var;
 } Object;
+
+typedef struct {
+  Ident *symbols;
+  Object *objects;
+} Environment;
+
+typedef struct {
+  Statement *stmts;
+
+  // Basically our version of a stack. Each environment represents a "stack
+  // frame"
+  Environment *environments;
+  // Very first entry of the 'environments' field. Stores variables that are
+  // global aka will never go out of scope
+  Environment *global_env;
+  // The current environment (last environment on the environments stack)
+  Environment *cur_env;
+} Evaluator;
+
+static void environment_add(Environment *env, Ident symbol, Object obj) {
+  array_add(env->symbols, symbol);
+  array_add(env->objects, obj);
+}
+
+static Object *environment_get(Environment *environments, Ident symbol) {
+  for (size_t i = 0; i < array_len(environments->symbols); i++) {
+    if (strcmp(environments->symbols[i], symbol) == 0) {
+      return &environments->objects[i];
+    }
+  }
+  return NULL;
+}
+
+static void evaluator_envs_push(Evaluator *evaluator) {
+  Environment new_env = {.symbols = array_new(Ident, &HEAP_ALLOCATOR),
+                         .objects = array_new(Object, &HEAP_ALLOCATOR)};
+  array_add(evaluator->environments, new_env);
+  evaluator->cur_env++;
+}
+
+static void evaluator_envs_pop(Evaluator *evaluator) {
+  size_t len = array_len(&evaluator->environments);
+  if (len == 1)
+    // We don't want to pop the global env
+    return;
+
+  Environment last_env = evaluator->environments[len - 1];
+  _internal_array_set_len(evaluator->environments, len - 1);
+  array_free(last_env.symbols);
+  array_free(last_env.objects);
+  evaluator->cur_env--;
+}
 
 static const Object UNIT_OBJ = {.type = OBJECT_UNIT};
 
@@ -1483,19 +1530,18 @@ static SymbolTableValueExpr *symbol_table_expr_get(SymbolTableExpr *table,
   return NULL;
 }
 
+static Object eval_expr(Evaluator *evaluator, const Expression *expr);
+
 static void eval_stmt_decl(Evaluator *evaluator, StmtDecl *stmt_decl) {
   OptionalType type = stmt_decl->type;
   if (stmt_decl->value.type == EXPR_VAR_REG_EXPR) {
-    symbol_table_expr_insert(
-        &evaluator->table, stmt_decl->name,
-        SYMBOL_TABLE_VAL_EXPR(stmt_decl->value.var.expr_var_reg_expr, type));
-  } else {
+    environment_add(
+        evaluator->cur_env, stmt_decl->name,
+        eval_expr(evaluator, &stmt_decl->value.var.expr_var_reg_expr));
   }
 }
 
 static void eval_stmt(Evaluator *evaluator, Statement *stmt);
-
-static Object eval_expr(Evaluator *evaluator, const Expression *expr);
 
 static Object eval_expr_block(Evaluator *evaluator,
                               const ExprBlock *expr_block) {
@@ -1513,11 +1559,6 @@ static Object eval_expr_block(Evaluator *evaluator,
     }
   }
   return UNIT_OBJ;
-}
-
-static Object eval_expr_function(Evaluator *evaluator,
-                                 const ExprFunction *expr_function) {
-  return eval_expr_block(evaluator, expr_function->block);
 }
 
 static Object eval_expr_call(Evaluator *evaluator, const ExprCall *expr_call) {
@@ -1539,30 +1580,28 @@ static Object eval_expr_call(Evaluator *evaluator, const ExprCall *expr_call) {
     }
   }
 
-  SymbolTableValueExpr *value =
-      symbol_table_expr_get(&evaluator->table, expr_call->function);
-  if (value != NULL && value->expr.type == EXPR_FUNCTION) {
-    ExprFunction expr_function = value->expr.var.expr_function;
+  Object *value = environment_get(evaluator->cur_env, expr_call->function);
+  if (value != NULL && value->type == OBJECT_FUNCTION) {
+    ObjectFunction obj_function = value->var.obj_function;
     Object return_value;
-    size_t symbol_table_len = array_len(evaluator->table.symbols);
+    // We create a new environment for the scope of the function
+    evaluator_envs_push(evaluator);
     {
+      // Push function arguments to environment in case there are any
       if (expr_call->args != NULL) {
         for (size_t i = 0; i < array_len(expr_call->args); i++) {
-          symbol_table_expr_insert(
-              &evaluator->table, expr_function.desc.args[i].ident,
-              SYMBOL_TABLE_VAL_EXPR(
-                  expr_call->args[i],
-                  (OptionalType){.type = expr_function.desc.args[i].type,
-                                 .present = true}));
+          environment_add(evaluator->cur_env, obj_function.args[i].ident,
+                          eval_expr(evaluator, &expr_call->args[i]));
         }
       }
-      return_value = eval_expr_function(evaluator, &expr_function);
-    };
-    _internal_array_set_len(evaluator->table.symbols, symbol_table_len);
-    _internal_array_set_len(evaluator->table.values, symbol_table_len);
+      return_value = eval_expr_block(evaluator, &obj_function.block);
+    }
+    // We pop the scope of the function from the environment after it returns
+    evaluator_envs_pop(evaluator);
     return return_value;
   } else {
-    fprintf(stderr, "value: %p, symbol: %s\n", value, expr_call->function);
+    fprintf(stderr, "Invalid name: %s for function call (func-ptr: %p)\n", expr_call->function, value);
+    exit(1);
   }
   return UNIT_OBJ;
 }
@@ -1606,18 +1645,17 @@ static bool type_eq(const Type *a, const Type *b) {
 static Object eval_expr(Evaluator *evaluator, const Expression *expr) {
   switch (expr->type) {
   case EXPR_IDENT: {
-    SymbolTableValueExpr *value =
-        symbol_table_expr_get(&evaluator->table, expr->var.expr_ident.ident);
+    Object *value =
+        environment_get(evaluator->cur_env, expr->var.expr_ident.ident);
     if (value != NULL) {
-      return eval_expr(evaluator, &value->expr);
+      return *value;
     } else {
-      symbol_table_expr_print_symbols(&evaluator->table);
       fprintf(stderr, "Error: Unknown identifier: %s\n",
               expr->var.expr_ident.ident);
       exit(1);
     }
   }
-  // TODO: Function types
+  // TODO: Function types and expressions (maybe)
   case EXPR_FUNCTION: {
     return UNIT_OBJ;
   }
@@ -1793,42 +1831,42 @@ static ExprFunction resolve_overloaded_function(TypeChecker *checker,
   exit(1);
 }
 
-static Type check_call_expr(TypeChecker *checker, ExprCall *expr_call) {    SymbolTableValueExpr *val = symbol_table_expr_get(
-        &checker->symbol_table_expr, expr_call->function);
-    ExprFunction expr_function;
-    if (val == NULL || val->expr.type != EXPR_FUNCTION) {
-      expr_function =
-          resolve_overloaded_function(checker, expr_call);
-      Expression resolved_function_expr = {
-          .type = EXPR_FUNCTION, .var = {.expr_function = expr_function}};
-      symbol_table_expr_insert(
-          &checker->symbol_table_overloaded_funcs, expr_call->function,
-          SYMBOL_TABLE_VAL_EXPR(
-              resolved_function_expr,
-              (OptionalType){.type = UNIT_BUILTIN_TYPE, .present = true}));
-    } else {
-      expr_function = val->expr.var.expr_function;
-    }
-    size_t args_len = array_len(expr_call->args);
-    if (args_len != array_len(expr_function.desc.args)) {
+static Type check_call_expr(TypeChecker *checker, ExprCall *expr_call) {
+  SymbolTableValueExpr *val =
+      symbol_table_expr_get(&checker->symbol_table_expr, expr_call->function);
+  ExprFunction expr_function;
+  if (val == NULL || val->expr.type != EXPR_FUNCTION) {
+    expr_function = resolve_overloaded_function(checker, expr_call);
+    Expression resolved_function_expr = {
+        .type = EXPR_FUNCTION, .var = {.expr_function = expr_function}};
+    symbol_table_expr_insert(
+        &checker->symbol_table_overloaded_funcs, expr_call->function,
+        SYMBOL_TABLE_VAL_EXPR(
+            resolved_function_expr,
+            (OptionalType){.type = UNIT_BUILTIN_TYPE, .present = true}));
+  } else {
+    expr_function = val->expr.var.expr_function;
+  }
+  size_t args_len = array_len(expr_call->args);
+  if (args_len != array_len(expr_function.desc.args)) {
+    fprintf(stderr,
+            "Type error: Arg count for caller and function do not match, "
+            "function: %s\n",
+            expr_call->function);
+    exit(1);
+  }
+  for (size_t i = 0; i < args_len; i++) {
+    Type arg_type = check_expr(checker, &expr_call->args[i]);
+    if (!type_eq(&arg_type, &expr_function.desc.args[i].type)) {
       fprintf(stderr,
-              "Type error: Arg count for caller and function do not match, "
-              "function: %s\n",
-              expr_call->function);
+              "Type error: Arg type of caller and function do not match, "
+              "function: %s, "
+              "arg: %zu\n",
+              expr_call->function, i);
       exit(1);
     }
-    for (size_t i = 0; i < args_len; i++) {
-      Type arg_type = check_expr(checker, &expr_call->args[i]);
-      if (!type_eq(&arg_type, &expr_function.desc.args[i].type)) {
-        fprintf(stderr,
-                "Type error: Arg type of caller and function do not match, "
-                "function: %s, "
-                "arg: %zu\n",
-                expr_call->function, i);
-        exit(1);
-      }
-    }
-    return expr_function.desc.ret_type;
+  }
+  return expr_function.desc.ret_type;
 }
 
 // TODO: Create a type table ident -> type
@@ -1914,7 +1952,8 @@ static Type check_expr(TypeChecker *checker, Expression *expr) {
     return check_expr(checker, &expr1->expr);
   }
   case EXPR_GENERIC_CALL: {
-    // TODO: More advanced checking (does generic definition contain bounds for method call)
+    // TODO: More advanced checking (does generic definition contain bounds for
+    // method call)
     return check_call_expr(checker, &expr->var.expr_generic_call.expr_call);
   }
   case EXPR_UNIT: {
@@ -2030,15 +2069,23 @@ int main(void) {
 
   puts("-- -- --");
 
-  Evaluator evaluator = {.stmts = checker.stmts,
-                         .table = checker.symbol_table_expr};
+  Environment *environments = array_new(Environment, &HEAP_ALLOCATOR);
+  Evaluator evaluator = {
+      .stmts = checker.stmts,
+      .environments = environments,
+  };
+  // Push the global env
+  evaluator_envs_push(&evaluator);
+  // Do proper assigning
+  evaluator.global_env = &evaluator.environments[0];
+  evaluator.cur_env = evaluator.global_env;
 
-  for (size_t i = 0;
-       i < array_len(checker.symbol_table_overloaded_funcs.symbols); i++) {
-    symbol_table_expr_insert(&evaluator.table,
-                             checker.symbol_table_overloaded_funcs.symbols[i],
-                             checker.symbol_table_overloaded_funcs.values[i]);
-  }
+  // for (size_t i = 0;
+  //      i < array_len(checker.symbol_table_overloaded_funcs.symbols); i++) {
+  //   symbol_table_expr_insert(&evaluator.table,
+  //                            checker.symbol_table_overloaded_funcs.symbols[i],
+  //                            checker.symbol_table_overloaded_funcs.values[i]);
+  // }
 
   Expression call_main_expr = {
       .type = EXPR_CALL,
