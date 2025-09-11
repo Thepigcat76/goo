@@ -354,6 +354,24 @@ typedef struct {
   struct _expr *expr;
 } ExprCast;
 
+typedef struct {
+  Ident generic;
+  ExprCall expr_call;
+} ExprGenericCall;
+
+typedef struct {
+  Ident *functions;
+} TypeExprOverloadSet;
+
+typedef struct {
+  enum {
+    TYPE_EXPR_OVERLOAD_SET,
+  } type;
+  union {
+    TypeExprOverloadSet type_expr_overload_set;
+  } var;
+} TypeExpr;
+
 typedef struct _expr {
   enum {
     EXPR_CAST,
@@ -361,6 +379,7 @@ typedef struct _expr {
     EXPR_FUNCTION,
     EXPR_BLOCK,
     EXPR_CALL,
+    EXPR_GENERIC_CALL,
     EXPR_STRING_LIT,
     EXPR_INTEGER_LIT,
     EXPR_IDENT,
@@ -371,6 +390,7 @@ typedef struct _expr {
     ExprFunction expr_function;
     ExprBlock expr_block;
     ExprCall expr_call;
+    ExprGenericCall expr_generic_call;
     ExprCast expr_cast;
     struct {
       Ident ident;
@@ -392,9 +412,20 @@ typedef struct {
 } OptionalType;
 
 typedef struct {
+  enum {
+    EXPR_VAR_TYPE_EXPR,
+    EXPR_VAR_REG_EXPR,
+  } type;
+  union {
+    TypeExpr expr_var_type_expr;
+    Expression expr_var_reg_expr;
+  } var;
+} ExpressionVariant;
+
+typedef struct {
   Ident name;
   OptionalType type;
-  Expression value;
+  ExpressionVariant value;
   bool mutable;
 } StmtDecl;
 
@@ -614,6 +645,16 @@ static void expr_print(char *buf, const Expression *expr) {
             expr->var.expr_call.function, args_buf);
     break;
   }
+  case EXPR_GENERIC_CALL: {
+    ExprGenericCall generic_call = expr->var.expr_generic_call;
+    char print_buf[1024];
+    Expression call_expr = {.type = EXPR_CALL,
+                            .var = {.expr_call = generic_call.expr_call}};
+    expr_print(print_buf, &call_expr);
+    sprintf(buf, "ExprGenericCall{generic_ident=%s, call_expr=%s}",
+            generic_call.generic, print_buf);
+    break;
+  }
   case EXPR_BLOCK: {
     char block_buf[4096] = {'\0'};
     Statement *stmts = expr->var.expr_block.statements;
@@ -665,14 +706,22 @@ static void expr_print(char *buf, const Expression *expr) {
     sprintf(buf, "ExprUnit");
     break;
   }
+  default: {
+    fprintf(stderr, "No type found: %d", expr->type);
+    exit(1);
+  }
   }
 }
 
 static void stmt_print(char *buf, const Statement *stmt) {
   switch (stmt->type) {
   case STMT_DECL: {
-    char expr_buf[1024];
-    expr_print(expr_buf, &stmt->var.stmt_decl.value);
+    char expr_buf[1024] = {'\0'};
+    if (stmt->var.stmt_decl.value.type == EXPR_VAR_REG_EXPR) {
+      expr_print(expr_buf, &stmt->var.stmt_decl.value.var.expr_var_reg_expr);
+    } else {
+      strcpy(expr_buf, "ExprVariantType{...}");
+    }
     char type_buf[512] = {'\0'};
     if (stmt->var.stmt_decl.type.present) {
       type_print(type_buf, &stmt->var.stmt_decl.type.type);
@@ -987,6 +1036,26 @@ static Expression parse_expr(Parser *parser) {
       return (Expression){
           .type = EXPR_CALL,
           .var = {.expr_call = {.function = ident, .args = exprs}}};
+    } else if (parser->peek_tok->type == TOKEN_DOT) {
+      // cur_tok is dot
+      next_token(parser);
+      // cur_tok is call name
+      next_token(parser);
+
+      Ident call_name = parser->cur_tok->var.ident;
+
+      // cur_tok is left parenthesis
+      next_token(parser);
+      // cur_tok is first token of first expr
+      next_token(parser);
+
+      Expression *exprs = parse_expr_list(parser, TOKEN_RPAREN);
+      // end: right parenthesis
+      return (Expression){
+          .type = EXPR_GENERIC_CALL,
+          .var = {.expr_generic_call = {
+                      .generic = ident,
+                      .expr_call = {.function = call_name, .args = exprs}}}};
     }
     return (Expression){.type = EXPR_IDENT,
                         .var = {.expr_ident = {.ident = ident}}};
@@ -1119,11 +1188,47 @@ static Statement parse_stmt(Parser *parser) {
       next_token(parser);
       // cur token is EXPR
       next_token(parser);
-      Expression value = parse_expr(parser);
-      Statement stmt = {
-          .type = STMT_DECL,
-          .var = {
-              .stmt_decl = {.name = name, .mutable = mutable, .value = value}}};
+      Statement stmt;
+      if (parser->cur_tok->type == TOKEN_IDENT &&
+          !(parser->peek_tok->type == TOKEN_LPAREN ||
+            parser->peek_tok->type == TOKEN_DOT)) {
+        Ident *idents = array_new(Ident, &HEAP_ALLOCATOR);
+        while (parser->cur_tok->type == TOKEN_IDENT) {
+          array_add(idents, parser->cur_tok->var.ident);
+          if (parser->peek_tok->type == TOKEN_COMMA) {
+            // cur_tok is comma
+            next_token(parser);
+            if (parser->peek_tok->type == TOKEN_IDENT) {
+              // cur_tok is next ident
+              next_token(parser);
+            } else {
+              break;
+            }
+          } else {
+            break;
+          }
+        }
+        stmt = (Statement){
+            .type = STMT_DECL,
+            .var = {.stmt_decl = {
+                        .name = name,
+                        .mutable = mutable,
+                        .value = (ExpressionVariant){
+                            .type = EXPR_VAR_TYPE_EXPR,
+                            .var = {.expr_var_type_expr = {
+                                        .type = TYPE_EXPR_OVERLOAD_SET,
+                                        .var = {.type_expr_overload_set = {
+                                                    .functions = idents}}}}}}}};
+      } else {
+        Expression value = parse_expr(parser);
+        stmt = (Statement){
+            .type = STMT_DECL,
+            .var = {.stmt_decl = {.name = name,
+                                  .mutable = mutable,
+                                  .value = (ExpressionVariant){
+                                      .type = EXPR_VAR_REG_EXPR,
+                                      .var = {.expr_var_reg_expr = value}}}}};
+      }
       return stmt;
     } else if (parser->peek_tok->type == TOKEN_COLON) {
       StmtDecl stmt_decl = {0};
@@ -1147,7 +1252,8 @@ static Statement parse_stmt(Parser *parser) {
 
       next_token(parser);
       Expression value = parse_expr(parser);
-      stmt_decl.value = value;
+      stmt_decl.value = (ExpressionVariant){
+          .type = EXPR_VAR_REG_EXPR, .var = {.expr_var_reg_expr = value}};
       return (Statement){.type = STMT_DECL, .var = {.stmt_decl = stmt_decl}};
     } else {
       goto parse_expr;
@@ -1235,20 +1341,33 @@ static void parse(Parser *parser) {
 typedef struct {
   Expression expr;
   OptionalType type;
-} SymbolTableValue;
+} SymbolTableValueExpr;
 
-#define SYMBOL_TABLE_VAL(_expr, ...)                                           \
-  (SymbolTableValue) { .expr = _expr, .type = __VA_ARGS__ }
+#define SYMBOL_TABLE_VAL_EXPR(_expr, ...)                                      \
+  (SymbolTableValueExpr) { .expr = _expr, .type = __VA_ARGS__ }
+
+#define SYMBOL_TABLE_VAL_TYPE(_expr, ...)                                      \
+  (SymbolTableValueType) { .expr = _expr, .type = __VA_ARGS__ }
 
 typedef struct {
   char **symbols;
-  SymbolTableValue *values;
-} SymbolTable;
+  SymbolTableValueExpr *values;
+} SymbolTableExpr;
+
+typedef struct {
+  TypeExpr expr;
+  OptionalType type;
+} SymbolTableValueType;
+
+typedef struct {
+  char **symbols;
+  SymbolTableValueType *values;
+} SymbolTableType;
 
 typedef struct {
   Statement *stmts;
 
-  SymbolTable table;
+  SymbolTableExpr table;
 } Evaluator;
 
 typedef struct {
@@ -1280,6 +1399,7 @@ static const Object UNIT_OBJ = {.type = OBJECT_UNIT};
                                      array_new(TypedIdent, &HEAP_ALLOCATOR)}}  \
     }                                                                          \
   }
+
 #define BUILTIN_FUNCTION_SET_ARG_TYPES(func, ...)                              \
   do {                                                                         \
     TypedIdent *args = func.var.expr_function.desc.args;                       \
@@ -1317,14 +1437,44 @@ static void builtin_functions_init(void) {
                    ARG("code", INT_BUILTIN_TYPE));
 }
 
-static void symbol_table_insert(SymbolTable *table, const char *symbol,
-                                SymbolTableValue value) {
+static void symbol_table_expr_print_symbols(SymbolTableExpr *table) {
+  printf("Symbol table exprs\n");
+  for (size_t i = 0; i < array_len(table->symbols); i++) {
+    printf("Symbol table %zu: %s\n", i, table->symbols[i]);
+  }
+}
+
+static void symbol_table_type_print_symbols(SymbolTableType *table) {
+  printf("Symbol table types\n");
+  for (size_t i = 0; i < array_len(table->symbols); i++) {
+    printf("Symbol table %zu: %s\n", i, table->symbols[i]);
+  }
+}
+
+static void symbol_table_type_insert(SymbolTableType *table, const char *symbol,
+                                     SymbolTableValueType value) {
   array_add(table->symbols, symbol);
   array_add(table->values, value);
 }
 
-static SymbolTableValue *symbol_table_get(SymbolTable *table,
-                                          const char *symbol) {
+static SymbolTableValueType *symbol_table_type_get(SymbolTableType *table,
+                                                   const char *symbol) {
+  for (size_t i = 0; i < array_len(table->symbols); i++) {
+    if (strcmp(table->symbols[i], symbol) == 0) {
+      return &table->values[i];
+    }
+  }
+  return NULL;
+}
+
+static void symbol_table_expr_insert(SymbolTableExpr *table, const char *symbol,
+                                     SymbolTableValueExpr value) {
+  array_add(table->symbols, symbol);
+  array_add(table->values, value);
+}
+
+static SymbolTableValueExpr *symbol_table_expr_get(SymbolTableExpr *table,
+                                                   const char *symbol) {
   for (size_t i = 0; i < array_len(table->symbols); i++) {
     if (strcmp(table->symbols[i], symbol) == 0) {
       return &table->values[i];
@@ -1335,8 +1485,12 @@ static SymbolTableValue *symbol_table_get(SymbolTable *table,
 
 static void eval_stmt_decl(Evaluator *evaluator, StmtDecl *stmt_decl) {
   OptionalType type = stmt_decl->type;
-  symbol_table_insert(&evaluator->table, stmt_decl->name,
-                      SYMBOL_TABLE_VAL(stmt_decl->value, type));
+  if (stmt_decl->value.type == EXPR_VAR_REG_EXPR) {
+    symbol_table_expr_insert(
+        &evaluator->table, stmt_decl->name,
+        SYMBOL_TABLE_VAL_EXPR(stmt_decl->value.var.expr_var_reg_expr, type));
+  } else {
+  }
 }
 
 static void eval_stmt(Evaluator *evaluator, Statement *stmt);
@@ -1385,18 +1539,18 @@ static Object eval_expr_call(Evaluator *evaluator, const ExprCall *expr_call) {
     }
   }
 
-  SymbolTableValue *value =
-      symbol_table_get(&evaluator->table, expr_call->function);
-  if (value->expr.type == EXPR_FUNCTION) {
+  SymbolTableValueExpr *value =
+      symbol_table_expr_get(&evaluator->table, expr_call->function);
+  if (value != NULL && value->expr.type == EXPR_FUNCTION) {
     ExprFunction expr_function = value->expr.var.expr_function;
     Object return_value;
     size_t symbol_table_len = array_len(evaluator->table.symbols);
     {
       if (expr_call->args != NULL) {
         for (size_t i = 0; i < array_len(expr_call->args); i++) {
-          symbol_table_insert(
+          symbol_table_expr_insert(
               &evaluator->table, expr_function.desc.args[i].ident,
-              SYMBOL_TABLE_VAL(
+              SYMBOL_TABLE_VAL_EXPR(
                   expr_call->args[i],
                   (OptionalType){.type = expr_function.desc.args[i].type,
                                  .present = true}));
@@ -1407,6 +1561,8 @@ static Object eval_expr_call(Evaluator *evaluator, const ExprCall *expr_call) {
     _internal_array_set_len(evaluator->table.symbols, symbol_table_len);
     _internal_array_set_len(evaluator->table.values, symbol_table_len);
     return return_value;
+  } else {
+    fprintf(stderr, "value: %p, symbol: %s\n", value, expr_call->function);
   }
   return UNIT_OBJ;
 }
@@ -1450,12 +1606,14 @@ static bool type_eq(const Type *a, const Type *b) {
 static Object eval_expr(Evaluator *evaluator, const Expression *expr) {
   switch (expr->type) {
   case EXPR_IDENT: {
-    SymbolTableValue *value =
-        symbol_table_get(&evaluator->table, expr->var.expr_ident.ident);
+    SymbolTableValueExpr *value =
+        symbol_table_expr_get(&evaluator->table, expr->var.expr_ident.ident);
     if (value != NULL) {
       return eval_expr(evaluator, &value->expr);
     } else {
-      fprintf(stderr, "Error: Unknown identifier: %s\n", expr->var.expr_ident.ident);
+      symbol_table_expr_print_symbols(&evaluator->table);
+      fprintf(stderr, "Error: Unknown identifier: %s\n",
+              expr->var.expr_ident.ident);
       exit(1);
     }
   }
@@ -1528,10 +1686,15 @@ static Object eval_expr(Evaluator *evaluator, const Expression *expr) {
       return UNIT_OBJ;
     }
     case OBJECT_FUNCTION: {
+      break;
     }
     }
     fprintf(stderr, "Invalid cast\n");
     exit(1);
+  }
+  case EXPR_GENERIC_CALL: {
+    ExprCall expr_call = expr->var.expr_generic_call.expr_call;
+    return eval_expr_call(evaluator, &expr_call);
   }
   case EXPR_ARRAY: {
     return UNIT_OBJ;
@@ -1545,6 +1708,7 @@ static Object eval_expr(Evaluator *evaluator, const Expression *expr) {
 static void eval_stmt(Evaluator *evaluator, Statement *stmt) {
   switch (stmt->type) {
   case STMT_DECL: {
+    eval_stmt_decl(evaluator, &stmt->var.stmt_decl);
     break;
   }
   case STMT_EXPR: {
@@ -1563,15 +1727,108 @@ static void eval(Evaluator *evaluator) {
 
 typedef struct {
   Statement *stmts;
-  SymbolTable symbol_table;
+  SymbolTableExpr symbol_table_expr;
+  SymbolTableType symbol_table_type;
+  SymbolTableExpr symbol_table_overloaded_funcs;
 } TypeChecker;
 
 static Type check_stmt(TypeChecker *checker, Statement *stmt);
 
-static void symbol_table_print_symbols(SymbolTable *table) {
-  for (size_t i = 0; i < array_len(table->symbols); i++) {
-    printf("Symbol table %zu: %s\n", i, table->symbols[i]);
+static Type check_expr(TypeChecker *checker, Expression *expr);
+
+static ExprFunction resolve_overloaded_function(TypeChecker *checker,
+                                                ExprCall *expr_call) {
+  Type *call_arg_types = array_new(Type, &HEAP_ALLOCATOR);
+  for (size_t i = 0; i < array_len(expr_call->args); i++) {
+    array_add(call_arg_types, check_expr(checker, &expr_call->args[i]));
   }
+
+  SymbolTableValueType *type_val =
+      symbol_table_type_get(&checker->symbol_table_type, expr_call->function);
+  if (type_val != NULL) {
+    if (type_val->expr.type == TYPE_EXPR_OVERLOAD_SET) {
+      TypeExprOverloadSet overload_set =
+          type_val->expr.var.type_expr_overload_set;
+      size_t i;
+      for (i = 0; i < array_len(overload_set.functions); i++) {
+        Ident ident = overload_set.functions[i];
+        SymbolTableValueExpr *overloaded_function =
+            symbol_table_expr_get(&checker->symbol_table_expr, ident);
+        if (overloaded_function == NULL) {
+          fprintf(stderr, "Could not find symbol with name: %s\n", ident);
+          exit(1);
+        } else {
+          if (overloaded_function->expr.type == EXPR_FUNCTION) {
+            ExprFunction overloaded_func_expr =
+                overloaded_function->expr.var.expr_function;
+            TypedIdent *args = overloaded_func_expr.desc.args;
+            for (size_t i = 0; i < array_len(args); i++) {
+              if (array_len(call_arg_types) != array_len(args) ||
+                  !(i < array_len(call_arg_types) &&
+                    type_eq(&call_arg_types[i], &args[i].type))) {
+                goto end_of_outerloop;
+              }
+            }
+            break;
+          }
+        }
+      end_of_outerloop: {}
+      }
+      Ident resolved_func_ident = overload_set.functions[i];
+      SymbolTableValueExpr *resolved_expr = symbol_table_expr_get(
+          &checker->symbol_table_expr, resolved_func_ident);
+      if (resolved_expr != NULL && resolved_expr->expr.type == EXPR_FUNCTION) {
+        ExprFunction expr_func = resolved_expr->expr.var.expr_function;
+        return expr_func;
+      } else {
+        fprintf(stderr, "UNREACHABLE\n");
+        exit(1);
+      }
+    }
+  } else {
+    printf("Type value not null\n");
+  }
+  fprintf(stderr, "Could not find function with name: %s\n",
+          expr_call->function);
+  exit(1);
+}
+
+static Type check_call_expr(TypeChecker *checker, ExprCall *expr_call) {    SymbolTableValueExpr *val = symbol_table_expr_get(
+        &checker->symbol_table_expr, expr_call->function);
+    ExprFunction expr_function;
+    if (val == NULL || val->expr.type != EXPR_FUNCTION) {
+      expr_function =
+          resolve_overloaded_function(checker, expr_call);
+      Expression resolved_function_expr = {
+          .type = EXPR_FUNCTION, .var = {.expr_function = expr_function}};
+      symbol_table_expr_insert(
+          &checker->symbol_table_overloaded_funcs, expr_call->function,
+          SYMBOL_TABLE_VAL_EXPR(
+              resolved_function_expr,
+              (OptionalType){.type = UNIT_BUILTIN_TYPE, .present = true}));
+    } else {
+      expr_function = val->expr.var.expr_function;
+    }
+    size_t args_len = array_len(expr_call->args);
+    if (args_len != array_len(expr_function.desc.args)) {
+      fprintf(stderr,
+              "Type error: Arg count for caller and function do not match, "
+              "function: %s\n",
+              expr_call->function);
+      exit(1);
+    }
+    for (size_t i = 0; i < args_len; i++) {
+      Type arg_type = check_expr(checker, &expr_call->args[i]);
+      if (!type_eq(&arg_type, &expr_function.desc.args[i].type)) {
+        fprintf(stderr,
+                "Type error: Arg type of caller and function do not match, "
+                "function: %s, "
+                "arg: %zu\n",
+                expr_call->function, i);
+        exit(1);
+      }
+    }
+    return expr_function.desc.ret_type;
 }
 
 // TODO: Create a type table ident -> type
@@ -1594,23 +1851,25 @@ static Type check_expr(TypeChecker *checker, Expression *expr) {
   case EXPR_FUNCTION: {
     // TODO: implement function types
     ExprFunction expr_function = expr->var.expr_function;
-    size_t symbol_table_len = array_len(checker->symbol_table.symbols);
+    size_t symbol_table_len = array_len(checker->symbol_table_expr.symbols);
     {
       for (size_t i = 0; i < array_len(expr_function.desc.args); i++) {
-        symbol_table_insert(
-            &checker->symbol_table, expr_function.desc.args[i].ident,
-            SYMBOL_TABLE_VAL(
+        symbol_table_expr_insert(
+            &checker->symbol_table_expr, expr_function.desc.args[i].ident,
+            SYMBOL_TABLE_VAL_EXPR(
                 UNIT_EXPR,
                 (OptionalType){.type = expr_function.desc.args[i].type,
                                .present = true}));
       }
 
-      Expression expr_block = (Expression){
-          .type = EXPR_BLOCK, .var = {.expr_block = expr->var.expr_block}};
-      check_expr(checker, &expr_block);
-    };
-    _internal_array_set_len(checker->symbol_table.symbols, symbol_table_len);
-    _internal_array_set_len(checker->symbol_table.values, symbol_table_len);
+      for (size_t i = 0; i < array_len(expr_function.block->statements); i++) {
+        check_stmt(checker, &expr_function.block->statements[i]);
+      }
+    }
+    _internal_array_set_len(checker->symbol_table_expr.symbols,
+                            symbol_table_len);
+    _internal_array_set_len(checker->symbol_table_expr.values,
+                            symbol_table_len);
     return UNIT_BUILTIN_TYPE;
   }
   case EXPR_BLOCK: {
@@ -1626,29 +1885,7 @@ static Type check_expr(TypeChecker *checker, Expression *expr) {
     return UNIT_BUILTIN_TYPE;
   }
   case EXPR_CALL: {
-    ExprFunction expr_function =
-        symbol_table_get(&checker->symbol_table, expr->var.expr_call.function)
-            ->expr.var.expr_function;
-    size_t args_len = array_len(expr->var.expr_call.args);
-    if (args_len != array_len(expr_function.desc.args)) {
-      fprintf(stderr,
-              "Type error: Arg count for caller and function do not match, "
-              "function: %s\n",
-              expr->var.expr_call.function);
-      exit(1);
-    }
-    for (size_t i = 0; i < args_len; i++) {
-      Type arg_type = check_expr(checker, &expr->var.expr_call.args[i]);
-      if (!type_eq(&arg_type, &expr_function.desc.args[i].type)) {
-        fprintf(stderr,
-                "Type error: Arg type of caller and function do not match, "
-                "function: %s, "
-                "arg: %zu\n",
-                expr->var.expr_call.function, i);
-        exit(1);
-      }
-    }
-    return expr_function.desc.ret_type;
+    return check_call_expr(checker, &expr->var.expr_call);
   }
   case EXPR_CAST: {
     Type expr_type = check_expr(checker, expr->var.expr_cast.expr);
@@ -1672,9 +1909,13 @@ static Type check_expr(TypeChecker *checker, Expression *expr) {
     return INT_BUILTIN_TYPE;
   }
   case EXPR_IDENT: {
-    SymbolTableValue *expr1 =
-        symbol_table_get(&checker->symbol_table, expr->var.expr_ident.ident);
+    SymbolTableValueExpr *expr1 = symbol_table_expr_get(
+        &checker->symbol_table_expr, expr->var.expr_ident.ident);
     return check_expr(checker, &expr1->expr);
+  }
+  case EXPR_GENERIC_CALL: {
+    // TODO: More advanced checking (does generic definition contain bounds for method call)
+    return check_call_expr(checker, &expr->var.expr_generic_call.expr_call);
   }
   case EXPR_UNIT: {
     return UNIT_BUILTIN_TYPE;
@@ -1683,25 +1924,42 @@ static Type check_expr(TypeChecker *checker, Expression *expr) {
 }
 
 static Type check_stmt(TypeChecker *checker, Statement *stmt) {
+  char print_buf[1024];
+  stmt_print(print_buf, stmt);
   switch (stmt->type) {
   case STMT_DECL: {
-    Type value_type = check_expr(checker, &stmt->var.stmt_decl.value);
-
     OptionalType opt_type = stmt->var.stmt_decl.type;
-    if (opt_type.present) {
-      if (!type_eq(&value_type, &opt_type.type)) {
-        fprintf(stderr,
-                "Type error: Type of declaration and value do not match, decl "
-                "name: %s\n",
-                stmt->var.stmt_decl.name);
-        exit(1);
+    if (stmt->var.stmt_decl.value.type != EXPR_VAR_TYPE_EXPR) {
+      Type value_type =
+          check_expr(checker, &stmt->var.stmt_decl.value.var.expr_var_reg_expr);
+
+      if (opt_type.present) {
+        if (!type_eq(&value_type, &opt_type.type)) {
+          fprintf(
+              stderr,
+              "Type error: Type of declaration and value do not match, decl "
+              "name: %s\n",
+              stmt->var.stmt_decl.name);
+          exit(1);
+        }
+      } else {
+        opt_type.type = value_type;
+        opt_type.present = true;
       }
-    } else {
-      opt_type.type = value_type;
-      opt_type.present = true;
     }
-    symbol_table_insert(&checker->symbol_table, stmt->var.stmt_decl.name,
-                        SYMBOL_TABLE_VAL(stmt->var.stmt_decl.value, opt_type));
+
+    if (stmt->var.stmt_decl.value.type == EXPR_VAR_REG_EXPR) {
+      symbol_table_expr_insert(
+          &checker->symbol_table_expr, stmt->var.stmt_decl.name,
+          SYMBOL_TABLE_VAL_EXPR(stmt->var.stmt_decl.value.var.expr_var_reg_expr,
+                                opt_type));
+    } else {
+      symbol_table_type_insert(
+          &checker->symbol_table_type, stmt->var.stmt_decl.name,
+          SYMBOL_TABLE_VAL_TYPE(
+              stmt->var.stmt_decl.value.var.expr_var_type_expr, opt_type));
+    }
+
     return UNIT_BUILTIN_TYPE;
   }
   case STMT_EXPR: {
@@ -1751,20 +2009,37 @@ int main(void) {
 
   TypeChecker checker = {
       .stmts = parser.statements,
-      .symbol_table = {.symbols = array_new(char *, &HEAP_ALLOCATOR),
-                       .values = array_new(SymbolTableValue, &HEAP_ALLOCATOR)}};
+      .symbol_table_expr = {.symbols = array_new(char *, &HEAP_ALLOCATOR),
+                            .values = array_new(SymbolTableValueExpr,
+                                                &HEAP_ALLOCATOR)},
+      .symbol_table_type = {.symbols = array_new(char *, &HEAP_ALLOCATOR),
+                            .values = array_new(SymbolTableValueType,
+                                                &HEAP_ALLOCATOR)},
+      .symbol_table_overloaded_funcs = {
+          .symbols = array_new(char *, &HEAP_ALLOCATOR),
+          .values = array_new(SymbolTableValueExpr, &HEAP_ALLOCATOR)}};
 
-  symbol_table_insert(
-      &checker.symbol_table, "println",
-      SYMBOL_TABLE_VAL(PRINTLN_FUNCTION_EXPR, UNIT_BUILTIN_TYPE));
-  symbol_table_insert(&checker.symbol_table, "exit",
-                      SYMBOL_TABLE_VAL(EXIT_FUNCTION_EXPR, UNIT_BUILTIN_TYPE));
+  symbol_table_expr_insert(
+      &checker.symbol_table_expr, "println",
+      SYMBOL_TABLE_VAL_EXPR(PRINTLN_FUNCTION_EXPR, UNIT_BUILTIN_TYPE));
+  symbol_table_expr_insert(
+      &checker.symbol_table_expr, "exit",
+      SYMBOL_TABLE_VAL_EXPR(EXIT_FUNCTION_EXPR, UNIT_BUILTIN_TYPE));
 
   check(&checker);
 
   puts("-- -- --");
 
-  Evaluator evaluator = {.stmts = checker.stmts, .table = checker.symbol_table};
+  Evaluator evaluator = {.stmts = checker.stmts,
+                         .table = checker.symbol_table_expr};
+
+  for (size_t i = 0;
+       i < array_len(checker.symbol_table_overloaded_funcs.symbols); i++) {
+    symbol_table_expr_insert(&evaluator.table,
+                             checker.symbol_table_overloaded_funcs.symbols[i],
+                             checker.symbol_table_overloaded_funcs.values[i]);
+  }
+
   Expression call_main_expr = {
       .type = EXPR_CALL,
       .var = {.expr_call = {.function = "main", .args = NULL}}};

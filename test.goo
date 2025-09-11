@@ -1,8 +1,14 @@
-foo :: (x: i32) {
-  println(cast<string>(x))
-  println(cast<string>(x))
+print_int :: (x: i32) {
+  println("Printing integer")
 }
 
+print_string :: (x: string) {
+  println("Printing string")
+}
+
+print :: print_int, print_string
+
 main :: () {
-  foo(cast<i32>("240"))
+  i := cast<i32>("102")
+  T.print("slay")
 }
