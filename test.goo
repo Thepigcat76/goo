@@ -9,6 +9,7 @@ print_string :: (x: string) {
 print :: print_int, print_string
 
 main :: () {
+  println("Hiiiii")
   i := cast<i32>("102")
   T.print("slay")
 }
