@@ -1,15 +1,17 @@
 print_int :: (x: i32) {
   println("Printing integer")
+  println(cast<string>(x))
 }
 
 print_string :: (x: string) {
   println("Printing string")
+  println(x)
 }
 
 print :: print_int, print_string
 
 main :: () {
-  println("Hiiiii")
-  i := cast<i32>("102")
-  T.print("slay")
+  print(0)
+  print("Hello")
+  print(69)
 }
