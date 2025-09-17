@@ -25,7 +25,8 @@ static BuildOptions OPTS = {.compiler = "clang",
                             .std = "gnu23",
                             .target = TARGET_LINUX,
                             .out_dir = "./build/",
-                            .out_name = "goo"};
+                            .out_name = "goo",
+                          .libraries = ARRAY("lilc")};
 
 int main(int argc, char **argv) {
   if (argc >= 2) {
@@ -57,7 +58,7 @@ int main(int argc, char **argv) {
     } else if (STR_CMP_OR(argv[1], "v", "vg")) {
       system(str_fmt("valgrind --leak-check=full --show-leak-kinds=all ./%s/%s", OPTS.out_dir, out_name));
       return 0;
-    } else if (STR_CMP_OR(argv[1], "-r", "--release")) {} else {
+    } else {
       fprintf(stderr, "[Error]: Invalid first arg: %s\n", argv[1]);
       return 1;
     }

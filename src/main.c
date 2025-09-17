@@ -1,5 +1,6 @@
-#include "alloc.h"
-#include "array.h"
+#include "lilc/alloc.h"
+#include "lilc/array.h"
+#include "lilc/hashmap.h"
 #include <ctype.h>
 #include <linux/limits.h>
 #include <stdarg.h>
@@ -7,7 +8,6 @@
 #include <stddef.h>
 #include <stdio.h>
 #include <string.h>
-#include "hashmap.h"
 
 typedef enum {
   TOKEN_IDENT,
@@ -1092,16 +1092,43 @@ static Expression parse_expr(Parser *parser) {
                                     .integer = parser->cur_tok->var.integer}}};
   }
   case TOKEN_LANGLE: {
-    // cur_tok is generic name
-    next_token(parser);
-    Generic generic = parse_generic(parser);
-    // cur_tok is rangle
-    next_token(parser);
+    Generic *generics;
+    if (parser->peek_tok->type == TOKEN_RANGLE) {
+      generics = NULL;
+    } else {
+      generics = array_new(Generic, &HEAP_ALLOCATOR);
+      if (parser->peek_tok->type == TOKEN_IDENT) {
+        // cur_tok is generic name
+        next_token(parser);
+
+        while (parser->cur_tok->type != TOKEN_RANGLE) {
+          Generic generic = parse_generic(parser);
+          array_add(generics, generic);
+          if (parser->peek_tok->type == TOKEN_COMMA) {
+            // cur_tok is comma
+            next_token(parser);
+            if (parser->peek_tok->type == TOKEN_IDENT) {
+              // cur_tok is ident
+              next_token(parser);
+            } else if (parser->peek_tok->type == TOKEN_RANGLE) {
+              break;
+            }
+          } else if (parser->peek_tok->type == TOKEN_RANGLE) {
+            // cur_tok is rangle
+            next_token(parser);
+            break;
+          }
+        }
+      } else {
+        fprintf(stderr, "Expected token after left angle bracket to be generic "
+                        "name or right angle bracket\n");
+        exit(1);
+      }
+    }
     // cur_tok is left paren
     next_token(parser);
     FuncDescriptor desc = parse_func_desc(parser);
-    desc.generics = array_new(Generic, &HEAP_ALLOCATOR);
-    array_add(desc.generics, generic);
+    desc.generics = generics;
     ExprBlock *block_expr = malloc(sizeof(ExprBlock));
 
     if (parser->peek_tok->type == TOKEN_LCURLY) {
@@ -1385,8 +1412,7 @@ typedef struct {
 } Object;
 
 typedef struct {
-  Ident *symbols;
-  Object *objects;
+  Hashmap(Ident, Object) env;
 } Environment;
 
 typedef struct {
@@ -1402,34 +1428,48 @@ typedef struct {
   Environment *cur_env;
 } Evaluator;
 
-static void environment_add(Environment *env, Ident symbol, Object obj) {
-  array_add(env->symbols, symbol);
-  array_add(env->objects, obj);
+static void environment_add(Environment *env, Ident *symbol, Object obj) {
+  hashmap_insert(&env->env, symbol, &obj);
 }
 
-static Object *environment_get(Environment *environments, Ident symbol,
+static Object *environment_get(Environment *environment, const Ident *symbol,
                                Environment *global_env) {
-  for (size_t i = 0; i < array_len(environments->symbols); i++) {
-    if (strcmp(environments->symbols[i], symbol) == 0) {
-      return &environments->objects[i];
-    }
+  Object *res = hashmap_value(&environment->env, symbol);
+
+  if (res == NULL && global_env != NULL) {
+    return hashmap_value(&global_env->env, symbol);
   }
 
-  if (global_env != NULL) {
+  return res;
+}
 
-    for (size_t i = 0; i < array_len(global_env->symbols); i++) {
-      if (strcmp(global_env->symbols[i], symbol) == 0) {
-        return &global_env->objects[i];
-      }
-    }
+static int strv_hash(const void *a) {
+  const char *str = (char *)a;
+  int hash = 5381;
+  int c;
+
+  while ((c = (unsigned char)*str++)) {
+    hash = ((hash << 5) + hash) + c;
   }
 
-  return NULL;
+  if (hash < 0) {
+    hash = -hash;
+  }
+
+  return hash;
+}
+
+static bool strv_eq(const void *a, const void *b) { return strcmp(a, b) == 0; }
+
+static int str_ptrv_hash(const void *a) { return strv_hash(*(char **)a); }
+
+static bool str_ptrv_eq(const void *a, const void *b) {
+  return strv_eq(*(char **)a, *(char **)b);
 }
 
 static void evaluator_envs_push(Evaluator *evaluator) {
-  Environment new_env = {.symbols = array_new(Ident, &HEAP_ALLOCATOR),
-                         .objects = array_new(Object, &HEAP_ALLOCATOR)};
+  Environment new_env = {.env = hashmap_new(Ident, Object, &HEAP_ALLOCATOR,
+                                            str_ptrv_hash, str_ptrv_eq, NULL)};
   array_add(evaluator->environments, new_env);
   evaluator->cur_env++;
 }
@@ -1442,8 +1482,7 @@ static void evaluator_envs_pop(Evaluator *evaluator) {
 
   Environment last_env = evaluator->environments[len - 1];
   _internal_array_set_len(evaluator->environments, len - 1);
-  array_free(last_env.symbols);
-  array_free(last_env.objects);
+  hashmap_free(&last_env.env);
   evaluator->cur_env--;
 }
 
@@ -1501,7 +1540,7 @@ static void eval_stmt_decl(Evaluator *evaluator, StmtDecl *stmt_decl) {
   OptionalType type = stmt_decl->type;
   if (stmt_decl->value.type == EXPR_VAR_REG_EXPR) {
     environment_add(
-        evaluator->cur_env, stmt_decl->name,
+        evaluator->cur_env, &stmt_decl->name,
         eval_expr(evaluator, &stmt_decl->value.var.expr_var_reg_expr));
   }
 }
@@ -1545,7 +1584,7 @@ static Object eval_expr_call(Evaluator *evaluator, const ExprCall *expr_call) {
     }
   }
 
-  Object *value = environment_get(evaluator->cur_env, expr_call->function,
+  Object *value = environment_get(evaluator->cur_env, &expr_call->function,
                                   evaluator->global_env);
   if (value != NULL && value->type == OBJECT_FUNCTION) {
     ObjectFunction obj_function = value->var.obj_function;
@@ -1556,7 +1595,7 @@ static Object eval_expr_call(Evaluator *evaluator, const ExprCall *expr_call) {
       // Push function arguments to environment in case there are any
       if (expr_call->args != NULL) {
         for (size_t i = 0; i < array_len(expr_call->args); i++) {
-          environment_add(evaluator->cur_env, obj_function.args[i].ident,
+          environment_add(evaluator->cur_env, &obj_function.args[i].ident,
                           eval_expr(evaluator, &expr_call->args[i]));
         }
       }
@@ -1568,7 +1607,9 @@ static Object eval_expr_call(Evaluator *evaluator, const ExprCall *expr_call) {
   } else {
     fprintf(stderr,
             "Invalid name: %s for function call (func-ptr: %p), type: %d\n",
-            expr_call->function, value, value->type);
+            expr_call->function, value, value != NULL ? value->type : -1);
+    hashmap_foreach(&evaluator->global_env->env, Ident *key, Object * obj,
+                    { printf("Key: %s\n", *key); });
     exit(1);
   }
   return UNIT_OBJ;
@@ -1614,7 +1655,7 @@ static Object eval_expr(Evaluator *evaluator, const Expression *expr) {
   switch (expr->type) {
   case EXPR_IDENT: {
     Object *value = environment_get(
-        evaluator->cur_env, expr->var.expr_ident.ident, evaluator->global_env);
+        evaluator->cur_env, &expr->var.expr_ident.ident, evaluator->global_env);
     if (value != NULL) {
       return *value;
     } else {
@@ -1632,6 +1673,9 @@ static Object eval_expr(Evaluator *evaluator, const Expression *expr) {
                                  .block = block}}};
   }
   case EXPR_CALL: {
+    char print_buf[512];
+    expr_print(print_buf, expr);
+    puts(print_buf);
     ExprCall expr_call = expr->var.expr_call;
     return eval_expr_call(evaluator, &expr_call);
   }
@@ -1742,43 +1786,34 @@ typedef struct {
 } TypeTableValue;
 
 typedef struct {
-  Ident *symbols;
-  TypeTableValue *values;
+  Hashmap(Ident *, TypeTableValue) type_table;
 } TypeTable;
 
 typedef Type *CallerArgs;
 
 typedef struct {
   Ident *generics;
-  ExprCall *caller_expr;
+  ExprCall **caller_exprs;
   CallerArgs *callers_args;
 } GenericFunction;
 
 typedef struct {
-  Ident *names;
-  GenericFunction *functions;
+  Hashmap(Ident *, GenericFunction) table;
 } GenericFunctionsTable;
 
-static GenericFunction *gft_get(GenericFunctionsTable *table, Ident name) {
-  for (size_t i = 0; i < array_len(table->names); i++) {
-    if (strcmp(table->names[i], name) == 0) {
-      return &table->functions[i];
-    }
-  }
-
-  return NULL;
+static GenericFunction *gft_get(GenericFunctionsTable *table, Ident *name) {
+  return hashmap_value(&table->table, name);
 }
 
-static void gft_add(GenericFunctionsTable *table, Ident name,
+static void gft_add(GenericFunctionsTable *table, Ident *name,
                     GenericFunction func) {
-  array_add(table->names, name);
-  array_add(table->functions, func);
+  hashmap_insert(&table->table, name, &func);
 }
 
 static GenericFunctionsTable gft_new() {
   return (GenericFunctionsTable){
-      .names = array_new(Ident, &HEAP_ALLOCATOR),
-      .functions = array_new(GenericFunction, &HEAP_ALLOCATOR)};
+      .table = hashmap_new(Ident *, GenericFunction, &HEAP_ALLOCATOR,
+                           str_ptrv_hash, str_ptrv_eq, NULL)};
 }
 
 typedef struct {
@@ -1794,38 +1829,32 @@ typedef struct {
   // of the generics as well as all the callers
   // (just their args) of the function
   GenericFunctionsTable generic_functions_table;
+  Hashmap(Ident *, Expression *) generated_generic_functions;
 } TypeChecker;
 
-static void type_table_add(TypeTable *table, Ident ident,
+static void type_table_add(TypeTable *table, Ident *ident,
                            ExpressionVariant expr_var, OptionalType opt_type) {
   TypeTableValue val = {.expr_variant = expr_var, .opt_type = opt_type};
-  array_add(table->symbols, ident);
-  array_add(table->values, val);
+  bool inserted = hashmap_insert(&table->type_table, ident, &val);
 }
 
-static TypeTableValue *type_table_get(TypeTable *table, Ident ident,
+static TypeTableValue *type_table_get(TypeTable *table, Ident *ident,
                                       TypeTable *global_table) {
-  for (size_t i = 0; i < array_len(table->symbols); i++) {
-    if (strcmp(table->symbols[i], ident) == 0) {
-      return &table->values[i];
-    }
+  TypeTableValue *res = hashmap_value(&table->type_table, ident);
+
+  if (res == NULL && global_table != NULL) {
+    printf("slayyy\n");
+    return hashmap_value(&global_table->type_table, ident);
   }
 
-  if (global_table != NULL) {
-    for (size_t i = 0; i < array_len(global_table->symbols); i++) {
-      if (strcmp(global_table->symbols[i], ident) == 0) {
-        return &global_table->values[i];
-      }
-    }
-  }
-
-  return NULL;
+  return res;
 }
 
 static void checker_type_table_push(TypeChecker *checker) {
   array_add(checker->type_tables,
-            (TypeTable){.symbols = array_new(Ident, &HEAP_ALLOCATOR),
-                        .values = array_new(TypeTableValue, &HEAP_ALLOCATOR)});
+            (TypeTable){.type_table = hashmap_new(
+                            Ident *, TypeTableValue, &HEAP_ALLOCATOR,
+                            str_ptrv_hash, str_ptrv_eq, NULL)});
   checker->cur_type_table++;
 }
 
@@ -1841,8 +1870,7 @@ static void checker_type_table_pop(TypeChecker *checker) {
 
   TypeTable last_table = checker->type_tables[len - 1];
   _internal_array_set_len(checker->type_tables, len - 1);
-  array_free(last_table.symbols);
-  array_free(last_table.values);
+  hashmap_free(&last_table.type_table);
   checker->cur_type_table--;
 }
 
@@ -1859,7 +1887,7 @@ static Ident resolve_overloaded_function(TypeChecker *checker,
   }
 
   TypeTableValue *type_val = type_table_get(
-      checker->cur_type_table, expr_call->function, checker->global_type_table);
+      checker->cur_type_table, &expr_call->function, checker->global_type_table);
   if (type_val != NULL) {
     if (type_val->expr_variant.type == TYPE_EXPR_OVERLOAD_SET) {
       TypeExprOverloadSet overload_set =
@@ -1868,7 +1896,7 @@ static Ident resolve_overloaded_function(TypeChecker *checker,
       size_t i;
       for (i = 0; i < array_len(overload_set.functions); i++) {
         Ident ident = overload_set.functions[i];
-        TypeTableValue *value = type_table_get(checker->cur_type_table, ident,
+        TypeTableValue *value = type_table_get(checker->cur_type_table, &ident,
                                                checker->global_type_table);
         if (value != NULL) {
           ExpressionVariant expr_var = value->expr_variant;
@@ -1895,7 +1923,7 @@ static Ident resolve_overloaded_function(TypeChecker *checker,
             exit(1);
           }
         } else {
-          fprintf(stderr, "Could not find symbol: %s\n", ident);
+          fprintf(stderr, "Could not find symbol (overload): %s\n", ident);
           exit(1);
         }
       end_of_outerloop: {}
@@ -1914,14 +1942,14 @@ static Ident resolve_overloaded_function(TypeChecker *checker,
 }
 
 static void type_table_dump(const TypeTable *type_table) {
-  for (size_t i = 0; i < array_len(type_table->symbols); i++) {
-    TypeTableValue val = type_table->values[i];
-    if (val.opt_type.present) {
+  printf("Slay, len: %zu\n", type_table->type_table.len);
+  hashmap_foreach(&type_table->type_table, Ident *key, TypeTableValue * val, {
+    if (val->opt_type.present) {
       char type_buf[1024];
-      type_print(type_buf, &val.opt_type.type);
-      printf("Key: %s, Val: %s\n", type_table->symbols[i], type_buf);
+      type_print(type_buf, &val->opt_type.type);
+      printf("Key: %s, Val: %s\n", *key, type_buf);
     }
-  }
+  });
 }
 
 static bool is_generic_function(const ExprFunction *func) {
@@ -1930,7 +1958,9 @@ static bool is_generic_function(const ExprFunction *func) {
 
 static Type check_call_expr(TypeChecker *checker, ExprCall *expr_call) {
   TypeTableValue *val = type_table_get(
-      checker->cur_type_table, expr_call->function, checker->global_type_table);
+      checker->cur_type_table, &expr_call->function, checker->global_type_table);
+  type_table_dump(checker->cur_type_table);
+
   ExprFunction expr_function;
 
   if (val != NULL) {
@@ -1939,7 +1969,7 @@ static Type check_call_expr(TypeChecker *checker, ExprCall *expr_call) {
           resolve_overloaded_function(checker, expr_call);
       expr_call->function = resolved_overload_function;
       expr_function =
-          type_table_get(checker->cur_type_table, resolved_overload_function,
+          type_table_get(checker->cur_type_table, &resolved_overload_function,
                          checker->global_type_table)
               ->expr_variant.var.expr_var_reg_expr.var.expr_function;
     } else {
@@ -1969,8 +1999,10 @@ static Type check_call_expr(TypeChecker *checker, ExprCall *expr_call) {
             args_len, func_args_len, expr_call->function);
     exit(1);
   }
+  Type *arg_types = array_new(Type, &HEAP_ALLOCATOR);
   for (size_t i = 0; i < args_len; i++) {
     Type arg_type = check_expr(checker, &expr_call->args[i]);
+    array_add(arg_types, arg_type);
     bool generic_type = false;
     if (expr_function.desc.args[i].type.type == TYPE_IDENT &&
         expr_function.desc.generics != NULL) {
@@ -2005,16 +2037,12 @@ static Type check_call_expr(TypeChecker *checker, ExprCall *expr_call) {
   }
 
   if (is_generic_function(&expr_function)) {
-    CallerArgs args = array_new(Type, &HEAP_ALLOCATOR);
-    for (size_t i = 0; i < array_len(expr_function.desc.args); i++) {
-      array_add(args, expr_function.desc.args[i].type);
-    }
     GenericFunction *generic_func =
-        gft_get(&checker->generic_functions_table, expr_call->function);
+        gft_get(&checker->generic_functions_table, &expr_call->function);
     if (generic_func != NULL) {
       CallerArgs *callers_args = generic_func->callers_args;
-      array_add(callers_args, args);
-      generic_func->caller_expr = expr_call;
+      array_add(callers_args, arg_types);
+      array_add(generic_func->caller_exprs, expr_call);
     } else {
       fprintf(stderr, "UNREACHABLE\n");
       exit(1);
@@ -2054,7 +2082,7 @@ static Type check_expr(TypeChecker *checker, Expression *expr) {
         // expr_function.desc.args[i].ident,
         //        print_buf);
         type_table_add(
-            checker->cur_type_table, expr_function.desc.args[i].ident,
+            checker->cur_type_table, &expr_function.desc.args[i].ident,
             (ExpressionVariant){.type = EXPR_VAR_REG_EXPR,
                                 .var = {.expr_var_reg_expr = UNIT_EXPR}},
             (OptionalType){.type = type, .present = true});
@@ -2105,7 +2133,7 @@ static Type check_expr(TypeChecker *checker, Expression *expr) {
   }
   case EXPR_IDENT: {
     TypeTableValue *val =
-        type_table_get(checker->cur_type_table, expr->var.expr_ident.ident,
+        type_table_get(checker->cur_type_table, &expr->var.expr_ident.ident,
                        checker->global_type_table);
     if (val != NULL) {
 
@@ -2153,15 +2181,16 @@ static Type check_stmt(TypeChecker *checker, Statement *stmt) {
       if (decl_val.type == EXPR_FUNCTION) {
         Generic *generics = decl_val.var.expr_function.desc.generics;
         if (is_generic_function(&decl_val.var.expr_function)) {
-          GenericFunction func = {.generics = array_new(Ident, &HEAP_ALLOCATOR),
-                                  .callers_args =
-                                      array_new(CallerArgs, &HEAP_ALLOCATOR)};
+          GenericFunction func = {
+              .generics = array_new(Ident, &HEAP_ALLOCATOR),
+              .callers_args = array_new(CallerArgs, &HEAP_ALLOCATOR),
+              .caller_exprs = array_new(ExprCall *, &HEAP_ALLOCATOR)};
 
           for (size_t i = 0; i < array_len(func.generics); i++) {
             array_add(func.generics, generics[i].name);
           }
 
-          gft_add(&checker->generic_functions_table, stmt->var.stmt_decl.name,
+          gft_add(&checker->generic_functions_table, &stmt->var.stmt_decl.name,
                   func);
         }
       }
@@ -2182,16 +2211,16 @@ static Type check_stmt(TypeChecker *checker, Statement *stmt) {
     }
 
     if (stmt->var.stmt_decl.value.type == EXPR_VAR_REG_EXPR) {
+      printf("adding: %s\n", stmt->var.stmt_decl.name);
       type_table_add(
-          checker->cur_type_table, stmt->var.stmt_decl.name,
-          (ExpressionVariant){
-              .type = EXPR_VAR_REG_EXPR,
-              .var = {.expr_var_reg_expr =
-                          stmt->var.stmt_decl.value.var.expr_var_reg_expr}},
+          checker->cur_type_table, &stmt->var.stmt_decl.name,
+          EXPR_VAR_EXPR(stmt->var.stmt_decl.value.var.expr_var_reg_expr),
           opt_type);
+      char *ident = ((char *)checker->cur_type_table->type_table.keys) +
+                    49 * sizeof(char *);
     } else {
       type_table_add(
-          checker->cur_type_table, stmt->var.stmt_decl.name,
+          checker->cur_type_table, &stmt->var.stmt_decl.name,
           EXPR_VAR_TYPE(stmt->var.stmt_decl.value.var.expr_var_type_expr),
           opt_type);
     }
@@ -2210,53 +2239,211 @@ static void check(TypeChecker *checker) {
   }
 }
 
-static void generate_generic_functions(TypeChecker *checker) {
-  // Iterate through all functions (with generics)
-  for (size_t i = 0; i < array_len(checker->generic_functions_table.names);
-       i++) {
-    GenericFunction *generic_func =
-        &checker->generic_functions_table.functions[i];
-    TypeTableValue *val =
-        type_table_get(checker->global_type_table,
-                       checker->generic_functions_table.names[i], NULL);
-    if (val != NULL) {
-      ExprFunction expr_function =
-          val->expr_variant.var.expr_var_reg_expr.var.expr_function;
-      // Iterate through all callers
-      for (size_t j = 0; j < array_len(generic_func->caller_expr); j++) {
-        char *generic_func_name = malloc(512);
-        sprintf(generic_func_name, "%s$",
-                checker->generic_functions_table.names[j]);
-        if (generic_func->callers_args != NULL) {
-          CallerArgs args = generic_func->callers_args[j];
-          // iterate through the caller args
-          for (size_t k = 0; k < array_len(generic_func->callers_args); k++) {
-            if (args != NULL) {
-              printf("K: %zu, name: %s\n", k, checker->generic_functions_table.names[i]);
-              Type arg = args[k];
-              char type_buf[256];
-              type_print_as_ident(type_buf, &arg);
-              strcat(generic_func_name, type_buf);
-              if (k - 1 < array_len(generic_func->callers_args)) {
-                strcat(generic_func_name, ",");
-              }
-            }
-          }
-        }
-        printf("Generic name: %s\n", generic_func_name);
-        // if (!generated_generics_has(&checker->generated_generics_table,
-        //                             generic_func_name)) {
-        //   type_table_add(checker->global_type_table,
-        //                  checker->generic_functions_table.names[j],
-        //                  EXPR_VAR_EXPR(val->expr_variant.var.expr_var_reg_expr),
-        //                  (OptionalType){.present = false});
-        // }
-      }
-    } else {
-      fprintf(stderr, "UNREACHABLE\n");
-      exit(1);
+static Type try_transform_generic_type(const Type *type,
+                                       Hashmap(Ident *, Type) generics_lookup) {
+
+  hashmap_foreach(&generics_lookup, Ident * key, Type * val, {
+    char print_buf[512];
+    type_print(print_buf, val);
+    printf("Key: %s, Val: %s\n", *key, print_buf);
+  });
+  if (type->type == TYPE_IDENT) {
+    Type *resolved_type =
+        hashmap_value(&generics_lookup, &type->var.type_ident);
+    if (resolved_type != NULL) {
+      return *resolved_type;
     }
   }
+  return *type;
+}
+
+static ExprBlock *transform_generic_block(TypeChecker *checker,
+                                          ExprBlock *block,
+                                          Hashmap(Ident *, Type)
+                                              generics_lookup);
+
+static ExprFunction transform_generic_function(TypeChecker *checker,
+                                               ExprFunction *expr_func,
+                                               Hashmap(Ident *, Type)
+                                                   generics_lookup);
+
+static void transform_generic_expr(TypeChecker *checker, Expression *expr,
+                                   Hashmap(Ident *, Type) generics_lookup) {
+  switch (expr->type) {
+  case EXPR_CAST: {
+    ExprCast *expr_cast = &expr->var.expr_cast;
+    expr_cast->type =
+        try_transform_generic_type(&expr_cast->type, generics_lookup);
+    break;
+  }
+  case EXPR_ARRAY: {
+    ExprArray *expr_array = &expr->var.expr_array;
+    *expr_array->type.type =
+        try_transform_generic_type(expr_array->type.type, generics_lookup);
+    break;
+  }
+  case EXPR_FUNCTION: {
+    ExprFunction *expr_func = &expr->var.expr_function;
+    transform_generic_function(checker, expr_func, generics_lookup);
+    break;
+  }
+  case EXPR_BLOCK: {
+    ExprBlock *expr_block = &expr->var.expr_block;
+    *expr_block =
+        *transform_generic_block(checker, expr_block, generics_lookup);
+    break;
+  }
+  case EXPR_GENERIC_CALL: {
+    break;
+  }
+  case EXPR_CALL:
+  case EXPR_STRING_LIT:
+  case EXPR_INTEGER_LIT:
+  case EXPR_IDENT:
+  case EXPR_UNIT:
+    break;
+  }
+}
+
+static ExprBlock *transform_generic_block(TypeChecker *checker,
+                                          ExprBlock *block,
+                                          Hashmap(Ident *, Type)
+                                              generics_lookup) {
+  array_foreach(block->statements, Statement, stmt, {
+    switch (stmt.type) {
+    case STMT_DECL: {
+      StmtDecl *stmt_decl = &stmt.var.stmt_decl;
+      if (stmt_decl->type.present) {
+        stmt_decl->type.type =
+            try_transform_generic_type(&stmt_decl->type.type, generics_lookup);
+      }
+      transform_generic_expr(checker, &stmt_decl->value.var.expr_var_reg_expr,
+                             generics_lookup);
+      break;
+    }
+    case STMT_EXPR: {
+      transform_generic_expr(checker, &stmt.var.stmt_expr.expr,
+                             generics_lookup);
+      break;
+    }
+    }
+  });
+  return block;
+}
+
+static ExprFunction transform_generic_function(TypeChecker *checker,
+                                               ExprFunction *expr_func,
+                                               Hashmap(Ident *, Type)
+                                                   generics_lookup) {
+  TypedIdent *args = array_new_capacity(
+      TypedIdent, array_len(expr_func->desc.args), &HEAP_ALLOCATOR);
+  for (size_t i = 0; i < array_len(expr_func->desc.args); i++) {
+    array_add(args,
+              (TypedIdent){.type = try_transform_generic_type(
+                               &expr_func->desc.args[i].type, generics_lookup),
+                           .ident = expr_func->desc.args[i].ident});
+  }
+  ExprFunction func = {
+      .desc = {.generics = NULL,
+               .args = args,
+               .ret_type = try_transform_generic_type(&expr_func->desc.ret_type,
+                                                      generics_lookup)},
+      .block = expr_func->block};
+  return func;
+}
+
+// Returns null if type is not a generic
+// Otherwise the generic will be returned
+static Ident type_generic(const FuncDescriptor *desc, size_t arg_index) {
+  Type func_arg_type = desc->args[arg_index].type;
+  if (func_arg_type.type == TYPE_IDENT && desc->generics != NULL) {
+    for (size_t i = 0; i < array_len(desc->generics); i++) {
+      Generic *generic = &desc->generics[i];
+      if (strv_eq(func_arg_type.var.type_ident, generic->name)) {
+        return generic->name;
+      }
+    }
+  }
+
+  return NULL;
+}
+
+static void generate_generic_functions(TypeChecker *checker) {
+  // Iterate through all functions (with generics)
+  hashmap_foreach(
+      &checker->generic_functions_table.table, Ident *key,
+      GenericFunction * generic_func, {
+        TypeTableValue *val =
+            type_table_get(checker->global_type_table, key, NULL);
+        if (val != NULL) {
+          ExprFunction expr_function =
+              val->expr_variant.var.expr_var_reg_expr.var.expr_function;
+          // Iterate through all callers
+          if (generic_func->callers_args != NULL) {
+            array_foreach(generic_func->callers_args, CallerArgs, args, {
+              Hashmap(Ident *, Type) generics_lookup =
+                  hashmap_new(Ident *, Type, &HEAP_ALLOCATOR, str_ptrv_hash,
+                              str_ptrv_eq, NULL);
+
+              char *generic_func_name = malloc(512);
+              sprintf(generic_func_name, "%s$", *key);
+              // iterate through the caller args
+              if (args != NULL) {
+                for (size_t k = 0; k < array_len(args); k++) {
+                  Type arg = args[k];
+                  char type_buf[256];
+                  type_print_as_ident(type_buf, &arg);
+                  strcat(generic_func_name, type_buf);
+                  if (k < array_len(args) - 1) {
+                    strcat(generic_func_name, ",");
+                  }
+
+                  Ident generic_ident = type_generic(&expr_function.desc, k);
+                  if (generic_ident != NULL) {
+                    char print_buf[512];
+                    type_print(print_buf, &args[k]);
+                    printf("Generic function: %s - val: %s\n", generic_ident,
+                           print_buf);
+                    hashmap_insert(&generics_lookup, &generic_ident, &args[k]);
+                  } else {
+                    printf("!!Could not find generic ident at index: %zu, "
+                           "generics amount: %zu!!\n",
+                           k, array_len(expr_function.desc.generics));
+                    char print_buf[512];
+                    func_desc_print(print_buf, &expr_function.desc);
+                    printf("Func desc: %s\n", print_buf);
+                    exit(1);
+                  }
+                }
+              }
+
+              printf("Generic name: %s\n", generic_func_name);
+              char *generic_func_name_cpy = strdup(generic_func_name);
+              if (!hashmap_contains(&checker->generated_generic_functions,
+                                    &generic_func_name)) {
+                Expression _expr = {
+                    .type = EXPR_FUNCTION,
+                    .var = {.expr_function = transform_generic_function(
+                                checker, &expr_function, generics_lookup)}};
+                hashmap_insert(&checker->generated_generic_functions,
+                               &generic_func_name_cpy, &_expr);
+                type_table_add(checker->global_type_table,
+                               &generic_func_name_cpy, EXPR_VAR_EXPR(_expr),
+                               (OptionalType){.present = false});
+                printf("Generic func name copy: %s\n", generic_func_name_cpy);
+              }
+
+              generic_func->caller_exprs[_arr_foreach_index]->function =
+                  generic_func_name_cpy;
+
+              hashmap_free(&generics_lookup);
+            });
+          }
+        } else {
+          fprintf(stderr, "UNREACHABLE\n");
+          exit(1);
+        }
+      });
 }
 
 static const OptionalType EMPTY_OPT_TYPE = (OptionalType){.present = false};
@@ -2297,20 +2484,36 @@ int main(void) {
   TypeTable *type_tables = array_new(TypeTable, &HEAP_ALLOCATOR);
   TypeChecker checker = {.stmts = parser.statements,
                          .type_tables = type_tables,
-                         .generic_functions_table = gft_new()};
+                         .generic_functions_table = gft_new(),
+                         .generated_generic_functions =
+                             hashmap_new(Ident *, Type, &HEAP_ALLOCATOR,
+                                         str_ptrv_hash, str_ptrv_eq, NULL)};
   // Push the global type table
   checker_type_table_push(&checker);
   checker.global_type_table = &checker.type_tables[0];
   checker.cur_type_table = checker.global_type_table;
 
-  type_table_add(checker.global_type_table, "println",
+  char *println_name = "println";
+  char *exit_name = "exit";
+  type_table_add(checker.global_type_table, &println_name,
                  EXPR_VAR_EXPR(PRINTLN_FUNCTION_EXPR), EMPTY_OPT_TYPE);
-  type_table_add(checker.global_type_table, "exit",
+  type_table_add(checker.global_type_table, &exit_name,
                  EXPR_VAR_EXPR(EXIT_FUNCTION_EXPR), EMPTY_OPT_TYPE);
 
   check(&checker);
 
   generate_generic_functions(&checker);
+
+  puts("Type Table:");
+
+  hashmap_foreach(
+      &checker.global_type_table->type_table, Ident *key, TypeTableValue * val, {
+        if (val->expr_variant.type == EXPR_VAR_REG_EXPR) {
+          char print_buf[1024];
+          expr_print(print_buf, &val->expr_variant.var.expr_var_reg_expr);
+          printf("Key: %s, Val: %s\n", *key, print_buf);
+        }
+      });
 
   puts("-- -- --");
 
@@ -2325,32 +2528,17 @@ int main(void) {
   evaluator.global_env = &evaluator.environments[0];
   evaluator.cur_env = evaluator.global_env;
 
-  for (size_t i = 0; i < array_len(checker.global_type_table->symbols); i++) {
-    TypeTableValue val = checker.global_type_table->values[i];
-    if (val.expr_variant.type == EXPR_VAR_REG_EXPR) {
-      environment_add(
-          evaluator.global_env, checker.global_type_table->symbols[i],
-          eval_expr(&evaluator, &val.expr_variant.var.expr_var_reg_expr));
-    }
-  }
-
-  // for (size_t i = 0;
-  //      i < array_len(checker.symbol_table_overloaded_funcs.symbols); i++)
-  //      {
-  //   symbol_table_expr_insert(&evaluator.table,
-  //                            checker.symbol_table_overloaded_funcs.symbols[i],
-  //                            checker.symbol_table_overloaded_funcs.values[i]);
-  // }
+  hashmap_foreach(
+      &checker.global_type_table->type_table, Ident *key, TypeTableValue * val, {
+        if (val->expr_variant.type == EXPR_VAR_REG_EXPR) {
+          environment_add(
+              evaluator.global_env, key,
+              eval_expr(&evaluator, &val->expr_variant.var.expr_var_reg_expr));
+        }
+      });
 
   Expression call_main_expr = {
       .type = EXPR_CALL,
       .var = {.expr_call = {.function = "main", .args = NULL}}};
   eval_expr(&evaluator, &call_main_expr);
-
-  // for (size_t i = 0; i < array_len(evaluator.table.symbols); i++) {
-  //   printf("Symbol: %s -> Value: \n", evaluator.table.symbols[i]);
-  //   char print_buf[256];
-  //   expr_print(print_buf, &evaluator.table.values[i]);
-  //   puts(print_buf);
-  // }
 }
