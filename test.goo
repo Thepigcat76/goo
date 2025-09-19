@@ -1,9 +1,9 @@
-foo :: <T, K>(val: T, val1: K) -> T {
+foo :: <T, K, E>(val: T, val1: K, val2: E) -> T {
   println(cast<string>(val))
 }
 
 main :: () {
-  foo(100, 100)
+  foo(100, 100, 100)
 
-  foo("hello", 100)
+  foo("hello", 100, "test")
 }
