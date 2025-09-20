@@ -1,5 +1,6 @@
-// To build the project, compile this file with a compiler of your choice and run the compiled executable.
-// The project also requires the gurd header, which can be found at <https://github.com/Thepigcat76/gurd/blob/main/gurd.h>
+// To build the project, compile this file with a compiler of your choice and
+// run the compiled executable. The project also requires the gurd header, which
+// can be found at <https://github.com/Thepigcat76/gurd/blob/main/gurd.h>
 
 #include "gurd.h"
 
@@ -26,7 +27,7 @@ static BuildOptions OPTS = {.compiler = "clang",
                             .target = TARGET_LINUX,
                             .out_dir = "./build/",
                             .out_name = "goo",
-                          .libraries = ARRAY("lilc")};
+                            .libraries = ARRAY("lilc")};
 
 int main(int argc, char **argv) {
   if (argc >= 2) {
@@ -43,7 +44,9 @@ int main(int argc, char **argv) {
   char *out_name = build_name(OPTS.out_name, OPTS.target);
 
   make_dir(OPTS.out_dir);
-  int code = compile("%s %s %s %s -o %s%s", OPTS.compiler, files, libraries, flags, OPTS.out_dir, out_name);
+  int code = compile("%s %s %s %s -o %s%s -rdynamic", OPTS.compiler, files,
+                     libraries, flags, OPTS.out_dir, out_name);
+  puts(_internal_cmd_buf);
   if (code != 0) {
     fprintf(stderr, "Failed to compile the program\n");
     return code;
@@ -56,7 +59,8 @@ int main(int argc, char **argv) {
       dbg(OPTS.out_dir, out_name, OPTS.debug);
       return 0;
     } else if (STR_CMP_OR(argv[1], "v", "vg")) {
-      system(str_fmt("valgrind --leak-check=full --show-leak-kinds=all ./%s/%s", OPTS.out_dir, out_name));
+      system(str_fmt("valgrind --leak-check=full --show-leak-kinds=all ./%s/%s",
+                     OPTS.out_dir, out_name));
       return 0;
     } else {
       fprintf(stderr, "[Error]: Invalid first arg: %s\n", argv[1]);
@@ -83,6 +87,7 @@ static char *build_compiler(char *default_compiler, int target) {
 static char *build_flags(void *_opts) {
   BuildOptions *opts = (BuildOptions *)_opts;
   _internal_flags_buf[0] = '\0';
+  strcat(_internal_flags_buf, "-DTARGET_LINUX ");
 
   if (opts->debug) {
     strcat(_internal_flags_buf, "-g ");

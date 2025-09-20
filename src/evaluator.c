@@ -1,6 +1,7 @@
 #include "../include/evaluator.h"
+#include "lilc/alloc.h"
 #include "lilc/array.h"
-#include <lilc/alloc.h>
+#include "lilc/panic.h"
 #include <stdio.h>
 
 const Object UNIT_OBJ = {.type = OBJECT_UNIT};
@@ -77,9 +78,9 @@ static void evaluator_envs_pop(Evaluator *evaluator) {
 static void eval_stmt_decl(Evaluator *evaluator, StmtDecl *stmt_decl) {
   OptionalType type = stmt_decl->type;
   if (stmt_decl->value.type == EXPR_VAR_REG_EXPR) {
-    environment_add(
-        evaluator->cur_env, &stmt_decl->name,
-        evaluator_eval_expr(evaluator, &stmt_decl->value.var.expr_var_reg_expr));
+    environment_add(evaluator->cur_env, &stmt_decl->name,
+                    evaluator_eval_expr(
+                        evaluator, &stmt_decl->value.var.expr_var_reg_expr));
   }
 }
 
@@ -103,40 +104,33 @@ static Object eval_expr_block(Evaluator *evaluator,
 
 Object eval_expr_call(Evaluator *evaluator, const ExprCall *expr_call) {
   Ident function = expr_call->function;
-  if (strcmp(function, "println") == 0) {
-    Object arg0 = evaluator_eval_expr(evaluator, &expr_call->args[0]);
-    if (arg0.type == OBJECT_STRING) {
-      char *expr_string = arg0.var.obj_string;
-      puts(expr_string);
-      return UNIT_OBJ;
-    } else {
-      fprintf(stderr, "Arg to println not a string\n");
-    }
-  } else if (strcmp(function, "exit") == 0) {
-    Expression *arg0 = &expr_call->args[0];
-    if (arg0->type == EXPR_INTEGER_LIT) {
-      exit(arg0->var.expr_integer_literal.integer);
-      return UNIT_OBJ;
-    }
-  }
 
-  printf("Function: %s\n", expr_call->function);
   Object *value = environment_get(evaluator->cur_env, &expr_call->function,
                                   evaluator->global_env);
   if (value != NULL && value->type == OBJECT_FUNCTION) {
     ObjectFunction obj_function = value->var.obj_function;
+    Object *args = array_new(Object, &HEAP_ALLOCATOR);
+    if (expr_call->args != NULL) {
+      for (size_t i = 0; i < array_len(expr_call->args); i++) {
+        Object obj = evaluator_eval_expr(evaluator, &expr_call->args[i]);
+        array_add(args, obj);
+      }
+    }
     Object return_value;
     // We create a new environment for the scope of the function
     evaluator_envs_push(evaluator);
     {
       // Push function arguments to environment in case there are any
       if (expr_call->args != NULL) {
-        for (size_t i = 0; i < array_len(expr_call->args); i++) {
-          environment_add(evaluator->cur_env, &obj_function.args[i].ident,
-                          evaluator_eval_expr(evaluator, &expr_call->args[i]));
+        for (size_t i = 0; i < array_len(args); i++) {
+          environment_add(evaluator->cur_env, &obj_function.args[i].ident, args[i]);
         }
       }
-      return_value = eval_expr_block(evaluator, obj_function.block);
+      if (obj_function.native_function != NULL) {
+        return_value = obj_function.native_function(args);
+      } else {
+        return_value = eval_expr_block(evaluator, obj_function.block);
+      }
     }
     // We pop the scope of the function from the environment after it returns
     evaluator_envs_pop(evaluator);
@@ -160,9 +154,10 @@ Object evaluator_eval_expr(Evaluator *evaluator, Expression *expr) {
     if (value != NULL) {
       return *value;
     } else {
-      fprintf(stderr, "Error: Unknown identifier: %s\n",
-              expr->var.expr_ident.ident);
-      exit(1);
+      panic("Error: Unknown identifier: %s\n", expr->var.expr_ident.ident);
+      // fprintf(stderr, "Error: Unknown identifier: %s\n",
+      //         expr->var.expr_ident.ident);
+      // exit(1);
     }
   }
   // TODO: Function types and expressions (maybe)
@@ -171,7 +166,9 @@ Object evaluator_eval_expr(Evaluator *evaluator, Expression *expr) {
     return (Object){
         .type = OBJECT_FUNCTION,
         .var = {.obj_function = {.args = expr->var.expr_function.desc.args,
-                                 .block = block}}};
+                                 .block = block,
+                                 .native_function =
+                                     expr->var.expr_function.native_function}}};
   }
   case EXPR_CALL: {
     ExprCall expr_call = expr->var.expr_call;
@@ -283,10 +280,10 @@ void evaluator_eval_global(Evaluator *evaluator, TypeTable *global_table) {
   hashmap_foreach(
       &global_table->type_table, Ident * key, TypeTableValue * val, {
         if (val->expr_variant.type == EXPR_VAR_REG_EXPR) {
-          printf("Key: %s\n", *key);
           environment_add(
               evaluator->global_env, key,
-              evaluator_eval_expr(evaluator, &val->expr_variant.var.expr_var_reg_expr));
+              evaluator_eval_expr(evaluator,
+                                  &val->expr_variant.var.expr_var_reg_expr));
         }
       });
 }

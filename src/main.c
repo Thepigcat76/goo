@@ -1,3 +1,6 @@
+#define TARGET_LINUX 1
+#define DEBUG_BUILD 1
+
 #include "../include/builtins.h"
 #include "../include/lexer.h"
 #include "../include/parser.h"

@@ -7,9 +7,10 @@
 typedef struct {
   TypedIdent *args;
   ExprBlock *block;
+  struct _obj (*native_function)(struct _obj *objects);
 } ObjectFunction;
 
-typedef struct {
+typedef struct _obj {
   enum {
     OBJECT_INT,
     OBJECT_STRING,

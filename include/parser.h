@@ -1,9 +1,9 @@
 #pragma once
 
 #include "lexer.h"
-#include <stdbool.h>
-#include "types.h"
 #include "lilc/hashmap.h"
+#include "types.h"
+#include <stdbool.h>
 
 #define EXPR_VAR_TYPE(expr)                                                    \
   (ExpressionVariant) {                                                        \
@@ -28,6 +28,7 @@ typedef struct {
 typedef struct {
   FuncDescriptor desc;
   ExprBlock *block;
+  struct _obj (*native_function)(struct _obj *objects);
 } ExprFunction;
 
 typedef struct {
