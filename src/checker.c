@@ -149,7 +149,7 @@ static Type check_call_expr(TypeChecker *checker, ExprCall *expr_call) {
   TypeTableValue *val =
       type_table_get(checker->cur_type_table, &expr_call->function,
                      checker->global_type_table);
-  type_table_dump(checker->cur_type_table);
+  //type_table_dump(checker->cur_type_table);
 
   ExprFunction expr_function;
 
