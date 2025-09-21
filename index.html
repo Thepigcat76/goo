@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Goo</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/codemirror@5/lib/codemirror.css">
+  <script src="https://cdn.jsdelivr.net/npm/codemirror@5/lib/codemirror.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/codemirror@5/mode/javascript/javascript.js"></script>
+  <style>
+    #text-input {
+      width: 256px;
+      height: 256px;
+    }
+
+    #text-output {
+      white-space: pre-line;
+    }
+  </style>
+</head>
+
+<body>
+  <textarea name="" id="text-input"></textarea>
+  <button id="button-run">Run</button>
+  <div id="text-output">Output:</div>
+  <script src="./build/goo.js"></script>
+  <script type="module">
+    import { EditorView, basicSetup } from "https://esm.sh/codemirror@6.0.1";
+
+    var text_input = CodeMirror.fromTextArea(document.getElementById("text-input"), {
+      lineNumbers: true,
+      mode: "javascript",
+      theme: "default",
+      extensions: [],
+    });
+    window.addEventListener("load", () => {
+      Module.onRuntimeInitialized = () => {
+        const button = document.getElementById("button-run");
+        const textin = document.getElementById("text-input");
+        const textout = document.getElementById("text-output");
+
+        button.addEventListener("click", () => {
+          Module.ccall("function_println_buffer_clear", null, [], []);
+
+          const text = textin.value;
+          console.log("Editor value: " + text)
+          Module.ccall("run_program", null, ['string'], [text]);
+          const output = Module.ccall("function_println_buffer", 'int', [], []);
+          textout.textContent = "Output:\n" + Module.UTF8ToString(output);
+        });
+      }
+    });
+  </script>
+</body>
+
+</html>

@@ -33,15 +33,16 @@
 #define ARG(_ident, _type)                                                     \
   (TypedIdent) { .ident = _ident, .type = _type }
 
-#define obj_cast_int(obj_ptr) (obj_ptr)->var.obj_int
-#define obj_cast_string(obj_ptr) (obj_ptr)->var.obj_string
-
 BuiltinFunction PRINTLN_FUNCTION;
 BuiltinFunction EXIT_FUNCTION;
 
+char println_buf[1024] = {'\0'};
+
 static Object execute_println(Object *objects) {
-  char *value = obj_cast_string(&objects[0]);
-  puts(value);
+  strcat(println_buf, obj_cast_string(&objects[0]));
+  strcat(println_buf, "\n");
+  puts(println_buf);
+  puts("Uses custom print func");
   return UNIT_OBJ;
 }
 

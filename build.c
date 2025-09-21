@@ -40,24 +40,22 @@ int main(int argc, char **argv) {
   }
 
   char *compiler = build_compiler(OPTS.compiler, OPTS.target);
-  char *files = collect_src_files("../goo/src/");
-  char files_0[1024];
-  strcpy(files_0, files);
-  char *files_1 = collect_src_files("../goo/vendor/lilc/src/");
+  collect_src_files("../goo/src/");
+  char *files = collect_src_files("../goo/vendor/lilc/src/");
   char *libraries = link_libs(OPTS.libraries);
   char *flags = build_flags(&OPTS);
   char *out_name = build_name(OPTS.out_name, OPTS.target);
   if (OPTS.target == TARGET_WEB) {
     make_dir(OPTS.out_dir);
     chdir("/home/thepigcat/coding/c/emsdk/");
-    puts(files);
-    compile("emcc %s %s -o ../goo/%s/%s.js"
-            " -sEXPORTED_RUNTIME_METHODS=ccall,cwrap,FS"
-            " -sEXPORTED_FUNCTIONS=run_program"
+    compile("emcc %s -o ../goo/%s/%s.js"
+            " -sEXPORTED_RUNTIME_METHODS=ccall,cwrap,FS,UTF8ToString"
+            " -sEXPORTED_FUNCTIONS=_run_program,_function_println_buffer_clear,_"
+            "function_println_buffer"
             " -sALLOW_MEMORY_GROWTH=1"
             " -sENVIRONMENT=web"
             " -sASYNCIFY",
-            files_0, files_1, OPTS.out_dir, out_name);
+            files, OPTS.out_dir, out_name);
     puts(_internal_cmd_buf);
   } else {
     make_dir(OPTS.out_dir);
