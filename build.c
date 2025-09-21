@@ -3,10 +3,12 @@
 // can be found at <https://github.com/Thepigcat76/gurd/blob/main/gurd.h>
 
 #include "gurd.h"
+#include <unistd.h>
 
 typedef enum {
   TARGET_LINUX,
   TARGET_WIN,
+  TARGET_WEB,
 } BuildTarget;
 
 typedef struct {
@@ -24,7 +26,7 @@ static BuildOptions OPTS = {.compiler = "clang",
                             .debug = true,
                             .release = false,
                             .std = "gnu23",
-                            .target = TARGET_LINUX,
+                            .target = TARGET_WEB,
                             .out_dir = "./build/",
                             .out_name = "goo",
                             .libraries = ARRAY("lilc")};
@@ -38,18 +40,33 @@ int main(int argc, char **argv) {
   }
 
   char *compiler = build_compiler(OPTS.compiler, OPTS.target);
-  char *files = collect_src_files("./src/");
+  char *files = collect_src_files("../goo/src/");
+  char files_0[1024];
+  strcpy(files_0, files);
+  char *files_1 = collect_src_files("../goo/vendor/lilc/src/");
   char *libraries = link_libs(OPTS.libraries);
   char *flags = build_flags(&OPTS);
   char *out_name = build_name(OPTS.out_name, OPTS.target);
-
-  make_dir(OPTS.out_dir);
-  int code = compile("%s %s %s %s -o %s%s -rdynamic", OPTS.compiler, files,
-                     libraries, flags, OPTS.out_dir, out_name);
-  puts(_internal_cmd_buf);
-  if (code != 0) {
-    fprintf(stderr, "Failed to compile the program\n");
-    return code;
+  if (OPTS.target == TARGET_WEB) {
+    make_dir(OPTS.out_dir);
+    chdir("/home/thepigcat/coding/c/emsdk/");
+    puts(files);
+    compile("emcc %s %s -o ../goo/%s/%s.js"
+            " -sEXPORTED_RUNTIME_METHODS=ccall,cwrap,FS"
+            " -sEXPORTED_FUNCTIONS=run_program"
+            " -sALLOW_MEMORY_GROWTH=1"
+            " -sENVIRONMENT=web"
+            " -sASYNCIFY",
+            files_0, files_1, OPTS.out_dir, out_name);
+    puts(_internal_cmd_buf);
+  } else {
+    make_dir(OPTS.out_dir);
+    int code = compile("%s %s %s %s -o %s%s -rdynamic", OPTS.compiler, files,
+                       libraries, flags, OPTS.out_dir, out_name);
+    if (code != 0) {
+      fprintf(stderr, "Failed to compile the program\n");
+      return code;
+    }
   }
 
   if (argc >= 2) {

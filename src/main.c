@@ -6,9 +6,8 @@
 #include "../include/parser.h"
 #include "../include/checker.h"
 #include "../include/evaluator.h"
-#include "lilc/alloc.h"
-#include "lilc/array.h"
-#include <linux/limits.h>
+#include "../vendor/lilc/alloc.h"
+#include "../vendor/lilc/array.h"
 #include <stdarg.h>
 #include <stdbool.h>
 #include <stddef.h>

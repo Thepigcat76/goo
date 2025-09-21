@@ -1,7 +1,7 @@
 #pragma once
 
 #include "lexer.h"
-#include "lilc/hashmap.h"
+#include "../vendor/lilc/hashmap.h"
 #include "types.h"
 #include <stdbool.h>
 

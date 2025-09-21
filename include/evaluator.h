@@ -2,7 +2,7 @@
 
 #include "types.h"
 #include "parser.h"
-#include "lilc/hashmap.h"
+#include "../vendor/lilc/hashmap.h"
 
 typedef struct {
   TypedIdent *args;

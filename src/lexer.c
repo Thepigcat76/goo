@@ -1,5 +1,5 @@
-#include "lilc/array.h"
-#include <lilc/alloc.h>
+#include "../vendor/lilc/array.h"
+#include "../vendor/lilc/alloc.h"
 #include <string.h>
 #include <stdio.h>
 #include <ctype.h>

@@ -1,5 +1,5 @@
 #include "../include/builtins.h"
-#include "lilc/array.h"
+#include "../vendor/lilc/array.h"
 #include <stdio.h>
 
 #define BUILTIN_FUNCTION_DEFINE(_ret_type, _native_function)                   \

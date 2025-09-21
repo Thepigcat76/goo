@@ -1,7 +1,7 @@
 #pragma once
 
 #include "parser.h"
-#include "lilc/hashmap.h"
+#include "../vendor/lilc/hashmap.h"
 
 typedef Type *CallerArgs;
 

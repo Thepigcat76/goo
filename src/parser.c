@@ -1,6 +1,6 @@
 #include "../include/parser.h"
-#include "lilc/array.h"
-#include <lilc/alloc.h>
+#include "../vendor/lilc/array.h"
+#include "../vendor/lilc/alloc.h"
 #include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
