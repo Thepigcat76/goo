@@ -9,45 +9,175 @@
   <script src="https://cdn.jsdelivr.net/npm/codemirror@5/lib/codemirror.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/codemirror@5/mode/javascript/javascript.js"></script>
   <style>
-    #text-input {
-      width: 256px;
-      height: 256px;
+    #editor {
+      flex: 1;
     }
 
     #text-output {
+      border-width: 3px;
+      border-style: solid;
+      border-color: #5f5f5f;
+      flex: 1;
       white-space: pre-line;
+      background-color: rgb(189, 189, 189);
+    }
+
+    #page {
+      padding: 10px;
+    }
+
+    #text-fields {
+      display: flex;
+      gap: 100px;
+      width: 100%;
+      height: 256px;
+      justify-content: space-between;
+    }
+
+    .cm-editor {
+      border-width: 3px;
+      border-style: solid;
+      border-color: #5f5f5f;
+      height: 100%;
     }
   </style>
 </head>
 
 <body>
-  <textarea name="" id="text-input"></textarea>
-  <button id="button-run">Run</button>
-  <div id="text-output">Output:</div>
+  <div id="page">
+    <div id="header">
+      Examples:
+      <button id="example-simple">Simple Program</button>
+      <button id="example-variables">Variables and Constants</button>
+      <button id="example-casting">Casting</button>
+      <button id="example-functions">Functions</button>
+      <button id="example-overloading">Overloaded Functions</button>
+      <button id="example-generics">Generic Functions</button>
+    </div>
+    <div id="body">
+      <div id="text-fields">
+        <div id="editor"></div>
+        <div id="text-output">Output:</div>
+      </div>
+      <button id="button-run">Run</button>
+    </div>
+  </div>
   <script src="./build/goo.js"></script>
   <script type="module">
     import { EditorView, basicSetup } from "https://esm.sh/codemirror@6.0.1";
+    import { javascript, javascriptLanguage, scopeCompletionSource } from "https://esm.sh/@codemirror/lang-javascript";
 
-    var text_input = CodeMirror.fromTextArea(document.getElementById("text-input"), {
-      lineNumbers: true,
-      mode: "javascript",
-      theme: "default",
-      extensions: [],
+    const EXAMPLES = {
+      simple:
+        `main :: () {
+  println("Hello World")
+}`,
+      variables:
+        `main :: () {
+  mutable_variable := 90
+  const_variable :: "Hiiii ^.^"
+  typed_mut_variable: i32 = 89
+  typed_const_variable: string : "Hiiii -.-"
+  println(const_variable)
+}`,
+      casting:
+        `main :: () {
+  int_as_string := cast<string>(32)
+  println(int_as_string)
+}`,
+      functions:
+        `foo :: (a: i32, b: i32) {
+  println("A:")
+  println(cast<string>(a))
+  println("B:")
+  println(cast<string>(b))      
+}
+    
+main :: () {
+  foo(100, 20)
+}`,
+      overloading:
+        `print_int :: (val: i32) {
+  println(cast<string>(val))
+}
+    
+print_string :: (val: string) {
+  println(val)
+}
+  
+print :: print_int, print_string
+
+main :: () {
+  print("Hello World")
+  print(129068)
+}`,
+      generics:
+        `foo :: <T>(val: T) {
+  println("Val:")
+  println(cast<string>(val))
+}
+  
+bar :: <T, U>(val0: T, val1: U) {
+  println("Val0:")
+  println(cast<string>(val0))
+  println("Val1:")
+  println(cast<string>(val1))
+}
+    
+main :: () {
+  foo(123)
+  foo("hellope")
+  println("-------")
+  bar(100, "yippie")
+  bar("Hello World", 132)
+}`,
+    };
+
+    const editor = new EditorView({
+      doc: EXAMPLES["simple"],
+      extensions: [
+        basicSetup,
+        javascript(),
+        javascriptLanguage.data.of({ autocomplete: scopeCompletionSource(globalThis) })
+      ],
+      parent: document.querySelector("#editor")
     });
+
     window.addEventListener("load", () => {
-      Module.onRuntimeInitialized = () => {
-        const button = document.getElementById("button-run");
-        const textin = document.getElementById("text-input");
-        const textout = document.getElementById("text-output");
+      const runButton = document.getElementById("button-run");
+      const textout = document.getElementById("text-output");
 
-        button.addEventListener("click", () => {
-          Module.ccall("function_println_buffer_clear", null, [], []);
+      runButton.addEventListener("click", () => {
+        Module.ccall("function_println_buffer_clear", null, [], []);
 
-          const text = textin.value;
-          console.log("Editor value: " + text)
-          Module.ccall("run_program", null, ['string'], [text]);
-          const output = Module.ccall("function_println_buffer", 'int', [], []);
-          textout.textContent = "Output:\n" + Module.UTF8ToString(output);
+        const text = editor.state.doc.toString();
+        console.log(text);
+        Module.ccall("run_program", null, ['string'], [text]);
+        const output = Module.ccall("function_println_buffer", 'int', [], []);
+        textout.textContent = "Output:\n" + Module.UTF8ToString(output);
+      });
+
+      const example_buttons = {
+        simple: document.getElementById("example-simple"),
+        variables: document.getElementById("example-variables"),
+        casting: document.getElementById("example-casting"),
+        functions: document.getElementById("example-functions"),
+        overloading: document.getElementById("example-overloading"),
+        generics: document.getElementById("example-generics")
+      };
+
+      for (const key in example_buttons) {
+        const value = example_buttons[key];
+
+        value.addEventListener("click", () => {
+          const example_code = EXAMPLES[key];
+          editorSetValue(example_code);
+        });
+      }
+
+      function editorSetValue(text) {
+        editor.dispatch({
+          changes: { from: 0, to: editor.state.doc.length, insert: text }
         });
       }
     });
