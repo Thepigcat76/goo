@@ -1,0 +1,41 @@
+name: Deploy Goo WebAssembly
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+    
+    - name: Setup Emscripten
+      uses: mymindstorm/setup-emsdk@v12
+      with:
+        version: latest
+        actions-cache-folder: 'emsdk-cache'
+    
+    - name: Verify Emscripten installation
+      run: emcc --version
+    
+    - name: Build WebAssembly
+      run: ./build_wasm.sh
+    
+    - name: Deploy to GitHub Pages
+      if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+      uses: peaceiris/actions-gh-pages@v3
+      with:
+        github_token: ${{ secrets.GITHUB_TOKEN }}
+        publish_dir: ./web
+        cname: goo-lang.dev  # Optional: your custom domain
+    
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: goo-webassembly
+        path: web/

@@ -9,55 +9,220 @@
   <script src="https://cdn.jsdelivr.net/npm/codemirror@5/lib/codemirror.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/codemirror@5/mode/javascript/javascript.js"></script>
   <style>
-    #editor {
-      flex: 1;
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
     }
 
-    #text-output {
-      border-width: 3px;
-      border-style: solid;
-      border-color: #5f5f5f;
-      flex: 1;
-      white-space: pre-line;
-      background-color: rgb(189, 189, 189);
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+      background: #718096;
+      min-height: 100vh;
+      overflow-x: hidden;
     }
 
     #page {
-      padding: 10px;
+      padding: 20px;
+      max-width: 1400px;
+      margin: 0 auto;
+      min-height: 100vh;
+    }
+
+    #header {
+      background: #f7fafc;
+      padding: 20px;
+      margin-bottom: 20px;
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
+    }
+
+    #header h1 {
+      font-size: 28px;
+      font-weight: 700;
+      color: #2d3748;
+      margin-bottom: 15px;
+      text-align: center;
+    }
+
+    .examples-container {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      justify-content: center;
+    }
+
+    button {
+      background: #a6b2be;
+      color: white;
+      border: 2px solid #a6b2be;
+      padding: 12px 20px;
+      font-weight: 600;
+      font-size: 14px;
+      cursor: pointer;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+    }
+
+    button:hover {
+      background: #87939e;
+      border-color: #87939e;
+    }
+
+    button:active {
+      background: #a6b2be;
+    }
+
+    #body {
+      background: #f7fafc;
+      padding: 25px;
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
     }
 
     #text-fields {
       display: flex;
-      gap: 100px;
+      gap: 20px;
       width: 100%;
-      height: 256px;
-      justify-content: space-between;
+      height: 400px;
+      margin-bottom: 20px;
+    }
+
+    .editor-section, .output-section {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .tab-header {
+      background: #cbd5e0;
+      padding: 8px 16px;
+      font-weight: 600;
+      font-size: 14px;
+      color: #2d3748;
+      border: 2px solid #cbd5e0;
+      border-bottom: none;
+    }
+
+    #editor {
+      flex: 1;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+    }
+
+    #text-output {
+      flex: 1;
+      white-space: pre-line;
+      background: #edf2f7;
+      border: 2px solid #cbd5e0;
+      border-top: none;
+      padding: 20px;
+      font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+      font-size: 14px;
+      line-height: 1.6;
+      color: #2d3748;
+      overflow-y: auto;
     }
 
     .cm-editor {
-      border-width: 3px;
-      border-style: solid;
-      border-color: #5f5f5f;
-      height: 100%;
+      height: 100% !important;
+      border: 2px solid #cbd5e0;
+      border-top: none;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
     }
+
+    .cm-focused {
+      outline: none;
+      border-color: #a6b2be;
+    }
+
+    #button-run {
+      background: #267e4a;
+      font-size: 18px;
+      padding: 15px 40px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+      display: block;
+      margin: 0 auto;
+      min-width: 200px;
+      border: 2px solid #267e4a;
+    }
+
+    #button-run:hover {
+      background: rgb(38, 148, 84);
+      border-color: rgb(38, 148, 84);
+    }
+
+    /* Scrollbar styling */
+    ::-webkit-scrollbar {
+      width: 8px;
+    }
+
+    ::-webkit-scrollbar-track {
+      background: #f1f5f9;
+    }
+
+    ::-webkit-scrollbar-thumb {
+      background: #a6b2be;
+    }
+
+    ::-webkit-scrollbar-thumb:hover {
+      background: #a6b2be;
+    }
+
+    /* Responsive design */
+    @media (max-width: 768px) {
+      #text-fields {
+        flex-direction: column;
+        height: auto;
+        gap: 15px;
+      }
+
+      .editor-section, .output-section {
+        height: 250px;
+      }
+
+      .examples-container {
+        flex-direction: column;
+        align-items: center;
+      }
+
+      button {
+        width: 100%;
+        max-width: 300px;
+      }
+
+      #page {
+        padding: 15px;
+      }
+    }
+
+    /* Remove animations for static design */
   </style>
 </head>
 
 <body>
   <div id="page">
     <div id="header">
-      Examples:
-      <button id="example-simple">Simple Program</button>
-      <button id="example-variables">Variables and Constants</button>
-      <button id="example-casting">Casting</button>
-      <button id="example-functions">Functions</button>
-      <button id="example-overloading">Overloaded Functions</button>
-      <button id="example-generics">Generic Functions</button>
+      <h1>Goo-Lang</h1>
+      <p style="text-align: center; color: #4a5568; margin-bottom: 20px; font-size: 16px;">Online interpreter for my language experiment</p>
+      <div class="examples-container">
+        <button id="example-simple">Simple Program</button>
+        <button id="example-variables">Variables & Constants</button>
+        <button id="example-casting">Type Casting</button>
+        <button id="example-functions">Functions</button>
+        <button id="example-overloading">Function Overloading</button>
+        <button id="example-generics">Generic Functions</button>
+      </div>
     </div>
     <div id="body">
       <div id="text-fields">
-        <div id="editor"></div>
-        <div id="text-output">Output:</div>
+        <div class="editor-section">
+          <div class="tab-header">Code</div>
+          <div id="editor"></div>
+        </div>
+        <div class="output-section">
+          <div class="tab-header">Output</div>
+          <div id="text-output"></div>
+        </div>
       </div>
       <button id="button-run">Run</button>
     </div>
@@ -154,7 +319,7 @@ main :: () {
         console.log(text);
         Module.ccall("run_program", null, ['string'], [text]);
         const output = Module.ccall("function_println_buffer", 'int', [], []);
-        textout.textContent = "Output:\n" + Module.UTF8ToString(output);
+        textout.textContent = Module.UTF8ToString(output);
       });
 
       const example_buttons = {
