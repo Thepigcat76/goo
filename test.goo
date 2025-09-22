@@ -5,5 +5,5 @@ foo :: <T, K, E>(val: T, val1: K, val2: E) -> T {
 main :: () {
   foo(100, 100, 100)
 
-  foo("hello", 100, "test")
+  foo("hello", 100, "test111")
 }
