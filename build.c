@@ -26,7 +26,7 @@ static BuildOptions OPTS = {.compiler = "clang",
                             .debug = true,
                             .release = false,
                             .std = "gnu23",
-                            .target = TARGET_WEB,
+                            .target = TARGET_LINUX,
                             .out_dir = "./build/",
                             .out_name = "goo",
                             .libraries = ARRAY("lilc")};
@@ -56,7 +56,6 @@ int main(int argc, char **argv) {
             " -sENVIRONMENT=web"
             " -sASYNCIFY",
             files, OPTS.out_dir, out_name);
-    puts(_internal_cmd_buf);
   } else {
     make_dir(OPTS.out_dir);
     int code = compile("%s %s %s %s -o %s%s -rdynamic", OPTS.compiler, files,

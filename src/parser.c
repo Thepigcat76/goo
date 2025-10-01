@@ -1,6 +1,6 @@
 #include "../include/parser.h"
-#include "../vendor/lilc/array.h"
 #include "../vendor/lilc/alloc.h"
+#include "../vendor/lilc/array.h"
 #include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
@@ -10,7 +10,7 @@
     char print_buf[64];                                                        \
     lexer_tok_print(print_buf, received_ptr);                                  \
     fprintf(stderr, "Expected " #expected ", received: %s", print_buf);        \
-    exit(1);                                                                    \
+    exit(1);                                                                   \
   } while (0)
 
 #define ILLEGAL_TOKEN_ERR(tok)                                                 \
@@ -22,8 +22,8 @@ const OptionalType OPT_TYPE_EMPTY = {.present = false};
 
 Parser parser_new(Token *tokens) {
   return (Parser){
-    .tokens = tokens,
-    .statements = array_new(Statement, &HEAP_ALLOCATOR),
+      .tokens = tokens,
+      .statements = array_new(Statement, &HEAP_ALLOCATOR),
   };
 }
 
@@ -736,6 +736,10 @@ static Expression parse_expr(Parser *parser) {
   case TOKEN_DOT:
   case TOKEN_PLUS:
   case TOKEN_MINUS:
+  case TOKEN_ASTERISK:
+  case TOKEN_SLASH:
+  case TOKEN_LTE:
+  case TOKEN_GTE:
   case TOKEN_ASSIGN:
   case TOKEN_RSQUARE:
   case TOKEN_ILLEGAL: {
@@ -789,6 +793,30 @@ static Statement parse_stmt(Parser *parser) {
                                         .type = TYPE_EXPR_OVERLOAD_SET,
                                         .var = {.type_expr_overload_set = {
                                                     .functions = idents}}}}}}}};
+      } else if (parser->cur_tok->type == TOKEN_STRUCT) {
+        printf("Structs are structing\n");
+        if (parser->peek_tok->type == TOKEN_LCURLY) {
+          // cur_tok is TOKEN_LCURLY
+          next_token(parser);
+          // cur_tok is first ident of fields
+          next_token(parser);
+          TypedIdent *fields = parse_typed_ident_list(parser, TOKEN_RCURLY);
+          stmt = (Statement){
+              .type = STMT_DECL,
+              .var = {
+                  .stmt_decl = {.name = name,
+                                .mutable = mutable,
+                                .value = (ExpressionVariant){
+                                    .type = EXPR_VAR_TYPE_EXPR,
+                                    .var = {.expr_var_type_expr = {
+                                                .type = TYPE_EXPR_STRUCT,
+                                                .var = {.type_expr_struct = {
+                                                            .fields = fields,
+                                                            .generics = NULL,
+                                                        }}}}}}}};
+        } else {
+          EXPECTED_TOKEN_ERR(TOKEN_LCURLY, parser->peek_tok);
+        }
       } else {
         Expression value = parse_expr(parser);
         stmt = (Statement){
@@ -892,6 +920,22 @@ static Statement parse_stmt(Parser *parser) {
   }
   case TOKEN_RSQUARE: {
     ILLEGAL_TOKEN_ERR(TOKEN_RSQUARE);
+    break;
+  }
+  case TOKEN_LTE: {
+    ILLEGAL_TOKEN_ERR(TOKEN_LTE);
+    break;
+  }
+  case TOKEN_GTE: {
+    ILLEGAL_TOKEN_ERR(TOKEN_GTE);
+    break;
+  }
+  case TOKEN_SLASH: {
+    ILLEGAL_TOKEN_ERR(TOKEN_SLASH);
+    break;
+  }
+  case TOKEN_ASTERISK: {
+    ILLEGAL_TOKEN_ERR(TOKEN_ASTERISK);
     break;
   }
   }

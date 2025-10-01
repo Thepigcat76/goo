@@ -42,7 +42,6 @@ static Object execute_println(Object *objects) {
   strcat(println_buf, obj_cast_string(&objects[0]));
   strcat(println_buf, "\n");
   puts(println_buf);
-  puts("Uses custom print func");
   return UNIT_OBJ;
 }
 

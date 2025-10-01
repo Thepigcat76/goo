@@ -3,6 +3,17 @@
 #include "types.h"
 #include "parser.h"
 #include "../vendor/lilc/hashmap.h"
+#include <stdio.h>
+
+#define obj_cast_int(obj_ptr) (obj_ptr)->var.obj_int
+#define obj_cast_string(obj_ptr) (obj_ptr)->var.obj_string
+
+static int exit_with_msg(char *err_msg, int exit_code) {
+  fputs(err_msg, stderr);
+  exit(exit_code);
+}
+
+#define obj_try_cast_int(obj_ptr, err_msg) ((obj_ptr)->type == OBJECT_INT) ? (obj_ptr)->var.obj_int : exit_with_msg(err_msg, 1)
 
 typedef struct {
   TypedIdent *args;

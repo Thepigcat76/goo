@@ -16,6 +16,8 @@ typedef enum {
   TOKEN_RCURLY,
   TOKEN_LANGLE,
   TOKEN_RANGLE,
+  TOKEN_LTE,
+  TOKEN_GTE,
   TOKEN_LSQUARE,
   TOKEN_RSQUARE,
   TOKEN_ARROW,
@@ -23,8 +25,11 @@ typedef enum {
   TOKEN_DOT,
   TOKEN_PLUS,
   TOKEN_MINUS,
+  TOKEN_SLASH,
+  TOKEN_ASTERISK,
   TOKEN_ASSIGN,
   TOKEN_CAST,
+  TOKEN_STRUCT,
   TOKEN_EOF,
   TOKEN_ILLEGAL,
 } TokenType;
@@ -36,6 +41,10 @@ typedef struct {
     char *string;
     int integer;
   } var;
+  // Beginning character of this token
+  const char *begin;
+  // Length of this token in the src text
+  size_t len;
 } Token;
 
 typedef struct {

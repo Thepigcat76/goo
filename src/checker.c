@@ -1,10 +1,10 @@
 #include "../include/checker.h"
-#include "../include/types.h"
 #include "../include/generics.h"
-#include "../vendor/lilc/hash.h"
-#include "../vendor/lilc/eq.h"
-#include "../vendor/lilc/array.h"
+#include "../include/types.h"
 #include "../vendor/lilc/alloc.h"
+#include "../vendor/lilc/array.h"
+#include "../vendor/lilc/eq.h"
+#include "../vendor/lilc/hash.h"
 #include <stdio.h>
 
 static void checker_type_table_push(TypeChecker *checker);
@@ -22,14 +22,19 @@ TypeChecker checker_new(Statement *stmts) {
   return checker;
 }
 
-void type_table_add(TypeTable *table, Ident *ident,
-                           ExpressionVariant expr_var, OptionalType opt_type) {
+void type_table_add(TypeTable *table, Ident *ident, ExpressionVariant expr_var,
+                    OptionalType opt_type) {
   TypeTableValue val = {.expr_variant = expr_var, .opt_type = opt_type};
   bool inserted = hashmap_insert(&table->type_table, ident, &val);
 }
 
+void type_table_add_generic(TypeTable *table, Ident *name) {
+  TypeTableValue val = {.is_generic = true};
+  bool inserted = hashmap_insert(&table->type_table, name, &val);
+}
+
 TypeTableValue *type_table_get(TypeTable *table, Ident *ident,
-                                      TypeTable *global_table) {
+                               TypeTable *global_table) {
   TypeTableValue *res = hashmap_value(&table->type_table, ident);
 
   if (res == NULL && global_table != NULL) {
@@ -149,7 +154,7 @@ static Type check_call_expr(TypeChecker *checker, ExprCall *expr_call) {
   TypeTableValue *val =
       type_table_get(checker->cur_type_table, &expr_call->function,
                      checker->global_type_table);
-  //type_table_dump(checker->cur_type_table);
+  // type_table_dump(checker->cur_type_table);
 
   ExprFunction expr_function;
 
@@ -237,6 +242,16 @@ static Type check_call_expr(TypeChecker *checker, ExprCall *expr_call) {
   return expr_function.desc.ret_type;
 }
 
+static bool is_type_generic(const TypeChecker *checker, Type *type) {
+  if (type->type == TYPE_IDENT) {
+    TypeTableValue *val =
+        type_table_get(checker->cur_type_table, &type->var.type_ident,
+                       checker->global_type_table);
+    return val != NULL && val->is_generic;
+  }
+  return false;
+}
+
 // TODO: Create a type table ident -> type
 static Type check_expr(TypeChecker *checker, Expression *expr) {
   switch (expr->type) {
@@ -259,18 +274,22 @@ static Type check_expr(TypeChecker *checker, Expression *expr) {
     ExprFunction expr_function = expr->var.expr_function;
     checker_type_table_push(checker);
     {
+      // Add func args to typetable
       for (size_t i = 0; i < array_len(expr_function.desc.args); i++) {
         Type type = expr_function.desc.args[i].type;
-        char print_buf[1024];
-        type_print(print_buf, &type);
-        // printf("arg (%zu, %s) type: %s\n", i,
-        // expr_function.desc.args[i].ident,
-        //        print_buf);
         type_table_add(
             checker->cur_type_table, &expr_function.desc.args[i].ident,
             (ExpressionVariant){.type = EXPR_VAR_REG_EXPR,
                                 .var = {.expr_var_reg_expr = UNIT_EXPR}},
             (OptionalType){.type = type, .present = true});
+      }
+
+      // Add func generics to typetable
+      if (expr_function.desc.generics != NULL) {
+        for (size_t i = 0; i < array_len(expr_function.desc.generics); i++) {
+          Generic *generic = &expr_function.desc.generics[i];
+          type_table_add_generic(checker->cur_type_table, &generic->name);
+        }
       }
 
       for (size_t i = 0; i < array_len(expr_function.block->statements); i++) {
@@ -300,10 +319,11 @@ static Type check_expr(TypeChecker *checker, Expression *expr) {
     Type cast_type = expr->var.expr_cast.type;
     if (type_eq(&expr_type, &cast_type))
       goto return_type;
-    if (type_eq(&expr_type, &STRING_BUILTIN_TYPE) &&
-            type_eq(&cast_type, &INT_BUILTIN_TYPE) ||
-        type_eq(&cast_type, &STRING_BUILTIN_TYPE) &&
-            type_eq(&expr_type, &INT_BUILTIN_TYPE)) {
+    if ((type_eq(&expr_type, &STRING_BUILTIN_TYPE) &&
+         type_eq(&cast_type, &INT_BUILTIN_TYPE)) ||
+        (type_eq(&cast_type, &STRING_BUILTIN_TYPE) &&
+         type_eq(&expr_type, &INT_BUILTIN_TYPE)) ||
+        is_type_generic(checker, &expr_type)) {
     } else {
       fprintf(stderr, "Cannot cast expr to this type\n");
     }
@@ -340,6 +360,10 @@ static Type check_expr(TypeChecker *checker, Expression *expr) {
   }
   case EXPR_UNIT: {
     return UNIT_BUILTIN_TYPE;
+  }
+  case EXPR_BIN_OP: {
+    // TODO: Implement proper type checking
+    return INT_BUILTIN_TYPE;
   }
   }
 }

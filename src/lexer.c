@@ -1,109 +1,129 @@
-#include "../vendor/lilc/array.h"
+#include "../include/lexer.h"
 #include "../vendor/lilc/alloc.h"
-#include <string.h>
-#include <stdio.h>
+#include "../vendor/lilc/array.h"
 #include <ctype.h>
 #include <stdbool.h>
-#include "../include/lexer.h"
+#include <stdio.h>
+#include <string.h>
 
 Lexer lexer_new(void) {
   return (Lexer){
-    .tokens = array_new(Token, &HEAP_ALLOCATOR),
+      .tokens = array_new(Token, &HEAP_ALLOCATOR),
   };
 }
 
 void lexer_tok_print(char *buf, const Token *tok) {
   switch (tok->type) {
   case TOKEN_IDENT: {
-    printf("TOKEN_IDENT{ident=%s}\n", tok->var.ident);
+    sprintf(buf, "TOKEN_IDENT{ident=%s}\n", tok->var.ident);
     break;
   }
   case TOKEN_STRING: {
-    printf("TOKEN_STRING{string=\"%s\"}\n", tok->var.string);
+    sprintf(buf, "TOKEN_STRING{string=\"%s\"}\n", tok->var.string);
     break;
   }
   case TOKEN_INT: {
-    printf("TOKEN_INT{integer=%d}\n", tok->var.integer);
+    sprintf(buf, "TOKEN_INT{integer=%d}\n", tok->var.integer);
     break;
   }
   case TOKEN_CAST: {
-    printf("TOKEN_CAST ('cast')\n");
+    sprintf(buf, "TOKEN_CAST ('cast')\n");
     break;
   }
   case TOKEN_DECL_CONST: {
-    printf("TOKEN_DECL_CONST ('::')\n");
+    sprintf(buf, "TOKEN_DECL_CONST ('::')\n");
     break;
   }
   case TOKEN_DECL_VAR: {
-    printf("TOKEN_DECL_VAR (':=')\n");
+    sprintf(buf, "TOKEN_DECL_VAR (':=')\n");
     break;
   }
   case TOKEN_COLON: {
-    printf("TOKEN_COLON (':')\n");
+    sprintf(buf, "TOKEN_COLON (':')\n");
     break;
   }
   case TOKEN_LPAREN: {
-    printf("TOKEN_LPAREN ('(')\n");
+    sprintf(buf, "TOKEN_LPAREN ('(')\n");
     break;
   }
   case TOKEN_RPAREN: {
-    printf("TOKEN_RPAREN (')')\n");
+    sprintf(buf, "TOKEN_RPAREN (')')\n");
     break;
   }
   case TOKEN_LCURLY: {
-    printf("TOKEN_LCURLY ('{')\n");
+    sprintf(buf, "TOKEN_LCURLY ('{')\n");
     break;
   }
   case TOKEN_RCURLY: {
-    printf("TOKEN_RCURLY ('}')\n");
+    sprintf(buf, "TOKEN_RCURLY ('}')\n");
     break;
   }
   case TOKEN_LANGLE: {
-    printf("TOKEN_LANGLE ('<')\n");
+    sprintf(buf, "TOKEN_LANGLE ('<')\n");
     break;
   }
   case TOKEN_RANGLE: {
-    printf("TOKEN_RANGLE ('>')\n");
+    sprintf(buf, "TOKEN_RANGLE ('>')\n");
     break;
   }
   case TOKEN_LSQUARE: {
-    printf("TOKEN_LSQUARE ('[')\n");
+    sprintf(buf, "TOKEN_LSQUARE ('[')\n");
     break;
   }
   case TOKEN_RSQUARE: {
-    printf("TOKEN_RSQUARE (']')\n");
+    sprintf(buf, "TOKEN_RSQUARE (']')\n");
     break;
   }
   case TOKEN_ARROW: {
-    printf("TOKEN_ARROW ('->')\n");
+    sprintf(buf, "TOKEN_ARROW ('->')\n");
     break;
   }
   case TOKEN_COMMA: {
-    printf("TOKEN_COMMA (',')\n");
+    sprintf(buf, "TOKEN_COMMA (',')\n");
     break;
   }
   case TOKEN_DOT: {
-    printf("TOKEN_DOT ('.')\n");
+    sprintf(buf, "TOKEN_DOT ('.')\n");
     break;
   }
   case TOKEN_PLUS: {
-    printf("TOKEN_PLUS ('+')\n");
+    sprintf(buf, "TOKEN_PLUS ('+')\n");
     break;
   }
   case TOKEN_MINUS: {
-    printf("TOKEN_MINUS ('-')\n");
+    sprintf(buf, "TOKEN_MINUS ('-')\n");
+    break;
+  }
+  case TOKEN_ASTERISK: {
+    sprintf(buf, "TOKEN_ASTERISK ('*')\n");
+    break;
+  }
+  case TOKEN_SLASH: {
+    sprintf(buf, "TOKEN_SLASH ('/')\n");
+    break;
+  }
+  case TOKEN_LTE: {
+    sprintf(buf, "TOKEN_LTE ('<=')\n");
+    break;
+  }
+  case TOKEN_GTE: {
+    sprintf(buf, "TOKEN_GTE ('>=')\n");
     break;
   }
   case TOKEN_ASSIGN: {
-    printf("TOKEN_ASSIGN ('=')\n");
+    sprintf(buf, "TOKEN_ASSIGN ('=')\n");
+    break;
+  }
+  case TOKEN_STRUCT: {
+    sprintf(buf, "TOKEN_STRUCT ('struct')\n");
     break;
   }
   case TOKEN_EOF: {
-    printf("TOKEN_EOF\n");
+    sprintf(buf, "TOKEN_EOF\n");
     break;
   }
   case TOKEN_ILLEGAL: {
-    printf("TOKEN_ILLEGAL\n");
+    sprintf(buf, "TOKEN_ILLEGAL\n");
     break;
   }
   }
@@ -124,9 +144,18 @@ void lexer_tokenize(Lexer *lexer, const char *src) {
         next_char(lexer);
       } while (*lexer->cur_char == ' ');
       continue;
+    } else if (*lexer->cur_char == '#') {
+      size_t len = 0;
+      while (*(lexer->cur_char + 1) != '\n' && *(lexer->cur_char + 1) != '\0') {
+        next_char(lexer);
+        len++;
+      }
+      next_char(lexer);
+      continue;
     } else if (*lexer->cur_char == '\0') {
       return;
     } else if (isalpha(*lexer->cur_char) || *lexer->cur_char == '_') {
+      const char *begin = lexer->cur_char;
       size_t cap = 256;
       char ident[cap];
 
@@ -145,12 +174,17 @@ void lexer_tokenize(Lexer *lexer, const char *src) {
 
       if (strcmp(ident, "cast") == 0) {
         tok.type = TOKEN_CAST;
+      } else if (strcmp(ident, "struct") == 0) {
+        tok.type = TOKEN_STRUCT;
       } else {
         tok.type = TOKEN_IDENT;
         tok.var.ident = malloc(strlen(ident) + 1);
         strcpy(tok.var.ident, ident);
       }
+      tok.begin = begin;
+      tok.len = i;
     } else if (*lexer->cur_char == '"') {
+      const char *begin = lexer->cur_char;
       char *string = malloc(256 * sizeof(char));
       next_char(lexer);
       size_t i = 0;
@@ -159,10 +193,11 @@ void lexer_tokenize(Lexer *lexer, const char *src) {
         next_char(lexer);
       }
       string[i] = '\0';
-      tok = (Token){.type = TOKEN_STRING, .var = {.string = strdup(string)}};
+      tok = (Token){.type = TOKEN_STRING, .var = {.string = strdup(string)}, .begin = begin, .len = i};
     } else if (*lexer->cur_char >= '0' && *lexer->cur_char <= '9') {
+      const char *begin = lexer->cur_char;
       size_t cap = 32;
-      char *int_lit = malloc(cap);
+      char int_lit[cap];
       size_t i = 0;
       do {
         if (i >= cap - 1) {
@@ -174,49 +209,65 @@ void lexer_tokenize(Lexer *lexer, const char *src) {
       } while (*lexer->cur_char >= '0' && *lexer->cur_char <= '9');
       lexer->cur_char--;
       int_lit[i] = '\0';
-      tok = (Token){.type = TOKEN_INT, .var = {.integer = atoi(int_lit)}};
+      tok = (Token){.type = TOKEN_INT, .var = {.integer = atoi(int_lit)}, .begin = begin, .len = i};
     } else if (*lexer->cur_char == ':') {
       if (*(lexer->cur_char + 1) == ':') {
-        tok = (Token){.type = TOKEN_DECL_CONST};
+        tok = (Token){.type = TOKEN_DECL_CONST, .begin = lexer->cur_char, .len = 2};
         next_char(lexer);
       } else if (*(lexer->cur_char + 1) == '=') {
-        tok = (Token){.type = TOKEN_DECL_VAR};
+        tok = (Token){.type = TOKEN_DECL_VAR, .begin = lexer->cur_char, .len = 2};
         next_char(lexer);
       } else {
-        tok = (Token){.type = TOKEN_COLON};
+        tok = (Token){.type = TOKEN_COLON, .begin = lexer->cur_char, .len = 1};
       }
     } else if (*lexer->cur_char == '(') {
-      tok = (Token){.type = TOKEN_LPAREN};
+      tok = (Token){.type = TOKEN_LPAREN, .begin = lexer->cur_char, .len = 1};
     } else if (*lexer->cur_char == ')') {
-      tok = (Token){.type = TOKEN_RPAREN};
+      tok = (Token){.type = TOKEN_RPAREN, .begin = lexer->cur_char, .len = 1};
     } else if (*lexer->cur_char == '{') {
-      tok = (Token){.type = TOKEN_LCURLY};
+      tok = (Token){.type = TOKEN_LCURLY, .begin = lexer->cur_char, .len = 1};
     } else if (*lexer->cur_char == '}') {
-      tok = (Token){.type = TOKEN_RCURLY};
+      tok = (Token){.type = TOKEN_RCURLY, .begin = lexer->cur_char, .len = 1};
     } else if (*lexer->cur_char == '<') {
-      tok = (Token){.type = TOKEN_LANGLE};
+      if (*(lexer->cur_char + 1) == '=') {
+        tok = (Token){.type = TOKEN_LTE, .begin = lexer->cur_char, .len = 2};
+        next_char(lexer);
+      } else {
+        tok = (Token){.type = TOKEN_LANGLE, .begin = lexer->cur_char, .len = 1};
+      }
     } else if (*lexer->cur_char == '>') {
-      tok = (Token){.type = TOKEN_RANGLE};
-    } else if (*lexer->cur_char == '-' && *(lexer->cur_char + 1) == '>') {
-      tok = (Token){.type = TOKEN_ARROW};
-      next_char(lexer);
+      if (*(lexer->cur_char + 1) == '=') {
+        tok = (Token){.type = TOKEN_GTE, .begin = lexer->cur_char, .len = 2};
+        next_char(lexer);
+      } else {
+        tok = (Token){.type = TOKEN_RANGLE, .begin = lexer->cur_char, .len = 1};
+      }
     } else if (*lexer->cur_char == ',') {
-      tok = (Token){.type = TOKEN_COMMA};
+      tok = (Token){.type = TOKEN_COMMA, .begin = lexer->cur_char, .len = 1};
     } else if (*lexer->cur_char == '+') {
-      tok = (Token){.type = TOKEN_PLUS};
+      tok = (Token){.type = TOKEN_PLUS, .begin = lexer->cur_char, .len = 1};
     } else if (*lexer->cur_char == '-') {
-      tok = (Token){.type = TOKEN_MINUS};
+      if (*(lexer->cur_char + 1) == '>') {
+        tok = (Token){.type = TOKEN_ARROW, .begin = lexer->cur_char, .len = 12};
+        next_char(lexer);
+      } else {
+        tok = (Token){.type = TOKEN_MINUS, .begin = lexer->cur_char, .len = 1};
+      }
     } else if (*lexer->cur_char == '.') {
-      tok = (Token){.type = TOKEN_DOT};
+      tok = (Token){.type = TOKEN_DOT, .begin = lexer->cur_char, .len = 1};
     } else if (*lexer->cur_char == '=') {
-      tok = (Token){.type = TOKEN_ASSIGN};
+      tok = (Token){.type = TOKEN_ASSIGN, .begin = lexer->cur_char, .len = 1};
     } else if (*lexer->cur_char == '[') {
-      tok = (Token){.type = TOKEN_LSQUARE};
+      tok = (Token){.type = TOKEN_LSQUARE, .begin = lexer->cur_char, .len = 1};
     } else if (*lexer->cur_char == ']') {
-      tok = (Token){.type = TOKEN_RSQUARE};
+      tok = (Token){.type = TOKEN_RSQUARE, .begin = lexer->cur_char, .len = 1};
+    } else if (*lexer->cur_char == '*') {
+      tok = (Token){.type = TOKEN_ASTERISK, .begin = lexer->cur_char, .len = 1};
+    } else if (*lexer->cur_char == '/') {
+      tok = (Token){.type = TOKEN_SLASH, .begin = lexer->cur_char, .len = 1};
     } else {
       printf("Illegal token cur char: %c\n", *lexer->cur_char);
-      tok = (Token){.type = TOKEN_ILLEGAL};
+      tok = (Token){.type = TOKEN_ILLEGAL, .begin = lexer->cur_char, .len = 0};
     }
     array_add(lexer->tokens, tok);
     next_char(lexer);

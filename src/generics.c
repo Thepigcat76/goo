@@ -78,6 +78,7 @@ static void transform_generic_expr(TypeChecker *checker, Expression *expr,
   case EXPR_GENERIC_CALL: {
     break;
   }
+  case EXPR_BIN_OP:
   case EXPR_CALL:
   case EXPR_STRING_LIT:
   case EXPR_INTEGER_LIT:

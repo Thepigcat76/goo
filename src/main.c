@@ -1,8 +1,11 @@
-#define TARGET_LINUX 1
-#define DEBUG_BUILD 1
-
+#ifdef TARGET_WEB
 #include <emscripten.h>
 #include <emscripten/emscripten.h>
+#define KEEPALIVE EMSCRIPTEN_KEEPALIVE
+#define main _regular_main
+#else
+#define KEEPALIVE
+#endif
 
 #include "../include/builtins.h"
 #include "../include/checker.h"
@@ -19,18 +22,17 @@
 
 static Object execute_println_custom_buf(Object *args) {
   strcat(println_buf, obj_cast_string(&args[0]));
-  puts("Uses custom print func");
   return UNIT_OBJ;
 }
 
-EMSCRIPTEN_KEEPALIVE
+KEEPALIVE
 void function_println_use_buffer(void) {
   PRINTLN_FUNCTION.execute = execute_println_custom_buf;
   PRINTLN_FUNCTION.expr.var.expr_function.native_function =
       execute_println_custom_buf;
 }
 
-EMSCRIPTEN_KEEPALIVE
+KEEPALIVE
 void run_program(char *buf) {
   alloc_init();
 
@@ -39,14 +41,20 @@ void run_program(char *buf) {
   lexer_tokenize(&lexer, buf);
   array_add(lexer.tokens, (Token){.type = TOKEN_EOF});
 
+  for (size_t i = 0; i < array_len(lexer.tokens); i++) {
+    char print_buf[256];
+    lexer_tok_print(print_buf, &lexer.tokens[i]);
+    printf("%s", print_buf);
+  }
+
   Parser parser = parser_new(lexer.tokens);
 
   parser_parse(&parser);
 
   TypeChecker checker = checker_new(parser.statements);
-
+#ifdef TARGET_WEB
   function_println_use_buffer();
-
+#endif
   builtin_functions_init(checker.global_type_table);
 
   checker_check(&checker);
@@ -57,18 +65,20 @@ void run_program(char *buf) {
 
   evaluator_eval_global(&evaluator, checker.global_type_table);
 
+  puts("---");
+
   Expression expr = {.type = EXPR_CALL,
                      .var = {.expr_call = {.function = "main", .args = NULL}}};
   evaluator_eval_expr(&evaluator, &expr);
 }
 
-EMSCRIPTEN_KEEPALIVE
+KEEPALIVE
 char *function_println_buffer(void) { return println_buf; }
 
-EMSCRIPTEN_KEEPALIVE
+KEEPALIVE
 void function_println_buffer_clear(void) { println_buf[0] = '\0'; }
 
-int _main(void) {
+int main(void) {
   char file_buf[4096];
   FILE *file = fopen("test.goo", "r");
   size_t n = fread(file_buf, 1, sizeof(file_buf) - 1, file);

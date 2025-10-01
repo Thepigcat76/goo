@@ -51,16 +51,41 @@ typedef struct {
   ExprCall expr_call;
 } ExprGenericCall;
 
+typedef enum {
+  BIN_OP_ADD,
+  BIN_OP_SUB,
+  BIN_OP_MUL,
+  BIN_OP_DIV,
+  
+  BIN_OP_LT,
+  BIN_OP_GT,
+  BIN_OP_LTE,
+  BIN_OP_GTE,
+} BinOperator;
+
+typedef struct {
+  struct _expr *left;
+  struct _expr *right;
+  BinOperator op;
+} ExprBinOp;
+
 typedef struct {
   Ident *functions;
 } TypeExprOverloadSet;
 
 typedef struct {
+  Generic *generics;
+  TypedIdent *fields;
+} TypeExprStruct;
+
+typedef struct {
   enum {
     TYPE_EXPR_OVERLOAD_SET,
+    TYPE_EXPR_STRUCT,
   } type;
   union {
     TypeExprOverloadSet type_expr_overload_set;
+    TypeExprStruct type_expr_struct;
   } var;
 } TypeExpr;
 
@@ -76,6 +101,7 @@ typedef struct _expr {
     EXPR_INTEGER_LIT,
     EXPR_IDENT,
     EXPR_UNIT,
+    EXPR_BIN_OP,
   } type;
   union {
     ExprArray expr_array;
@@ -84,6 +110,7 @@ typedef struct _expr {
     ExprCall expr_call;
     ExprGenericCall expr_generic_call;
     ExprCast expr_cast;
+    ExprBinOp expr_bin_op;
     struct {
       Ident ident;
     } expr_ident;
@@ -94,6 +121,8 @@ typedef struct _expr {
       int integer;
     } expr_integer_literal;
   } var;
+  const char *begin;
+  size_t len;
 } Expression;
 
 extern const Expression UNIT_EXPR;
@@ -119,6 +148,7 @@ typedef struct {
 typedef struct {
   ExpressionVariant expr_variant;
   OptionalType opt_type;
+  bool is_generic;
 } TypeTableValue;
 
 typedef struct {

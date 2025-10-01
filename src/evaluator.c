@@ -146,6 +146,8 @@ Object eval_expr_call(Evaluator *evaluator, const ExprCall *expr_call) {
   return UNIT_OBJ;
 }
 
+#define OBJ_INT(_int) (Object){.type = OBJECT_INT, .var = {.obj_int = _int}}
+
 Object evaluator_eval_expr(Evaluator *evaluator, Expression *expr) {
   switch (expr->type) {
   case EXPR_IDENT: {
@@ -252,6 +254,41 @@ Object evaluator_eval_expr(Evaluator *evaluator, Expression *expr) {
   }
   case EXPR_UNIT: {
     return UNIT_OBJ;
+  }
+  case EXPR_BIN_OP: {
+    BinOperator op = expr->var.expr_bin_op.op;
+    Object left_obj = evaluator_eval_expr(evaluator, expr->var.expr_bin_op.left);
+    Object right_obj = evaluator_eval_expr(evaluator, expr->var.expr_bin_op.right);
+
+    int left = obj_try_cast_int(&left_obj, "Left object of bin expr is not an integer");
+    int right = obj_try_cast_int(&right_obj, "Right object of bin expr is not an integer");
+
+    switch (op) {
+    case BIN_OP_ADD: {
+      return OBJ_INT(left + right);
+    }
+    case BIN_OP_SUB: {
+      return OBJ_INT(left - right);
+    }
+    case BIN_OP_MUL: {
+      return OBJ_INT(left * right);
+    }
+    case BIN_OP_DIV: {
+      return OBJ_INT(left / right);
+    }
+    case BIN_OP_LT: {
+      return OBJ_INT(left < right);
+    }
+    case BIN_OP_GT: {
+      return OBJ_INT(left > right);
+    }
+    case BIN_OP_LTE: {
+      return OBJ_INT(left <= right);
+    }
+    case BIN_OP_GTE: {
+      return OBJ_INT(left >= right);
+    }
+    }
   }
   }
 }
