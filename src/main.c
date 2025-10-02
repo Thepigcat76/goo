@@ -51,6 +51,14 @@ void run_program(char *buf) {
 
   parser_parse(&parser);
 
+  puts("-- AST --");
+
+  for (size_t i = 0; i < array_len(parser.statements); i++) {
+    char print_buf[1024];
+    parser_stmt_print(print_buf, &parser.statements[i]);
+    printf("%s\n", print_buf);
+  }
+
   TypeChecker checker = checker_new(parser.statements);
 #ifdef TARGET_WEB
   function_println_use_buffer();

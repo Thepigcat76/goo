@@ -1,7 +1,7 @@
 #pragma once
 
-#include "lexer.h"
 #include "../vendor/lilc/hashmap.h"
+#include "lexer.h"
 #include "types.h"
 #include <stdbool.h>
 
@@ -14,6 +14,12 @@
   (ExpressionVariant) {                                                        \
     .type = EXPR_VAR_REG_EXPR, .var = {.expr_var_reg_expr = expr }             \
   }
+
+typedef enum {
+  PREC_LOWEST,
+  PREC_SUM,
+  PREC_PRODUCT,
+} Precedence;
 
 typedef struct {
   struct _generic *generics;
@@ -56,7 +62,7 @@ typedef enum {
   BIN_OP_SUB,
   BIN_OP_MUL,
   BIN_OP_DIV,
-  
+
   BIN_OP_LT,
   BIN_OP_GT,
   BIN_OP_LTE,

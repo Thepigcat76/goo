@@ -1,12 +1,4 @@
-Vec2i :: struct {
-  x: i32,
-  y: i32
-}
-
 main :: () {
-  #println("Hello World")
-
-  println("Slay")
-
-  # uegvbzu vwzt ewzrvfwrze vwoervowz7w98 5057 403
+  x := 100 + 43 / 5 - 5 / 9
+  println(cast<string>(x))
 }

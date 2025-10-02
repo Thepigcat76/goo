@@ -1,6 +1,7 @@
 #include "../include/parser.h"
 #include "../vendor/lilc/alloc.h"
 #include "../vendor/lilc/array.h"
+#include "../vendor/lilc/panic.h"
 #include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
@@ -242,6 +243,55 @@ static void expr_print(char *buf, const Expression *expr) {
       exprs_buf[strlen(exprs_buf) - 2] = '\0';
     }
     sprintf(buf, "ExprArray{type=%s, items=%s}", type_buf, exprs_buf);
+    break;
+  }
+  case EXPR_BIN_OP: {
+    ExprBinOp bin_op = expr->var.expr_bin_op;
+
+    char *op_buf = "INVALID_OP";
+    switch (bin_op.op) {
+    case BIN_OP_ADD: {
+      op_buf = "OP_ADD";
+      break;
+    }
+    case BIN_OP_SUB: {
+      op_buf = "OP_SUB";
+      break;
+    }
+    case BIN_OP_MUL: {
+      op_buf = "OP_MUL";
+      break;
+    }
+    case BIN_OP_DIV: {
+      op_buf = "OP_DIV";
+      break;
+    }
+    case BIN_OP_LT: {
+      op_buf = "OPLESS_THAN";
+      break;
+    }
+    case BIN_OP_GT: {
+      op_buf = "OP_GREATER_THAN";
+      break;
+    }
+    case BIN_OP_LTE: {
+      op_buf = "OP_LESS_THAN_EQ";
+      break;
+    }
+    case BIN_OP_GTE: {
+      op_buf = "OP_GREATER_THAN_EQ";
+      break;
+    }
+    }
+
+    char left_expr_buf[512];
+    expr_print(left_expr_buf, bin_op.left);
+    char right_expr_buf[512];
+    expr_print(right_expr_buf, bin_op.right);
+
+    sprintf(buf, "ExprBinOp{left=%s, right=%s, op=%s}", left_expr_buf,
+            right_expr_buf, op_buf);
+
     break;
   }
   case EXPR_CAST: {
@@ -742,6 +792,7 @@ static Expression parse_expr(Parser *parser) {
   case TOKEN_GTE:
   case TOKEN_ASSIGN:
   case TOKEN_RSQUARE:
+  case TOKEN_STRUCT:
   case TOKEN_ILLEGAL: {
     char print_buf[64];
     lexer_tok_print(print_buf, parser->cur_tok);
@@ -749,6 +800,103 @@ static Expression parse_expr(Parser *parser) {
     exit(1);
   }
   }
+}
+
+static bool tok_is_op(const Token *tok) {
+  return tok->type == TOKEN_PLUS || tok->type == TOKEN_MINUS ||
+         tok->type == TOKEN_ASTERISK || tok->type == TOKEN_SLASH;
+}
+
+static BinOperator tok_to_bin_op(const Token *tok) {
+  switch (tok->type) {
+  case TOKEN_PLUS: {
+    return BIN_OP_ADD;
+  }
+  case TOKEN_MINUS: {
+    return BIN_OP_SUB;
+  }
+  case TOKEN_ASTERISK: {
+    return BIN_OP_MUL;
+  }
+  case TOKEN_SLASH: {
+    return BIN_OP_DIV;
+  }
+  default: {
+    char print_buf[128];
+    lexer_tok_print(print_buf, tok);
+    panic("Tok %s cannot be converted to op", print_buf);
+    return -1;
+  }
+  }
+}
+
+#define heap_clone(ptr) _internal_heap_clone(ptr, sizeof(typeof(*(ptr))))
+
+static void *_internal_heap_clone(void *ptr, size_t size) {
+  void *new_ptr = malloc(size);
+  memcpy(new_ptr, ptr, size);
+  return new_ptr;
+}
+
+static Precedence op_to_prec(BinOperator op) {
+  switch (op) {
+  case BIN_OP_ADD:
+  case BIN_OP_SUB: {
+    return PREC_SUM;
+  }
+  case BIN_OP_MUL:
+  case BIN_OP_DIV: {
+    return PREC_PRODUCT;
+  }
+  default: {
+    return PREC_LOWEST;
+  }
+  }
+}
+
+static Expression parse_expr1(Parser *parser, Precedence prec);
+
+static Expression parse_infix_expr(Parser *parser, Expression *left) {
+  switch (parser->cur_tok->type) {
+  case TOKEN_PLUS:
+  case TOKEN_MINUS:
+  case TOKEN_ASTERISK:
+  case TOKEN_SLASH: {
+    BinOperator op = tok_to_bin_op(parser->cur_tok);
+    Precedence prec = op_to_prec(op);
+
+    // cur_tok is expr
+    next_token(parser);
+
+    Expression right = parse_expr1(parser, prec);
+
+    Expression *left_copy = heap_clone(left);
+    Expression *right_copy = heap_clone(&right);
+
+    return (Expression){.type = EXPR_BIN_OP,
+                        .var = {.expr_bin_op = {.left = left_copy,
+                                                .right = right_copy,
+                                                .op = op}}};
+  }
+  default: {
+    return *left;
+  }
+  }
+}
+
+static Expression parse_expr1(Parser *parser, Precedence prec) {
+  Expression expr = parse_expr(parser);
+
+  Expression left_expr = expr;
+
+  while (tok_is_op(parser->peek_tok) && prec < op_to_prec(tok_to_bin_op(parser->peek_tok))) {
+    // cur_tok is op
+    next_token(parser);
+
+    left_expr = parse_infix_expr(parser, &left_expr);
+  }
+
+  return left_expr;
 }
 
 static Statement parse_stmt(Parser *parser) {
@@ -818,7 +966,7 @@ static Statement parse_stmt(Parser *parser) {
           EXPECTED_TOKEN_ERR(TOKEN_LCURLY, parser->peek_tok);
         }
       } else {
-        Expression value = parse_expr(parser);
+        Expression value = parse_expr1(parser, PREC_LOWEST);
         stmt = (Statement){
             .type = STMT_DECL,
             .var = {.stmt_decl = {.name = name,
@@ -916,27 +1064,24 @@ static Statement parse_stmt(Parser *parser) {
   }
   case TOKEN_ASSIGN: {
     ILLEGAL_TOKEN_ERR(TOKEN_ASSIGN);
-    break;
   }
   case TOKEN_RSQUARE: {
     ILLEGAL_TOKEN_ERR(TOKEN_RSQUARE);
-    break;
   }
   case TOKEN_LTE: {
     ILLEGAL_TOKEN_ERR(TOKEN_LTE);
-    break;
   }
   case TOKEN_GTE: {
     ILLEGAL_TOKEN_ERR(TOKEN_GTE);
-    break;
   }
   case TOKEN_SLASH: {
     ILLEGAL_TOKEN_ERR(TOKEN_SLASH);
-    break;
   }
   case TOKEN_ASTERISK: {
     ILLEGAL_TOKEN_ERR(TOKEN_ASTERISK);
-    break;
+  }
+  case TOKEN_STRUCT: {
+    ILLEGAL_TOKEN_ERR(TOKEN_STRUCT);
   }
   }
 }
