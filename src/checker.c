@@ -255,7 +255,7 @@ static bool is_type_generic(const TypeChecker *checker, Type *type) {
 // TODO: Create a type table ident -> type
 static Type check_expr(TypeChecker *checker, Expression *expr) {
   switch (expr->type) {
-  case EXPR_ARRAY: {
+  case EXPR_ARRAY_INIT: {
     Type *expected_item_type = expr->var.expr_array.type.type;
     size_t declared_items_len = array_len(expr->var.expr_array.items);
     for (size_t i = 0; i < declared_items_len; i++) {
@@ -317,13 +317,26 @@ static Type check_expr(TypeChecker *checker, Expression *expr) {
   case EXPR_CAST: {
     Type expr_type = check_expr(checker, expr->var.expr_cast.expr);
     Type cast_type = expr->var.expr_cast.type;
-    if (type_eq(&expr_type, &cast_type))
+
+    bool str_to_int = type_eq(&expr_type, &STRING_BUILTIN_TYPE) &&
+                      type_eq(&cast_type, &INT_BUILTIN_TYPE);
+
+    bool int_to_str = type_eq(&expr_type, &INT_BUILTIN_TYPE) &&
+                      type_eq(&cast_type, &STRING_BUILTIN_TYPE);
+
+    bool str_to_arr = type_eq(&expr_type, &STRING_BUILTIN_TYPE) &&
+                      cast_type.type == TYPE_ARRAY &&
+                      type_eq(cast_type.var.type_array.type, &INT_BUILTIN_TYPE);
+
+    bool arr_to_str = expr_type.type == TYPE_ARRAY &&
+                      type_eq(&cast_type, &STRING_BUILTIN_TYPE);
+
+    bool generic_type = is_type_generic(checker, &expr_type);
+
+    if (type_eq(&expr_type, &cast_type)) {
       goto return_type;
-    if ((type_eq(&expr_type, &STRING_BUILTIN_TYPE) &&
-         type_eq(&cast_type, &INT_BUILTIN_TYPE)) ||
-        (type_eq(&cast_type, &STRING_BUILTIN_TYPE) &&
-         type_eq(&expr_type, &INT_BUILTIN_TYPE)) ||
-        is_type_generic(checker, &expr_type)) {
+    } else if (str_to_int || int_to_str || str_to_arr || arr_to_str || generic_type) {
+      goto return_type;
     } else {
       fprintf(stderr, "Cannot cast expr to this type\n");
     }
@@ -365,7 +378,60 @@ static Type check_expr(TypeChecker *checker, Expression *expr) {
     // TODO: Implement proper type checking
     return INT_BUILTIN_TYPE;
   }
+  case EXPR_STRUCT_INIT: {
+    ExprStructInit *expr_struct_init = &expr->var.expr_struct_init;
+    TypeTableValue *value =
+        type_table_get(checker->cur_type_table, &expr_struct_init->struct_name,
+                       checker->global_type_table);
+    if (value != NULL) {
+      if (value->expr_variant.type == EXPR_VAR_TYPE_EXPR) {
+        TypeExprStruct ty_expr_struct =
+            value->expr_variant.var.expr_var_type_expr.var.type_expr_struct;
+        for (size_t i = 0; i < array_len(expr_struct_init->field_inits); i++) {
+          LabeledExpr *labeled_expr = &expr_struct_init->field_inits[i];
+          Type labeled_expr_type = check_expr(checker, &labeled_expr->expr);
+          for (size_t j = 0; j < array_len(ty_expr_struct.fields); j++) {
+            TypedIdent *field = &ty_expr_struct.fields[j];
+            if (strv_eq(labeled_expr->field, field->ident)) {
+              if (!type_eq(&labeled_expr_type, &field->type)) {
+                char expected_type_buf[128];
+                type_print(expected_type_buf, &field->type);
+                char received_type_buf[128];
+                type_print(received_type_buf, &labeled_expr_type);
+                fprintf(stderr,
+                        "Type Error: Types of struct initializer and struct "
+                        "declaration "
+                        "don't match. Affected field: %s. Expected type: %s, "
+                        "Received type: %s\n",
+                        field->ident, expected_type_buf, received_type_buf);
+                exit(1);
+              }
+              break;
+            }
+          }
+        }
+        return (Type){
+            .type = TYPE_STRUCT,
+            .var = {.type_struct = {.fields = ty_expr_struct.fields}}};
+      }
+    }
+    fprintf(stderr, "Cannot find key (type): %s\n",
+            expr_struct_init->struct_name);
+    exit(1);
   }
+  case EXPR_STRUCT_ACCESS:
+    return UNIT_BUILTIN_TYPE;
+  }
+}
+
+static TypeStruct
+create_struct_from_expr(const TypeExprStruct *ty_expr_struct) {
+  TypeStruct type_struct =
+      (TypeStruct){.fields = array_new(TypedIdent, &HEAP_ALLOCATOR)};
+  for (size_t i = 0; i < array_len(ty_expr_struct->fields); i++) {
+    array_add(type_struct.fields, ty_expr_struct->fields[i]);
+  }
+  return type_struct;
 }
 
 static Type check_stmt(TypeChecker *checker, Statement *stmt) {
@@ -414,13 +480,35 @@ static Type check_stmt(TypeChecker *checker, Statement *stmt) {
           checker->cur_type_table, &stmt->var.stmt_decl.name,
           EXPR_VAR_EXPR(stmt->var.stmt_decl.value.var.expr_var_reg_expr),
           opt_type);
-      char *ident = ((char *)checker->cur_type_table->type_table.keys) +
-                    49 * sizeof(char *);
     } else {
-      type_table_add(
-          checker->cur_type_table, &stmt->var.stmt_decl.name,
-          EXPR_VAR_TYPE(stmt->var.stmt_decl.value.var.expr_var_type_expr),
-          opt_type);
+      TypeExpr type_expr = stmt->var.stmt_decl.value.var.expr_var_type_expr;
+      if (type_expr.type == TYPE_EXPR_STRUCT) {
+        TypeExprStruct *ty_expr_struct = &type_expr.var.type_expr_struct;
+        for (size_t i = 0; i < array_len(ty_expr_struct->fields); i++) {
+          TypedIdent *field = &ty_expr_struct->fields[i];
+          if (field->type.type == TYPE_IDENT &&
+              !type_eq(&field->type, &INT_BUILTIN_TYPE) &&
+              !type_eq(&field->type, &STRING_BUILTIN_TYPE)) {
+            Ident *ty_ident = &field->type.var.type_ident;
+            TypeTableValue *actual_type = type_table_get(
+                checker->cur_type_table, ty_ident, checker->global_type_table);
+            if (actual_type != NULL) {
+              if (actual_type->expr_variant.type == EXPR_VAR_TYPE_EXPR) {
+                TypeExpr resolved_ty_expr =
+                    actual_type->expr_variant.var.expr_var_type_expr;
+                if (resolved_ty_expr.type == TYPE_EXPR_STRUCT) {
+                  field->type = (Type){
+                      .type = TYPE_STRUCT,
+                      .var = {.type_struct = create_struct_from_expr(
+                                  &resolved_ty_expr.var.type_expr_struct)}};
+                }
+              }
+            }
+          }
+        }
+      }
+      type_table_add(checker->cur_type_table, &stmt->var.stmt_decl.name,
+                     EXPR_VAR_TYPE(type_expr), opt_type);
     }
 
     return UNIT_BUILTIN_TYPE;

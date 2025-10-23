@@ -21,17 +21,29 @@ typedef struct {
   struct _obj (*native_function)(struct _obj *objects);
 } ObjectFunction;
 
+typedef struct {
+  Hashmap(Ident, Object) fields;
+} ObjectStruct;
+
+typedef struct {
+  struct _obj *items;
+} ObjectArray;
+
 typedef struct _obj {
   enum {
     OBJECT_INT,
     OBJECT_STRING,
     OBJECT_FUNCTION,
     OBJECT_UNIT,
+    OBJECT_STRUCT,
+    OBJECT_ARRAY,
   } type;
   union {
     int obj_int;
     char *obj_string;
     ObjectFunction obj_function;
+    ObjectStruct obj_struct;
+    ObjectArray obj_array;
   } var;
 } Object;
 

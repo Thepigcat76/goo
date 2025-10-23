@@ -27,6 +27,10 @@ typedef struct {
   struct _type *types;
 } TypeTuple;
 
+typedef struct {
+  struct _typed_ident *fields;
+} TypeStruct;
+
 typedef struct _type {
   enum {
     TYPE_IDENT,
@@ -35,12 +39,14 @@ typedef struct _type {
     TYPE_TUPLE,
     // unit is just an empty tuple and used as the "void" type
     TYPE_UNIT,
+    TYPE_STRUCT,
   } type;
   union {
     Ident type_ident;
     TypeArray type_array;
     TypeFunc type_func;
     TypeTuple type_tuple;
+    TypeStruct type_struct;
   } var;
 } Type;
 
@@ -60,7 +66,7 @@ extern const Type UNIT_BUILTIN_TYPE;
 extern const Type STRING_BUILTIN_TYPE;
 extern const Type INT_BUILTIN_TYPE;
 
-typedef struct {
+typedef struct _typed_ident {
   Ident ident;
   Type type;
 } TypedIdent;

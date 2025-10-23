@@ -19,6 +19,7 @@
 #include <stddef.h>
 #include <stdio.h>
 #include <string.h>
+#include "tests.c"
 
 static Object execute_println_custom_buf(Object *args) {
   strcat(println_buf, obj_cast_string(&args[0]));
@@ -35,6 +36,10 @@ void function_println_use_buffer(void) {
 KEEPALIVE
 void run_program(char *buf) {
   alloc_init();
+
+//  parser_test_functions();
+
+//  return;
 
   Lexer lexer = lexer_new();
 

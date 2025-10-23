@@ -1,0 +1,30 @@
+# Function with empty arguments, body and return type
+foo0 :: () {
+}
+
+# Function with single argument
+foo1 :: (a: i32) {
+
+}
+
+# Function with multiple arguments
+foo2 :: (a: i32, b: string) {
+
+}
+
+# Function with multiple arguments and trailing comma
+foo3 :: (a: i32, b: string,) {
+
+}
+
+foo4 :: () -> i32 {
+
+}
+
+foo5 :: (a: i32) -> i32 {
+
+}
+
+foo6 :: (a: i32, b: string) -> i32 {
+
+}

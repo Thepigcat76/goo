@@ -1,6 +1,8 @@
 #include "../include/types.h"
-#include <string.h>
+#include "../vendor/lilc/array.h"
+#include "../vendor/lilc/eq.h"
 #include <stdio.h>
+#include <string.h>
 
 #define BUILTIN_TYPE_IDENT(_ident)                                             \
   (Type) {                                                                     \
@@ -42,6 +44,33 @@ bool type_eq(const Type *a, const Type *b) {
   case TYPE_UNIT: {
     return true;
   }
+  case TYPE_STRUCT: {
+    TypeStruct a_struct = a->var.type_struct;
+    TypeStruct b_struct = b->var.type_struct;
+
+    for (size_t i = 0; i < array_len(a_struct.fields); i++) {
+      for (size_t j = 0; j < array_len(b_struct.fields); j++) {
+        if (strv_eq(a_struct.fields[i].ident, b_struct.fields[j].ident)) {
+          if (!type_eq(&a_struct.fields[i].type, &b_struct.fields[j].type)) {
+            return false;
+          } else {
+            goto outer_continue;
+          }
+        }
+        // struct B contains a field that is not in struct A
+        return false;
+      }
+
+      // struct A contains a field that is not in struct B
+      return false;
+
+    // Continue to next field
+    outer_continue:
+      continue;
+    }
+
+    return true;
+  }
   }
 }
 
@@ -76,6 +105,22 @@ void type_print(char *buf, const Type *type) {
     type_print(type_buf, type_array.type);
     sprintf(buf, "TypeArray{variant=%s, size=%s, type=%s}", array_variant,
             size_buf, type_buf);
+    break;
+  }
+  case TYPE_STRUCT: {
+    TypeStruct type_struct = type->var.type_struct;
+    char fields_buf[512] = "";
+    for (size_t i = 0; i < array_len(type_struct.fields); i++) {
+      char type_buf[64];
+      type_print(type_buf, &type_struct.fields[i].type);
+      char ti_buf[128];
+      sprintf(ti_buf, "TypedIdent={ident=%s, type=%s}", type_struct.fields[i].ident, type_buf);
+      strcat(fields_buf, ti_buf);
+      if (i < array_len(type_struct.fields) - 1) {
+        strcat(fields_buf, ", ");
+      }
+    }
+    sprintf(buf, "TypeStruct{fields=[%s]}", fields_buf);
     break;
   }
   case TYPE_UNIT: {

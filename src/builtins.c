@@ -39,9 +39,10 @@ BuiltinFunction EXIT_FUNCTION;
 char println_buf[1024] = {'\0'};
 
 static Object execute_println(Object *objects) {
-  strcat(println_buf, obj_cast_string(&objects[0]));
+  char *string = obj_cast_string(&objects[0]);
+  strcat(println_buf, string);
   strcat(println_buf, "\n");
-  puts(println_buf);
+  puts(string);
   return UNIT_OBJ;
 }
 

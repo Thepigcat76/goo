@@ -1,4 +1,25 @@
+Test :: struct {
+  test: string,
+}
+
+Vec2i :: struct {
+  x: i32,
+  y: i32,
+  z: Test,
+}
+
 main :: () {
-  x := 100 + 43 / 5 - 5 / 9
-  println(cast<string>(x))
+  #my_struct := Vec2i {x: 69, y: 1, z: Test {test: "Slay"}}
+  #struct_x_field := my_struct.z.test
+  #println(cast<string>(struct_x_field))
+
+  #my_array := []i32{0, 1, 2, 3}
+  #println("Hello Wrold")
+  #println(cast<string>(my_array))
+
+  #my_string := cast<[]i32>("Ballz")
+  #println(cast<string>(my_string))
+
+  #positions := []Vec2i{Vec2i {x: 100, y: 200}, Vec2i {x: 20, y: 70}}
+  #println(":3")
 }

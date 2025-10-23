@@ -51,6 +51,20 @@ static void type_print_as_ident(char *buf, const Type *type) {
   case TYPE_TUPLE: {
     break;
   }
+  case TYPE_STRUCT: {
+    const TypeStruct *ty_struct = &type->var.type_struct;
+    char fields_buf[256] = "";
+    for (size_t i = 0; i < array_len(ty_struct->fields); i++) {
+      char type_buf[64];
+      type_print_as_ident(type_buf, &ty_struct->fields[i].type);
+      strcat(fields_buf, type_buf);
+      if (i < array_len(ty_struct->fields) - 1) {
+        strcat(fields_buf, ",");
+      }
+    }
+    sprintf(buf, "s%s", fields_buf);
+    break;
+  }
   case TYPE_UNIT: {
     sprintf(buf, "u");
     break;
@@ -227,7 +241,7 @@ static void expr_print(char *buf, const Expression *expr) {
     sprintf(buf, "ExprIdent{ident=%s}", expr->var.expr_ident.ident);
     break;
   }
-  case EXPR_ARRAY: {
+  case EXPR_ARRAY_INIT: {
     Type type = {.type = TYPE_ARRAY,
                  .var = {.type_array = expr->var.expr_array.type}};
     char type_buf[128];
@@ -292,6 +306,39 @@ static void expr_print(char *buf, const Expression *expr) {
     sprintf(buf, "ExprBinOp{left=%s, right=%s, op=%s}", left_expr_buf,
             right_expr_buf, op_buf);
 
+    break;
+  }
+  case EXPR_STRUCT_INIT: {
+    ExprStructInit expr_struct_init = expr->var.expr_struct_init;
+    char field_inits_buf[1024] = {'\0'};
+    for (size_t i = 0; i < array_len(expr_struct_init.field_inits); i++) {
+      char labeled_expr_buf[256 + 64];
+      char le_expr_buf[256];
+      expr_print(le_expr_buf, &expr_struct_init.field_inits[i].expr);
+      sprintf(labeled_expr_buf, "LabeledExpr{field=%s, expr=%s}",
+              expr_struct_init.field_inits[i].field, le_expr_buf);
+      strcat(field_inits_buf, labeled_expr_buf);
+      if (i < array_len(expr_struct_init.field_inits) - 1) {
+        strcat(field_inits_buf, ", ");
+      }
+    }
+    sprintf(buf, "ExprStructInit{struct_name=%s, field_inits=[%s]}",
+            expr_struct_init.struct_name, field_inits_buf);
+    break;
+  }
+  case EXPR_STRUCT_ACCESS: {
+    ExprStructAccess expr_struct_access = expr->var.expr_struct_access;
+    char struct_expr_buf[256];
+    expr_print(struct_expr_buf, expr_struct_access.struct_expr);
+    char access_fields_buf[256] = {'\0'};
+    for (size_t i = 0; i < array_len(expr_struct_access.fields); i++) {
+      strcat(access_fields_buf, expr_struct_access.fields[i]);
+      if (i < array_len(expr_struct_access.fields) - 1) {
+        strcat(access_fields_buf, ", ");
+      }
+    }
+    sprintf(buf, "ExprStructAccess{struct_expr=%s, fields=[%s]}",
+            struct_expr_buf, access_fields_buf);
     break;
   }
   case EXPR_CAST: {
@@ -437,6 +484,40 @@ static TypedIdent *parse_typed_ident_list(Parser *parser, TokenType end) {
   return idents;
 }
 
+static Expression parse_expr1(Parser *parser, Precedence prec);
+
+// begin: cur_tok must be first ident or end
+// end: cur_tok is end
+static LabeledExpr *parse_labeled_expr_list(Parser *parser, TokenType end) {
+  LabeledExpr *labels = array_new_capacity(LabeledExpr, 8, &HEAP_ALLOCATOR);
+  while (parser->cur_tok->type != end) {
+    LabeledExpr le;
+    if (parser->cur_tok->type == TOKEN_IDENT) {
+      le.field = parser->cur_tok->var.ident;
+    }
+    // cur_tok is colon
+    next_token(parser);
+    if (parser->cur_tok->type != TOKEN_COLON) {
+      EXPECTED_TOKEN_ERR(TOKEN_COLON, parser->cur_tok);
+    }
+    // cur_tok is expr
+    next_token(parser);
+    le.expr = parse_expr1(parser, PREC_LOWEST);
+
+    if (parser->peek_tok->type == TOKEN_COMMA) {
+      // cur_tok is comma
+      next_token(parser);
+      // cur_tok is ident or end
+      next_token(parser);
+    } else if (parser->peek_tok->type == end) {
+      // cur_tok is end
+      next_token(parser);
+    }
+    array_add(labels, le);
+  }
+  return labels;
+}
+
 // begin: cur_tok must be first type or end
 // end: cur_tok is end
 static Type *parse_type_list(Parser *parser, TokenType end) {
@@ -483,7 +564,7 @@ static Expression parse_expr(Parser *parser);
 static Expression *parse_expr_list(Parser *parser, TokenType end) {
   Expression *exprs = array_new_capacity(Expression, 8, &HEAP_ALLOCATOR);
   while (parser->cur_tok->type != end) {
-    Expression expr = parse_expr(parser);
+    Expression expr = parse_expr1(parser, PREC_LOWEST);
     if (parser->peek_tok->type == TOKEN_COMMA) {
       // cur_tok is comma
       next_token(parser);
@@ -628,7 +709,23 @@ static Expression parse_expr(Parser *parser) {
       return (Expression){
           .type = EXPR_CALL,
           .var = {.expr_call = {.function = ident, .args = exprs}}};
-    } else if (parser->peek_tok->type == TOKEN_DOT) {
+    } else if (parser->peek_tok->type == TOKEN_LCURLY) {
+      // cur_tok is lcurly
+      next_token(parser);
+      // cur_tok is first field name or rcurly
+      next_token(parser);
+
+      LabeledExpr *field_inits = parse_labeled_expr_list(parser, TOKEN_RCURLY);
+      char expr_buf[1024];
+      expr_print(expr_buf, &field_inits[0].expr);
+      printf("Expr for init: %s\n", expr_buf);
+
+      return (Expression){
+          .type = EXPR_STRUCT_INIT,
+          .var = {.expr_struct_init = {.struct_name = ident,
+                                       .field_inits = field_inits}}};
+    } else if (parser->peek_tok->type == TOKEN_DOT &&
+               (parser->peek_tok + 2)->type == TOKEN_LPAREN) {
       // cur_tok is dot
       next_token(parser);
       // cur_tok is call name
@@ -636,18 +733,19 @@ static Expression parse_expr(Parser *parser) {
 
       Ident call_name = parser->cur_tok->var.ident;
 
-      // cur_tok is left parenthesis
-      next_token(parser);
-      // cur_tok is first token of first expr
-      next_token(parser);
+      { // cur_tok is left parenthesis
+        next_token(parser);
+        // cur_tok is first token of first expr
+        next_token(parser);
 
-      Expression *exprs = parse_expr_list(parser, TOKEN_RPAREN);
-      // end: right parenthesis
-      return (Expression){
-          .type = EXPR_GENERIC_CALL,
-          .var = {.expr_generic_call = {
-                      .generic = ident,
-                      .expr_call = {.function = call_name, .args = exprs}}}};
+        Expression *exprs = parse_expr_list(parser, TOKEN_RPAREN);
+        // end: right parenthesis
+        return (Expression){
+            .type = EXPR_GENERIC_CALL,
+            .var = {.expr_generic_call = {
+                        .generic = ident,
+                        .expr_call = {.function = call_name, .args = exprs}}}};
+      }
     }
     return (Expression){.type = EXPR_IDENT,
                         .var = {.expr_ident = {.ident = ident}}};
@@ -735,7 +833,7 @@ static Expression parse_expr(Parser *parser) {
       next_token(parser);
     }
     return (Expression){
-        .type = EXPR_ARRAY,
+        .type = EXPR_ARRAY_INIT,
         .var = {.expr_array = {.type = type.var.type_array, .items = exprs}}};
   }
   case TOKEN_CAST: {
@@ -761,7 +859,7 @@ static Expression parse_expr(Parser *parser) {
     next_token(parser);
     // cur_tok is first token of expr
     next_token(parser);
-    Expression expr = parse_expr(parser);
+    Expression expr = parse_expr1(parser, PREC_LOWEST);
 
     if (parser->peek_tok->type != TOKEN_RPAREN) {
       EXPECTED_TOKEN_ERR(TOKEN_RPAREN, parser->peek_tok);
@@ -873,10 +971,10 @@ static Expression parse_infix_expr(Parser *parser, Expression *left) {
     Expression *left_copy = heap_clone(left);
     Expression *right_copy = heap_clone(&right);
 
-    return (Expression){.type = EXPR_BIN_OP,
-                        .var = {.expr_bin_op = {.left = left_copy,
-                                                .right = right_copy,
-                                                .op = op}}};
+    return (Expression){
+        .type = EXPR_BIN_OP,
+        .var = {
+            .expr_bin_op = {.left = left_copy, .right = right_copy, .op = op}}};
   }
   default: {
     return *left;
@@ -884,12 +982,50 @@ static Expression parse_infix_expr(Parser *parser, Expression *left) {
   }
 }
 
+// begin: cur_tok is TOKEN_DOT
+static Expression parse_struct_access(Parser *parser, Expression expr) {
+  printf("Parsing struct access\n");
+  if (parser->peek_tok->type == TOKEN_IDENT) {
+    ExprStructAccess expr_access = {.struct_expr = heap_clone(&expr),
+                                    .fields =
+                                        array_new(Ident, &HEAP_ALLOCATOR)};
+    do {
+      // cur_tok is ident
+      next_token(parser);
+
+      array_add(expr_access.fields, parser->cur_tok->var.ident);
+
+      if (parser->peek_tok->type == TOKEN_DOT) {
+        // cur_tok is next ident
+        next_token(parser);
+      } else {
+        break;
+      }
+    } while (parser->peek_tok->type == TOKEN_IDENT);
+
+    char cur_tok_buf[128];
+    lexer_tok_print(cur_tok_buf, parser->cur_tok);
+    printf("Cur tok after access: %s\n", cur_tok_buf);
+
+    return (Expression){.type = EXPR_STRUCT_ACCESS,
+                        .var = {.expr_struct_access = expr_access}};
+  }
+  EXPECTED_TOKEN_ERR(TOKEN_IDENT, parser->peek_tok);
+}
+
 static Expression parse_expr1(Parser *parser, Precedence prec) {
   Expression expr = parse_expr(parser);
 
   Expression left_expr = expr;
 
-  while (tok_is_op(parser->peek_tok) && prec < op_to_prec(tok_to_bin_op(parser->peek_tok))) {
+  if (parser->peek_tok->type == TOKEN_DOT) {
+    // cur_tok is TOKEN_DOT
+    next_token(parser);
+    left_expr = parse_struct_access(parser, left_expr);
+  }
+
+  while (tok_is_op(parser->peek_tok) &&
+         prec < op_to_prec(tok_to_bin_op(parser->peek_tok))) {
     // cur_tok is op
     next_token(parser);
 
@@ -913,7 +1049,8 @@ static Statement parse_stmt(Parser *parser) {
       Statement stmt;
       if (parser->cur_tok->type == TOKEN_IDENT &&
           !(parser->peek_tok->type == TOKEN_LPAREN ||
-            parser->peek_tok->type == TOKEN_DOT)) {
+            parser->peek_tok->type == TOKEN_DOT ||
+            parser->peek_tok->type == TOKEN_LCURLY)) {
         Ident *idents = array_new(Ident, &HEAP_ALLOCATOR);
         while (parser->cur_tok->type == TOKEN_IDENT) {
           array_add(idents, parser->cur_tok->var.ident);

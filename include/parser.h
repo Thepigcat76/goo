@@ -45,7 +45,7 @@ typedef struct {
 typedef struct {
   TypeArray type;
   struct _expr *items;
-} ExprArray;
+} ExprArrayInit;
 
 typedef struct {
   Type type;
@@ -56,6 +56,16 @@ typedef struct {
   Ident generic;
   ExprCall expr_call;
 } ExprGenericCall;
+
+typedef struct {
+  Ident struct_name;
+  struct _labeled_expr *field_inits;
+} ExprStructInit;
+
+typedef struct {
+  struct _expr *struct_expr;
+  Ident *fields;
+} ExprStructAccess;
 
 typedef enum {
   BIN_OP_ADD,
@@ -98,7 +108,7 @@ typedef struct {
 typedef struct _expr {
   enum {
     EXPR_CAST,
-    EXPR_ARRAY,
+    EXPR_ARRAY_INIT,
     EXPR_FUNCTION,
     EXPR_BLOCK,
     EXPR_CALL,
@@ -108,15 +118,19 @@ typedef struct _expr {
     EXPR_IDENT,
     EXPR_UNIT,
     EXPR_BIN_OP,
+    EXPR_STRUCT_INIT,
+    EXPR_STRUCT_ACCESS,
   } type;
   union {
-    ExprArray expr_array;
+    ExprArrayInit expr_array;
     ExprFunction expr_function;
     ExprBlock expr_block;
     ExprCall expr_call;
     ExprGenericCall expr_generic_call;
     ExprCast expr_cast;
     ExprBinOp expr_bin_op;
+    ExprStructInit expr_struct_init;
+    ExprStructAccess expr_struct_access;
     struct {
       Ident ident;
     } expr_ident;
@@ -130,6 +144,11 @@ typedef struct _expr {
   const char *begin;
   size_t len;
 } Expression;
+
+typedef struct _labeled_expr {
+  Ident field;
+  Expression expr;
+} LabeledExpr;
 
 extern const Expression UNIT_EXPR;
 

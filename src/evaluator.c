@@ -3,6 +3,7 @@
 #include "../vendor/lilc/array.h"
 #include "../vendor/lilc/panic.h"
 #include <stdio.h>
+#include <string.h>
 
 const Object UNIT_OBJ = {.type = OBJECT_UNIT};
 
@@ -123,7 +124,8 @@ Object eval_expr_call(Evaluator *evaluator, const ExprCall *expr_call) {
       // Push function arguments to environment in case there are any
       if (expr_call->args != NULL) {
         for (size_t i = 0; i < array_len(args); i++) {
-          environment_add(evaluator->cur_env, &obj_function.args[i].ident, args[i]);
+          environment_add(evaluator->cur_env, &obj_function.args[i].ident,
+                          args[i]);
         }
       }
       if (obj_function.native_function != NULL) {
@@ -146,7 +148,94 @@ Object eval_expr_call(Evaluator *evaluator, const ExprCall *expr_call) {
   return UNIT_OBJ;
 }
 
-#define OBJ_INT(_int) (Object){.type = OBJECT_INT, .var = {.obj_int = _int}}
+#define OBJ_INT(_int)                                                          \
+  (Object) {                                                                   \
+    .type = OBJECT_INT, .var = {.obj_int = _int }                              \
+  }
+
+Object obj_cast(const Type *type, const Object *obj) {
+  switch (obj->type) {
+  case OBJECT_INT: {
+    switch (type->type) {
+    case TYPE_IDENT: {
+      if (type_eq(type, &STRING_BUILTIN_TYPE)) {
+        char *string = malloc(32);
+        sprintf(string, "%d", obj->var.obj_int);
+        return (Object){.type = OBJECT_STRING, .var = {.obj_string = string}};
+      } else if (type_eq(type, &INT_BUILTIN_TYPE)) {
+        return *obj;
+      } else {
+        fprintf(stderr, "Casting to custom types is currently not supported\n");
+        exit(1);
+      }
+    }
+    default: {
+      fprintf(stderr, "Casting is only supported for int and string types\n");
+      exit(1);
+    }
+    }
+  }
+  case OBJECT_STRING: {
+    switch (type->type) {
+    case TYPE_IDENT: {
+      if (type_eq(type, &INT_BUILTIN_TYPE)) {
+        return (Object){.type = OBJECT_INT,
+                        .var = {.obj_int = atoi(obj->var.obj_string)}};
+      } else if (type_eq(type, &STRING_BUILTIN_TYPE)) {
+        return *obj;
+      } else {
+        fprintf(stderr, "Casting to custom types is currently not supported\n");
+        exit(1);
+      }
+    }
+    // TODO: Make string typedef for u8 array
+    case TYPE_ARRAY: {
+      size_t len = strlen(obj->var.obj_string);
+      Object *chars = array_new_capacity(Object, len + 1, &HEAP_ALLOCATOR);
+      for (size_t i = 0; i < len; i++) {
+        array_add(chars, OBJ_INT(obj->var.obj_string[i]));
+      }
+      return (Object){.type = OBJECT_ARRAY,
+                      .var = {.obj_array = {.items = chars}}};
+    }
+    default: {
+      fprintf(stderr, "Casting is only supported for int and string types\n");
+      exit(1);
+    }
+    }
+  }
+  case OBJECT_ARRAY: {
+    if (type_eq(type, &STRING_BUILTIN_TYPE)) {
+      char *string = malloc(1024);
+      string[0] = '\0';
+      const ObjectArray *obj_array = &obj->var.obj_array;
+      for (size_t i = 0; i < array_len(obj_array->items); i++) {
+        Object item_obj = obj_cast(&STRING_BUILTIN_TYPE, &obj_array->items[i]);
+        if (item_obj.type == OBJECT_STRING) {
+          strcat(string, item_obj.var.obj_string);
+        } else {
+          strcat(string, "<UNCASTABLE OBJECT>");
+        }
+
+        if (i < array_len(obj_array->items) - 1) {
+          strcat(string, ", ");
+        }
+      }
+      return (Object){.type = OBJECT_STRING, .var = {.obj_string = string}};
+    }
+    break;
+  }
+  case OBJECT_UNIT: {
+    return UNIT_OBJ;
+  }
+  case OBJECT_STRUCT:
+  case OBJECT_FUNCTION: {
+    break;
+  }
+  }
+  fprintf(stderr, "Invalid cast\n");
+  exit(1);
+}
 
 Object evaluator_eval_expr(Evaluator *evaluator, Expression *expr) {
   switch (expr->type) {
@@ -191,57 +280,7 @@ Object evaluator_eval_expr(Evaluator *evaluator, Expression *expr) {
   case EXPR_CAST: {
     Expression *val = expr->var.expr_cast.expr;
     Object obj = evaluator_eval_expr(evaluator, val);
-    switch (obj.type) {
-    case OBJECT_INT: {
-      switch (expr->var.expr_cast.type.type) {
-      case TYPE_IDENT: {
-        if (type_eq(&expr->var.expr_cast.type, &STRING_BUILTIN_TYPE)) {
-          char *string = malloc(32);
-          sprintf(string, "%d", obj.var.obj_int);
-          return (Object){.type = OBJECT_STRING, .var = {.obj_string = string}};
-        } else if (type_eq(&expr->var.expr_cast.type, &INT_BUILTIN_TYPE)) {
-          return obj;
-        } else {
-          fprintf(stderr,
-                  "Casting to custom types is currently not supported\n");
-          exit(1);
-        }
-      }
-      default: {
-        fprintf(stderr, "Casting is only supported for int and string types\n");
-        exit(1);
-      }
-      }
-    }
-    case OBJECT_STRING: {
-      switch (expr->var.expr_cast.type.type) {
-      case TYPE_IDENT: {
-        if (type_eq(&expr->var.expr_cast.type, &INT_BUILTIN_TYPE)) {
-          return (Object){.type = OBJECT_INT,
-                          .var = {.obj_int = atoi(obj.var.obj_string)}};
-        } else if (type_eq(&expr->var.expr_cast.type, &STRING_BUILTIN_TYPE)) {
-          return obj;
-        } else {
-          fprintf(stderr,
-                  "Casting to custom types is currently not supported\n");
-          exit(1);
-        }
-      }
-      default: {
-        fprintf(stderr, "Casting is only supported for int and string types\n");
-        exit(1);
-      }
-      }
-    }
-    case OBJECT_UNIT: {
-      return UNIT_OBJ;
-    }
-    case OBJECT_FUNCTION: {
-      break;
-    }
-    }
-    fprintf(stderr, "Invalid cast\n");
-    exit(1);
+    return obj_cast(&expr->var.expr_cast.type, &obj);
   }
   // TODO: Implement this
   case EXPR_GENERIC_CALL: {
@@ -249,19 +288,31 @@ Object evaluator_eval_expr(Evaluator *evaluator, Expression *expr) {
     fprintf(stderr, "Evaluating generic call\n");
     return eval_expr_call(evaluator, &expr_call);
   }
-  case EXPR_ARRAY: {
-    return UNIT_OBJ;
+  case EXPR_ARRAY_INIT: {
+    ExprArrayInit expr_array = expr->var.expr_array;
+    ObjectArray obj_array = {.items = array_new(Object, &HEAP_ALLOCATOR)};
+
+    for (size_t i = 0; i < array_len(expr_array.items); i++) {
+      array_add(obj_array.items,
+                evaluator_eval_expr(evaluator, &expr_array.items[i]));
+    }
+
+    return (Object){.type = OBJECT_ARRAY, .var = {.obj_array = obj_array}};
   }
   case EXPR_UNIT: {
     return UNIT_OBJ;
   }
   case EXPR_BIN_OP: {
     BinOperator op = expr->var.expr_bin_op.op;
-    Object left_obj = evaluator_eval_expr(evaluator, expr->var.expr_bin_op.left);
-    Object right_obj = evaluator_eval_expr(evaluator, expr->var.expr_bin_op.right);
+    Object left_obj =
+        evaluator_eval_expr(evaluator, expr->var.expr_bin_op.left);
+    Object right_obj =
+        evaluator_eval_expr(evaluator, expr->var.expr_bin_op.right);
 
-    int left = obj_try_cast_int(&left_obj, "Left object of bin expr is not an integer");
-    int right = obj_try_cast_int(&right_obj, "Right object of bin expr is not an integer");
+    int left = obj_try_cast_int(&left_obj,
+                                "Left object of bin expr is not an integer");
+    int right = obj_try_cast_int(&right_obj,
+                                 "Right object of bin expr is not an integer");
 
     switch (op) {
     case BIN_OP_ADD: {
@@ -289,6 +340,36 @@ Object evaluator_eval_expr(Evaluator *evaluator, Expression *expr) {
       return OBJ_INT(left >= right);
     }
     }
+  }
+  case EXPR_STRUCT_INIT: {
+    ExprStructInit *struct_init_expr = &expr->var.expr_struct_init;
+    Object obj = {.type = OBJECT_STRUCT,
+                  .var = {.obj_struct = {.fields = hashmap_new(
+                                             char *, Object, &HEAP_ALLOCATOR,
+                                             strv_hash, strv_eq, NULL)}}};
+    for (size_t i = 0; i < array_len(struct_init_expr->field_inits); i++) {
+      LabeledExpr *labeled_expr = &struct_init_expr->field_inits[i];
+      Object field_obj = evaluator_eval_expr(evaluator, &labeled_expr->expr);
+      hashmap_insert(&obj.var.obj_struct.fields, labeled_expr->field,
+                     &field_obj);
+    }
+
+    return obj;
+  }
+  case EXPR_STRUCT_ACCESS: {
+    ExprStructAccess *expr_struct_access = &expr->var.expr_struct_access;
+    Object obj =
+        evaluator_eval_expr(evaluator, expr_struct_access->struct_expr);
+    size_t len = array_len(expr_struct_access->fields);
+    for (size_t i = 0; i < len; i++) {
+      Ident field = expr_struct_access->fields[i];
+      if (obj.type == OBJECT_STRUCT) {
+        ObjectStruct field_obj = obj.var.obj_struct;
+        Object *next_obj = hashmap_value(&field_obj.fields, field);
+        obj = *next_obj;
+      }
+    }
+    return obj;
   }
   }
 }
