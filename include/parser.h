@@ -38,6 +38,11 @@ typedef struct {
 } ExprFunction;
 
 typedef struct {
+  struct _expr *condition;
+  ExprBlock block;
+} ExprIf;
+
+typedef struct {
   Ident function;
   struct _expr *args;
 } ExprCall;
@@ -46,6 +51,11 @@ typedef struct {
   TypeArray type;
   struct _expr *items;
 } ExprArrayInit;
+
+typedef struct {
+  struct _expr *array_expr;
+  struct _expr *index_expr;
+} ExprArrayAccess;
 
 typedef struct {
   Type type;
@@ -109,6 +119,7 @@ typedef struct _expr {
   enum {
     EXPR_CAST,
     EXPR_ARRAY_INIT,
+    EXPR_ARRAY_ACCESS,
     EXPR_FUNCTION,
     EXPR_BLOCK,
     EXPR_CALL,
@@ -120,9 +131,11 @@ typedef struct _expr {
     EXPR_BIN_OP,
     EXPR_STRUCT_INIT,
     EXPR_STRUCT_ACCESS,
+    EXPR_IF,
   } type;
   union {
-    ExprArrayInit expr_array;
+    ExprArrayInit expr_array_init;
+    ExprArrayAccess expr_array_access;
     ExprFunction expr_function;
     ExprBlock expr_block;
     ExprCall expr_call;
@@ -131,6 +144,7 @@ typedef struct _expr {
     ExprBinOp expr_bin_op;
     ExprStructInit expr_struct_init;
     ExprStructAccess expr_struct_access;
+    ExprIf expr_if;
     struct {
       Ident ident;
     } expr_ident;

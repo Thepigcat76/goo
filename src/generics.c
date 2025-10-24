@@ -59,7 +59,7 @@ static void transform_generic_expr(TypeChecker *checker, Expression *expr,
     break;
   }
   case EXPR_ARRAY_INIT: {
-    ExprArrayInit *expr_array = &expr->var.expr_array;
+    ExprArrayInit *expr_array = &expr->var.expr_array_init;
     *expr_array->type.type =
         try_transform_generic_type(expr_array->type.type, generics_lookup);
     break;
@@ -75,6 +75,12 @@ static void transform_generic_expr(TypeChecker *checker, Expression *expr,
         *transform_generic_block(checker, expr_block, generics_lookup);
     break;
   }
+  case EXPR_IF: {
+    ExprIf *expr_if = &expr->var.expr_if;
+    expr_if->block = *transform_generic_block(checker, &expr_if->block, generics_lookup);
+    break;
+  }
+  case EXPR_ARRAY_ACCESS:
   case EXPR_STRUCT_ACCESS:
   case EXPR_STRUCT_INIT:
   case EXPR_GENERIC_CALL:

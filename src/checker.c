@@ -252,14 +252,31 @@ static bool is_type_generic(const TypeChecker *checker, Type *type) {
   return false;
 }
 
+static bool type_is_numeric(const Type *type) {
+  return type_eq(type, &INT_BUILTIN_TYPE);
+}
+
+static Type check_block_expr(TypeChecker *checker, const ExprBlock *expr_block) {
+  if (expr_block->statements != NULL) {
+    size_t len = array_len(expr_block->statements);
+    Type last_type = UNIT_BUILTIN_TYPE;
+    for (size_t i = 0; i < len; i++) {
+      Statement stmt = expr_block->statements[i];
+      last_type = check_stmt(checker, &stmt);
+    }
+    return last_type;
+  }
+  return UNIT_BUILTIN_TYPE;
+}
+
 // TODO: Create a type table ident -> type
 static Type check_expr(TypeChecker *checker, Expression *expr) {
   switch (expr->type) {
   case EXPR_ARRAY_INIT: {
-    Type *expected_item_type = expr->var.expr_array.type.type;
-    size_t declared_items_len = array_len(expr->var.expr_array.items);
+    Type *expected_item_type = expr->var.expr_array_init.type.type;
+    size_t declared_items_len = array_len(expr->var.expr_array_init.items);
     for (size_t i = 0; i < declared_items_len; i++) {
-      Type item_type = check_expr(checker, &expr->var.expr_array.items[i]);
+      Type item_type = check_expr(checker, &expr->var.expr_array_init.items[i]);
       if (!type_eq(&item_type, expected_item_type)) {
         fprintf(stderr, "Type error: Expected and provided array item types do "
                         "not match\n");
@@ -267,7 +284,44 @@ static Type check_expr(TypeChecker *checker, Expression *expr) {
       }
     }
     return (Type){.type = TYPE_ARRAY,
-                  .var = {.type_array = expr->var.expr_array.type}};
+                  .var = {.type_array = expr->var.expr_array_init.type}};
+  }
+  case EXPR_ARRAY_ACCESS: {
+    ExprArrayAccess *arr_access_expr = &expr->var.expr_array_access;
+    Type array_ty = check_expr(checker, arr_access_expr->array_expr);
+    if (array_ty.type != TYPE_ARRAY) {
+      char type_buf[128];
+      type_print(type_buf, &array_ty);
+      fprintf(stderr, "Type error: Only arrays can be indexed, received: %s\n",
+              type_buf);
+      exit(1);
+    }
+    Type index_ty = check_expr(checker, arr_access_expr->index_expr);
+    if (!type_is_numeric(&index_ty)) {
+      char type_buf[128];
+      type_print(type_buf, &index_ty);
+      fprintf(stderr,
+              "Type error: Invalid type for indexing into array. Expected "
+              "numeric type, received: %s\n",
+              type_buf);
+      exit(1);
+    }
+
+    return *array_ty.var.type_array.type;
+  }
+  case EXPR_IF: {
+    ExprIf expr_if = expr->var.expr_if;
+    Type cond_ty = check_expr(checker, expr_if.condition);
+    if (!type_eq(&cond_ty, &INT_BUILTIN_TYPE)) {
+      char type_buf[128];
+      type_print(type_buf, &cond_ty);
+      fprintf(
+          stderr,
+          "Type error: Expected integer/boolean as condition, received: %s\n",
+          type_buf);
+      exit(1);
+    }
+    return check_block_expr(checker, &expr_if.block);
   }
   case EXPR_FUNCTION: {
     // TODO: implement function types
@@ -300,16 +354,7 @@ static Type check_expr(TypeChecker *checker, Expression *expr) {
     return UNIT_BUILTIN_TYPE;
   }
   case EXPR_BLOCK: {
-    if (expr->var.expr_block.statements != NULL) {
-      size_t len = array_len(expr->var.expr_block.statements);
-      Type last_type = UNIT_BUILTIN_TYPE;
-      for (size_t i = 0; i < len; i++) {
-        Statement stmt = expr->var.expr_block.statements[i];
-        last_type = check_stmt(checker, &stmt);
-      }
-      return last_type;
-    }
-    return UNIT_BUILTIN_TYPE;
+    return check_block_expr(checker, &expr->var.expr_block);
   }
   case EXPR_CALL: {
     return check_call_expr(checker, &expr->var.expr_call);
@@ -335,7 +380,8 @@ static Type check_expr(TypeChecker *checker, Expression *expr) {
 
     if (type_eq(&expr_type, &cast_type)) {
       goto return_type;
-    } else if (str_to_int || int_to_str || str_to_arr || arr_to_str || generic_type) {
+    } else if (str_to_int || int_to_str || str_to_arr || arr_to_str ||
+               generic_type) {
       goto return_type;
     } else {
       fprintf(stderr, "Cannot cast expr to this type\n");

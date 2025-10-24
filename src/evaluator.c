@@ -237,6 +237,13 @@ Object obj_cast(const Type *type, const Object *obj) {
   exit(1);
 }
 
+static bool obj_is_true(const Object *obj) {
+  if (obj->type == OBJECT_INT) {
+    return obj->var.obj_int;
+  }
+  return false;
+}
+
 Object evaluator_eval_expr(Evaluator *evaluator, Expression *expr) {
   switch (expr->type) {
   case EXPR_IDENT: {
@@ -277,6 +284,16 @@ Object evaluator_eval_expr(Evaluator *evaluator, Expression *expr) {
     return (Object){.type = OBJECT_INT,
                     .var = {.obj_int = expr->var.expr_integer_literal.integer}};
   }
+  case EXPR_ARRAY_ACCESS: {
+    ExprArrayAccess arr_access = expr->var.expr_array_access;
+    Object arr_obj = evaluator_eval_expr(evaluator, arr_access.array_expr);
+    Object index_obj = evaluator_eval_expr(evaluator, arr_access.index_expr);
+    if (index_obj.type != OBJECT_INT) {
+      fprintf(stderr, "Index not an integer!\n");
+      exit(1);
+    }
+    return arr_obj.var.obj_array.items[obj_cast_int(&index_obj)];
+  }
   case EXPR_CAST: {
     Expression *val = expr->var.expr_cast.expr;
     Object obj = evaluator_eval_expr(evaluator, val);
@@ -289,7 +306,7 @@ Object evaluator_eval_expr(Evaluator *evaluator, Expression *expr) {
     return eval_expr_call(evaluator, &expr_call);
   }
   case EXPR_ARRAY_INIT: {
-    ExprArrayInit expr_array = expr->var.expr_array;
+    ExprArrayInit expr_array = expr->var.expr_array_init;
     ObjectArray obj_array = {.items = array_new(Object, &HEAP_ALLOCATOR)};
 
     for (size_t i = 0; i < array_len(expr_array.items); i++) {
@@ -370,6 +387,16 @@ Object evaluator_eval_expr(Evaluator *evaluator, Expression *expr) {
       }
     }
     return obj;
+  }
+  case EXPR_IF: {
+    ExprIf expr_if = expr->var.expr_if;
+    Object condition = evaluator_eval_expr(evaluator, expr_if.condition);
+
+    if (obj_is_true(&condition)) {
+      return eval_expr_block(evaluator, &expr_if.block);
+    }
+
+    return UNIT_OBJ;
   }
   }
 }

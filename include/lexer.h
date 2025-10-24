@@ -30,6 +30,7 @@ typedef enum {
   TOKEN_ASSIGN,
   TOKEN_CAST,
   TOKEN_STRUCT,
+  TOKEN_IF,
   TOKEN_EOF,
   TOKEN_ILLEGAL,
 } TokenType;

@@ -49,7 +49,7 @@ void run_program(char *buf) {
   for (size_t i = 0; i < array_len(lexer.tokens); i++) {
     char print_buf[256];
     lexer_tok_print(print_buf, &lexer.tokens[i]);
-    printf("%s", print_buf);
+    puts(print_buf);
   }
 
   Parser parser = parser_new(lexer.tokens);

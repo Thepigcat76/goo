@@ -15,115 +15,119 @@ Lexer lexer_new(void) {
 void lexer_tok_print(char *buf, const Token *tok) {
   switch (tok->type) {
   case TOKEN_IDENT: {
-    sprintf(buf, "TOKEN_IDENT{ident=%s}\n", tok->var.ident);
+    sprintf(buf, "TOKEN_IDENT{ident=%s}", tok->var.ident);
     break;
   }
   case TOKEN_STRING: {
-    sprintf(buf, "TOKEN_STRING{string=\"%s\"}\n", tok->var.string);
+    sprintf(buf, "TOKEN_STRING{string=\"%s\"}", tok->var.string);
     break;
   }
   case TOKEN_INT: {
-    sprintf(buf, "TOKEN_INT{integer=%d}\n", tok->var.integer);
+    sprintf(buf, "TOKEN_INT{integer=%d}", tok->var.integer);
     break;
   }
   case TOKEN_CAST: {
-    sprintf(buf, "TOKEN_CAST ('cast')\n");
+    sprintf(buf, "TOKEN_CAST ('cast')");
+    break;
+  }
+  case TOKEN_IF: {
+    sprintf(buf, "TOKEN_IF ('if')");
     break;
   }
   case TOKEN_DECL_CONST: {
-    sprintf(buf, "TOKEN_DECL_CONST ('::')\n");
+    sprintf(buf, "TOKEN_DECL_CONST ('::')");
     break;
   }
   case TOKEN_DECL_VAR: {
-    sprintf(buf, "TOKEN_DECL_VAR (':=')\n");
+    sprintf(buf, "TOKEN_DECL_VAR (':=')");
     break;
   }
   case TOKEN_COLON: {
-    sprintf(buf, "TOKEN_COLON (':')\n");
+    sprintf(buf, "TOKEN_COLON (':')");
     break;
   }
   case TOKEN_LPAREN: {
-    sprintf(buf, "TOKEN_LPAREN ('(')\n");
+    sprintf(buf, "TOKEN_LPAREN ('(')");
     break;
   }
   case TOKEN_RPAREN: {
-    sprintf(buf, "TOKEN_RPAREN (')')\n");
+    sprintf(buf, "TOKEN_RPAREN (')')");
     break;
   }
   case TOKEN_LCURLY: {
-    sprintf(buf, "TOKEN_LCURLY ('{')\n");
+    sprintf(buf, "TOKEN_LCURLY ('{')");
     break;
   }
   case TOKEN_RCURLY: {
-    sprintf(buf, "TOKEN_RCURLY ('}')\n");
+    sprintf(buf, "TOKEN_RCURLY ('}')");
     break;
   }
   case TOKEN_LANGLE: {
-    sprintf(buf, "TOKEN_LANGLE ('<')\n");
+    sprintf(buf, "TOKEN_LANGLE ('<')");
     break;
   }
   case TOKEN_RANGLE: {
-    sprintf(buf, "TOKEN_RANGLE ('>')\n");
+    sprintf(buf, "TOKEN_RANGLE ('>')");
     break;
   }
   case TOKEN_LSQUARE: {
-    sprintf(buf, "TOKEN_LSQUARE ('[')\n");
+    sprintf(buf, "TOKEN_LSQUARE ('[')");
     break;
   }
   case TOKEN_RSQUARE: {
-    sprintf(buf, "TOKEN_RSQUARE (']')\n");
+    sprintf(buf, "TOKEN_RSQUARE (']')");
     break;
   }
   case TOKEN_ARROW: {
-    sprintf(buf, "TOKEN_ARROW ('->')\n");
+    sprintf(buf, "TOKEN_ARROW ('->')");
     break;
   }
   case TOKEN_COMMA: {
-    sprintf(buf, "TOKEN_COMMA (',')\n");
+    sprintf(buf, "TOKEN_COMMA (',')");
     break;
   }
   case TOKEN_DOT: {
-    sprintf(buf, "TOKEN_DOT ('.')\n");
+    sprintf(buf, "TOKEN_DOT ('.')");
     break;
   }
   case TOKEN_PLUS: {
-    sprintf(buf, "TOKEN_PLUS ('+')\n");
+    sprintf(buf, "TOKEN_PLUS ('+')");
     break;
   }
   case TOKEN_MINUS: {
-    sprintf(buf, "TOKEN_MINUS ('-')\n");
+    sprintf(buf, "TOKEN_MINUS ('-')");
     break;
   }
   case TOKEN_ASTERISK: {
-    sprintf(buf, "TOKEN_ASTERISK ('*')\n");
+    sprintf(buf, "TOKEN_ASTERISK ('*')");
     break;
   }
   case TOKEN_SLASH: {
-    sprintf(buf, "TOKEN_SLASH ('/')\n");
+    sprintf(buf, "TOKEN_SLASH ('/')");
     break;
   }
   case TOKEN_LTE: {
-    sprintf(buf, "TOKEN_LTE ('<=')\n");
+    sprintf(buf, "TOKEN_LTE ('<=')");
     break;
   }
   case TOKEN_GTE: {
-    sprintf(buf, "TOKEN_GTE ('>=')\n");
+    sprintf(buf, "TOKEN_GTE ('>=')");
     break;
   }
   case TOKEN_ASSIGN: {
-    sprintf(buf, "TOKEN_ASSIGN ('=')\n");
+    sprintf(buf, "TOKEN_ASSIGN ('=')");
     break;
   }
   case TOKEN_STRUCT: {
-    sprintf(buf, "TOKEN_STRUCT ('struct')\n");
+    sprintf(buf, "TOKEN_STRUCT ('struct')");
     break;
   }
   case TOKEN_EOF: {
-    sprintf(buf, "TOKEN_EOF\n");
+    sprintf(buf, "TOKEN_EOF");
     break;
   }
   case TOKEN_ILLEGAL: {
-    sprintf(buf, "TOKEN_ILLEGAL\n");
+    sprintf(buf, "TOKEN_ILLEGAL");
     break;
   }
   }
@@ -176,6 +180,8 @@ void lexer_tokenize(Lexer *lexer, const char *src) {
         tok.type = TOKEN_CAST;
       } else if (strcmp(ident, "struct") == 0) {
         tok.type = TOKEN_STRUCT;
+      } else if (strcmp(ident, "if") == 0) {
+        tok.type = TOKEN_IF;
       } else {
         tok.type = TOKEN_IDENT;
         tok.var.ident = malloc(strlen(ident) + 1);
@@ -244,6 +250,8 @@ void lexer_tokenize(Lexer *lexer, const char *src) {
       }
     } else if (*lexer->cur_char == ',') {
       tok = (Token){.type = TOKEN_COMMA, .begin = lexer->cur_char, .len = 1};
+    } else if (*lexer->cur_char == '+') {
+      tok = (Token){.type = TOKEN_PLUS, .begin = lexer->cur_char, .len = 1};
     } else if (*lexer->cur_char == '+') {
       tok = (Token){.type = TOKEN_PLUS, .begin = lexer->cur_char, .len = 1};
     } else if (*lexer->cur_char == '-') {
