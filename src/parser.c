@@ -341,8 +341,10 @@ static void expr_print(char *buf, const Expression *expr) {
   case EXPR_CAST: {
     char type_buf[128];
     type_print(type_buf, &expr->var.expr_cast.type);
-    char expr_buf[128];
-    expr_print(expr_buf, expr->var.expr_cast.expr);
+      char expr_buf[128] = "";
+    if (expr->var.expr_cast.expr != NULL) {
+      expr_print(expr_buf, expr->var.expr_cast.expr);
+    }
     sprintf(buf, "ExprCast{type=%s, expr=%s}", type_buf, expr_buf);
     break;
   }
@@ -367,7 +369,8 @@ static void expr_print(char *buf, const Expression *expr) {
     expr_print(cond_expr_buf, expr_if.condition);
     char block_expr_buf[128];
     expr_block_print(block_expr_buf, &expr_if.block);
-    sprintf(buf, "ExprIf{condition=%s, block=%s}", cond_expr_buf, block_expr_buf);
+    sprintf(buf, "ExprIf{condition=%s, block=%s}", cond_expr_buf,
+            block_expr_buf);
     break;
   }
   default: {

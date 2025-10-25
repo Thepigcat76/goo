@@ -6,7 +6,7 @@ main :: () {
   last_num := my_array[4]
   println(cast<string>(last_num))
 
-  if true {
+  if slay() {
     #println("Hello")
   }
 
