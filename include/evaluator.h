@@ -8,6 +8,16 @@
 #define obj_cast_int(obj_ptr) (obj_ptr)->var.obj_int
 #define obj_cast_string(obj_ptr) (obj_ptr)->var.obj_string
 
+#define OBJ_STR(_str)                                                          \
+  (Object) {                                                                   \
+    .type = OBJECT_STRING, .var = {.obj_string = _str }                              \
+  }
+  
+#define OBJ_INT(_int)                                                          \
+  (Object) {                                                                   \
+    .type = OBJECT_INT, .var = {.obj_int = _int }                              \
+  }
+
 static int exit_with_msg(char *err_msg, int exit_code) {
   fputs(err_msg, stderr);
   exit(exit_code);

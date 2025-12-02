@@ -728,7 +728,7 @@ static bool ident_is_struct(Parser *parser, Ident *struct_name) {
 }
 
 static bool ident_is_builtin_function(Ident *function_name) {
-  return strv_eq(*function_name, "println") || strv_eq(*function_name, "printfn") || strv_eq(*function_name, "exit");
+  return strv_eq(*function_name, "println") || strv_eq(*function_name, "printfn") || strv_eq(*function_name, "format") || strv_eq(*function_name, "exit");
 }
 
 static Expression parse_expr(Parser *parser) {

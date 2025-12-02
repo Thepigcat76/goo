@@ -27,4 +27,8 @@ main :: () -> i32 {
 
   printfn("Hello: %, I love % a lot % %%% Sllllllay", 69, "Cats", "Pen", "Volley", "Ball", "Sport")
 
+  msg := format("Hello %, how are you?", "Alexander")
+
+  println(msg)
+
 }

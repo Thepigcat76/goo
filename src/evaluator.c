@@ -162,11 +162,6 @@ Object eval_expr_call(Evaluator *evaluator, const ExprCall *expr_call) {
   return UNIT_OBJ;
 }
 
-#define OBJ_INT(_int)                                                          \
-  (Object) {                                                                   \
-    .type = OBJECT_INT, .var = {.obj_int = _int }                              \
-  }
-
 Object obj_cast(const Type *type, const Object *obj) {
   switch (obj->type) {
   case OBJECT_INT: {
