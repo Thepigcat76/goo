@@ -57,6 +57,17 @@ static bool str_ptrv_eq(const void *a, const void *b) {
   return strv_eq(*(char **)a, *(char **)b);
 }
 
+static void evaluator_envs_push_copy(Evaluator *evaluator,
+                                     Environment *env_to_copy) {
+  Environment new_env = {.env = hashmap_new(Ident, Object, &HEAP_ALLOCATOR,
+                                            str_ptrv_hash, str_ptrv_eq, NULL)};
+  hashmap_foreach(&env_to_copy->env, Ident * key, Object * val,
+                  { environment_add(&new_env, key, *val); });
+
+  array_add(evaluator->environments, new_env);
+  evaluator->cur_env++;
+}
+
 static void evaluator_envs_push(Evaluator *evaluator) {
   Environment new_env = {.env = hashmap_new(Ident, Object, &HEAP_ALLOCATOR,
                                             str_ptrv_hash, str_ptrv_eq, NULL)};
@@ -110,11 +121,11 @@ Object eval_expr_call(Evaluator *evaluator, const ExprCall *expr_call) {
                                   evaluator->global_env);
   if (value != NULL && value->type == OBJECT_FUNCTION) {
     ObjectFunction obj_function = value->var.obj_function;
-    Object *args = array_new(Object, &HEAP_ALLOCATOR);
+    Object *call_args = array_new(Object, &HEAP_ALLOCATOR);
     if (expr_call->args != NULL) {
       for (size_t i = 0; i < array_len(expr_call->args); i++) {
         Object obj = evaluator_eval_expr(evaluator, &expr_call->args[i]);
-        array_add(args, obj);
+        array_add(call_args, obj);
       }
     }
     Object return_value;
@@ -123,13 +134,16 @@ Object eval_expr_call(Evaluator *evaluator, const ExprCall *expr_call) {
     {
       // Push function arguments to environment in case there are any
       if (expr_call->args != NULL) {
-        for (size_t i = 0; i < array_len(args); i++) {
-          environment_add(evaluator->cur_env, &obj_function.args[i].ident,
-                          args[i]);
+        for (size_t i = 0; i < array_len(call_args); i++) {
+          if (obj_function.args[i].type != ARG_VARARG && i < array_len(obj_function.args)) {
+            environment_add(evaluator->cur_env,
+                            &obj_function.args[i].var.typed_arg.ident,
+                            call_args[i]);
+          }
         }
       }
       if (obj_function.native_function != NULL) {
-        return_value = obj_function.native_function(args);
+        return_value = obj_function.native_function(call_args);
       } else {
         return_value = eval_expr_block(evaluator, obj_function.block);
       }
@@ -232,17 +246,43 @@ Object obj_cast(const Type *type, const Object *obj) {
   case OBJECT_FUNCTION: {
     break;
   }
+  case OBJECT_BOOL: {
+    switch (type->type) {
+    case TYPE_IDENT: {
+      if (type_eq(type, &BOOL_BUILTIN_TYPE)) {
+        return *obj;
+      } else if (type_eq(type, &INT_BUILTIN_TYPE)) {
+        return OBJ_INT(obj->var.obj_bool ? 1 : 0);
+      } else if (type_eq(type, &STRING_BUILTIN_TYPE)) {
+        return (Object){
+            .type = OBJECT_STRING,
+            .var = {.obj_string = obj->var.obj_bool ? "true" : "false"}};
+      }
+    }
+    default: {
+      break;
+    }
+    }
+  }
   }
   fprintf(stderr, "Invalid cast\n");
+  char type_buf[128];
+  type_print(type_buf, type);
+  fprintf(stderr, "Tried to cast obj of type %d, to type %s\n", obj->type,
+          type_buf);
   exit(1);
 }
 
 static bool obj_is_true(const Object *obj) {
   if (obj->type == OBJECT_INT) {
     return obj->var.obj_int;
+  } else if (obj->type == OBJECT_BOOL) {
+    return obj->var.obj_bool;
   }
   return false;
 }
+
+static Ident IT_NAME = "it";
 
 Object evaluator_eval_expr(Evaluator *evaluator, Expression *expr) {
   switch (expr->type) {
@@ -272,6 +312,36 @@ Object evaluator_eval_expr(Evaluator *evaluator, Expression *expr) {
     ExprCall expr_call = expr->var.expr_call;
     return eval_expr_call(evaluator, &expr_call);
   }
+  case EXPR_IT: {
+    return *environment_get(evaluator->cur_env, &IT_NAME,
+                            evaluator->global_env);
+  }
+  case EXPR_FOR: {
+    ExprFor *expr_for = &expr->var.expr_for;
+    Object range_min = evaluator_eval_expr(evaluator, expr_for->range.min);
+    int min = obj_cast_int(&range_min);
+    Object range_max = evaluator_eval_expr(evaluator, expr_for->range.max);
+    int max = obj_cast_int(&range_max);
+
+    Ident *counter_var_name =
+        expr_for->variable_name == NULL ? &IT_NAME : &expr_for->variable_name;
+
+    evaluator_envs_push_copy(evaluator, evaluator->cur_env);
+    {
+
+      environment_add(evaluator->cur_env, counter_var_name, OBJ_INT(min));
+
+      int i = min;
+      while (i < max) {
+        eval_expr_block(evaluator, &expr_for->block);
+        *environment_get(evaluator->cur_env, counter_var_name,
+                         evaluator->global_env) = OBJ_INT(++i);
+      }
+    }
+    evaluator_envs_pop(evaluator);
+
+    return UNIT_OBJ;
+  }
   case EXPR_BLOCK: {
     return eval_expr_block(evaluator, &expr->var.expr_block);
   }
@@ -283,6 +353,11 @@ Object evaluator_eval_expr(Evaluator *evaluator, Expression *expr) {
   case EXPR_INTEGER_LIT: {
     return (Object){.type = OBJECT_INT,
                     .var = {.obj_int = expr->var.expr_integer_literal.integer}};
+  }
+  case EXPR_BOOLEAN_LIT: {
+    return (Object){
+        .type = OBJECT_BOOL,
+        .var = {.obj_bool = expr->var.expr_boolean_literal.boolean}};
   }
   case EXPR_ARRAY_ACCESS: {
     ExprArrayAccess arr_access = expr->var.expr_array_access;

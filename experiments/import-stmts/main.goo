@@ -1,0 +1,9 @@
+use "lib.goo"
+
+main :: () {
+  p: Person = person_new("Alfred", 48)
+  
+  person_incr_age(&p)
+
+  printfn("Person % is of age %", p.name, p.age)
+}

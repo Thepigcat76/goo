@@ -1,0 +1,12 @@
+struct Person {
+  name: string,
+  age: u8,
+}
+
+person_new :: (name: string, age: u8) -> Person {
+  return Person { name: name, age: age, }
+}
+
+person_incr_age :: (p: *Person) {
+  p.age += 1
+}

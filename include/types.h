@@ -65,6 +65,7 @@ typedef struct _generic {
 extern const Type UNIT_BUILTIN_TYPE;
 extern const Type STRING_BUILTIN_TYPE;
 extern const Type INT_BUILTIN_TYPE;
+extern const Type BOOL_BUILTIN_TYPE;
 
 typedef struct _typed_ident {
   Ident ident;

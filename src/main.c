@@ -64,6 +64,25 @@ void run_program(char *buf) {
     printf("%s\n", print_buf);
   }
 
+  puts("---");
+
+  puts("-- FUNCTIONS --");
+
+  hashmap_foreach(&parser.custom_functions, Ident *key, ExprFunction *val, {
+    puts(*key);
+  });
+  printf("Custom functions: %zu\n", parser.custom_functions.len);
+
+  puts("---");
+
+  puts("-- TYPES --");
+
+  hashmap_foreach(&parser.custom_types, Ident **key, TypeExpr *val, {
+    puts(**key);
+  });
+
+  puts("---");
+
   TypeChecker checker = checker_new(parser.statements);
 #ifdef TARGET_WEB
   function_println_use_buffer();

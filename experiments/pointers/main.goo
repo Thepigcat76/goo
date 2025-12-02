@@ -1,0 +1,10 @@
+main :: () {
+  integer: i32 = 3200
+
+  i_ptr: *i32 = &integer
+
+  integer_deref: i32 = ~i_ptr
+
+  printfn("integer: %, pointer: %", integer, i_ptr)
+
+}

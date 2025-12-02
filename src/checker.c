@@ -35,6 +35,9 @@ void type_table_add_generic(TypeTable *table, Ident *name) {
 
 TypeTableValue *type_table_get(TypeTable *table, Ident *ident,
                                TypeTable *global_table) {
+  // if (ident == NULL || *ident == NULL)
+  //   return NULL;
+
   TypeTableValue *res = hashmap_value(&table->type_table, ident);
 
   if (res == NULL && global_table != NULL) {
@@ -100,11 +103,12 @@ static Ident resolve_overloaded_function(TypeChecker *checker,
             if (overloaded_function.type == EXPR_FUNCTION) {
               ExprFunction overloaded_func_expr =
                   overloaded_function.var.expr_function;
-              TypedIdent *args = overloaded_func_expr.desc.args;
+              Argument *args = overloaded_func_expr.desc.args;
               for (size_t i = 0; i < array_len(args); i++) {
                 if (array_len(call_arg_types) != array_len(args) ||
                     !(i < array_len(call_arg_types) &&
-                      type_eq(&call_arg_types[i], &args[i].type))) {
+                      type_eq(&call_arg_types[i],
+                              &args[i].var.typed_arg.type))) {
                   goto end_of_outerloop;
                 }
               }
@@ -186,7 +190,13 @@ static Type check_call_expr(TypeChecker *checker, ExprCall *expr_call) {
   if (expr_function.desc.args != NULL) {
     func_args_len = array_len(expr_function.desc.args);
   }
-  if (args_len != func_args_len) {
+
+  bool has_varargs =
+      func_args_len > 0
+          ? expr_function.desc.args[func_args_len - 1].type == ARG_VARARG
+          : false;
+
+  if (!has_varargs && args_len != func_args_len) {
     fprintf(stderr,
             "Type error: Arg count for caller (%zu) and function (%zu) do not "
             "match, "
@@ -199,30 +209,33 @@ static Type check_call_expr(TypeChecker *checker, ExprCall *expr_call) {
     Type arg_type = check_expr(checker, &expr_call->args[i]);
     array_add(arg_types, arg_type);
     bool generic_type = false;
-    if (expr_function.desc.args[i].type.type == TYPE_IDENT &&
+    if (expr_function.desc.args[i].var.typed_arg.type.type == TYPE_IDENT &&
         expr_function.desc.generics != NULL) {
       for (size_t j = 0; j < array_len(expr_function.desc.generics); j++) {
-        if (strcmp(expr_function.desc.args[i].type.var.type_ident,
+        if (strcmp(expr_function.desc.args[i].var.typed_arg.type.var.type_ident,
                    expr_function.desc.generics[j].name) == 0) {
           generic_type = true;
           break;
         }
       }
     }
-    if (!type_eq(&arg_type, &expr_function.desc.args[i].type) &&
-        !generic_type) {
-      type_table_dump(checker->cur_type_table);
-      char caller_arg_type_buf[512];
-      type_print(caller_arg_type_buf, &arg_type);
-      char func_arg_type_buf[512];
-      type_print(func_arg_type_buf, &expr_function.desc.args[i].type);
-      fprintf(
-          stderr,
-          "Type error: Arg type of caller (%s) and function (%s) do not match, "
-          "function: %s, "
-          "arg: %zu\n",
-          caller_arg_type_buf, func_arg_type_buf, expr_call->function, i);
-      exit(1);
+    if (!(i >= func_args_len && has_varargs)) {
+      if (expr_function.desc.args[i].type != ARG_VARARG && !type_eq(&arg_type, &expr_function.desc.args[i].var.typed_arg.type) &&
+          !generic_type) {
+        type_table_dump(checker->cur_type_table);
+        char caller_arg_type_buf[512];
+        type_print(caller_arg_type_buf, &arg_type);
+        char func_arg_type_buf[512];
+        type_print(func_arg_type_buf,
+                   &expr_function.desc.args[i].var.typed_arg.type);
+        fprintf(stderr,
+                "Type error: Arg type of caller (%s) and function (%s) do not "
+                "match, "
+                "function: %s, "
+                "arg: %zu\n",
+                caller_arg_type_buf, func_arg_type_buf, expr_call->function, i);
+        exit(1);
+      }
     }
   }
 
@@ -256,7 +269,8 @@ static bool type_is_numeric(const Type *type) {
   return type_eq(type, &INT_BUILTIN_TYPE);
 }
 
-static Type check_block_expr(TypeChecker *checker, const ExprBlock *expr_block) {
+static Type check_block_expr(TypeChecker *checker,
+                             const ExprBlock *expr_block) {
   if (expr_block->statements != NULL) {
     size_t len = array_len(expr_block->statements);
     Type last_type = UNIT_BUILTIN_TYPE;
@@ -312,7 +326,8 @@ static Type check_expr(TypeChecker *checker, Expression *expr) {
   case EXPR_IF: {
     ExprIf expr_if = expr->var.expr_if;
     Type cond_ty = check_expr(checker, expr_if.condition);
-    if (!type_eq(&cond_ty, &INT_BUILTIN_TYPE)) {
+    if (!type_eq(&cond_ty, &INT_BUILTIN_TYPE) &&
+        !type_eq(&cond_ty, &BOOL_BUILTIN_TYPE)) {
       char type_buf[128];
       type_print(type_buf, &cond_ty);
       fprintf(
@@ -330,9 +345,10 @@ static Type check_expr(TypeChecker *checker, Expression *expr) {
     {
       // Add func args to typetable
       for (size_t i = 0; i < array_len(expr_function.desc.args); i++) {
-        Type type = expr_function.desc.args[i].type;
+        Type type = expr_function.desc.args[i].var.typed_arg.type;
         type_table_add(
-            checker->cur_type_table, &expr_function.desc.args[i].ident,
+            checker->cur_type_table,
+            &expr_function.desc.args[i].var.typed_arg.ident,
             (ExpressionVariant){.type = EXPR_VAR_REG_EXPR,
                                 .var = {.expr_var_reg_expr = UNIT_EXPR}},
             (OptionalType){.type = type, .present = true});
@@ -394,6 +410,9 @@ static Type check_expr(TypeChecker *checker, Expression *expr) {
   }
   case EXPR_INTEGER_LIT: {
     return INT_BUILTIN_TYPE;
+  }
+  case EXPR_BOOLEAN_LIT: {
+    return BOOL_BUILTIN_TYPE;
   }
   case EXPR_IDENT: {
     TypeTableValue *val =

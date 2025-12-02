@@ -22,8 +22,19 @@ typedef enum {
 } Precedence;
 
 typedef struct {
+  enum {
+    ARG_TYPED_ARG,
+    ARG_VARARG,
+  } type;
+  union {
+    TypedIdent typed_arg;
+    Ident vararg;
+  } var;
+} Argument;
+
+typedef struct {
   struct _generic *generics;
-  TypedIdent *args;
+  Argument *args;
   Type ret_type;
 } FuncDescriptor;
 
@@ -41,6 +52,17 @@ typedef struct {
   struct _expr *condition;
   ExprBlock block;
 } ExprIf;
+
+typedef struct {
+  struct _expr *min;
+  struct _expr *max;
+} ExprRange;
+
+typedef struct {
+  Ident variable_name;
+  ExprRange range;
+  ExprBlock block;
+} ExprFor;
 
 typedef struct {
   Ident function;
@@ -126,12 +148,15 @@ typedef struct _expr {
     EXPR_GENERIC_CALL,
     EXPR_STRING_LIT,
     EXPR_INTEGER_LIT,
+    EXPR_BOOLEAN_LIT,
     EXPR_IDENT,
     EXPR_UNIT,
     EXPR_BIN_OP,
     EXPR_STRUCT_INIT,
     EXPR_STRUCT_ACCESS,
     EXPR_IF,
+    EXPR_FOR,
+    EXPR_IT,
   } type;
   union {
     ExprArrayInit expr_array_init;
@@ -145,6 +170,8 @@ typedef struct _expr {
     ExprStructInit expr_struct_init;
     ExprStructAccess expr_struct_access;
     ExprIf expr_if;
+    ExprFor expr_for;
+    ExprRange expr_range;
     struct {
       Ident ident;
     } expr_ident;
@@ -154,6 +181,9 @@ typedef struct _expr {
     struct {
       int integer;
     } expr_integer_literal;
+    struct {
+      bool boolean;
+    } expr_boolean_literal;
   } var;
   const char *begin;
   size_t len;
@@ -221,6 +251,8 @@ typedef struct {
   const Token *peek_tok;
   Token *tokens;
   Statement *statements;
+  Hashmap(Ident *, TypeExpr) custom_types;
+  Hashmap(Ident *, ExprFunction) custom_functions;
 } Parser;
 
 Parser parser_new(Token *tokens);

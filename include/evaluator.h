@@ -16,7 +16,7 @@ static int exit_with_msg(char *err_msg, int exit_code) {
 #define obj_try_cast_int(obj_ptr, err_msg) ((obj_ptr)->type == OBJECT_INT) ? (obj_ptr)->var.obj_int : exit_with_msg(err_msg, 1)
 
 typedef struct {
-  TypedIdent *args;
+  Argument *args;
   ExprBlock *block;
   struct _obj (*native_function)(struct _obj *objects);
 } ObjectFunction;
@@ -33,6 +33,7 @@ typedef struct _obj {
   enum {
     OBJECT_INT,
     OBJECT_STRING,
+    OBJECT_BOOL,
     OBJECT_FUNCTION,
     OBJECT_UNIT,
     OBJECT_STRUCT,
@@ -41,6 +42,7 @@ typedef struct _obj {
   union {
     int obj_int;
     char *obj_string;
+    bool obj_bool;
     ObjectFunction obj_function;
     ObjectStruct obj_struct;
     ObjectArray obj_array;
@@ -73,3 +75,5 @@ void evaluator_eval_global(Evaluator *evaluator, TypeTable *global_table);
 void evaluator_eval_stmt(Evaluator *evaluator, Statement *stmt);
 
 Object evaluator_eval_expr(Evaluator *evaluator, Expression *expr);
+
+Object obj_cast(const Type *type, const Object *obj);

@@ -12,6 +12,7 @@
 const Type UNIT_BUILTIN_TYPE = {.type = TYPE_UNIT};
 const Type STRING_BUILTIN_TYPE = BUILTIN_TYPE_IDENT("string");
 const Type INT_BUILTIN_TYPE = BUILTIN_TYPE_IDENT("i32");
+const Type BOOL_BUILTIN_TYPE = BUILTIN_TYPE_IDENT("bool");
 
 bool type_eq(const Type *a, const Type *b) {
   if (a->type != b->type)

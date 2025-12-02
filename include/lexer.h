@@ -1,11 +1,13 @@
 #pragma once
 
+#include <stdbool.h>
 #include <stdlib.h>
 
 typedef enum {
   TOKEN_IDENT,
   TOKEN_STRING,
   TOKEN_INT,
+  TOKEN_BOOL,
 
   TOKEN_DECL_CONST,
   TOKEN_DECL_VAR,
@@ -23,6 +25,7 @@ typedef enum {
   TOKEN_ARROW,
   TOKEN_COMMA,
   TOKEN_DOT,
+  TOKEN_RANGE,
   TOKEN_PLUS,
   TOKEN_MINUS,
   TOKEN_SLASH,
@@ -31,6 +34,9 @@ typedef enum {
   TOKEN_CAST,
   TOKEN_STRUCT,
   TOKEN_IF,
+  TOKEN_IN,
+  TOKEN_IT,
+  TOKEN_FOR,
   TOKEN_EOF,
   TOKEN_ILLEGAL,
 } TokenType;
@@ -41,6 +47,7 @@ typedef struct {
     char *ident;
     char *string;
     int integer;
+    bool boolean;
   } var;
   // Beginning character of this token
   const char *begin;

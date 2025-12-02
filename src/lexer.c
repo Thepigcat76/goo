@@ -34,6 +34,18 @@ void lexer_tok_print(char *buf, const Token *tok) {
     sprintf(buf, "TOKEN_IF ('if')");
     break;
   }
+  case TOKEN_FOR: {
+    sprintf(buf, "TOKEN_FOR ('for')");
+    break;
+  }
+  case TOKEN_IN: {
+    sprintf(buf, "TOKEN_IN ('in')");
+    break;
+  }
+  case TOKEN_IT: {
+    sprintf(buf, "TOKEN_IT ('it')");
+    break;
+  }
   case TOKEN_DECL_CONST: {
     sprintf(buf, "TOKEN_DECL_CONST ('::')");
     break;
@@ -122,6 +134,15 @@ void lexer_tok_print(char *buf, const Token *tok) {
     sprintf(buf, "TOKEN_STRUCT ('struct')");
     break;
   }
+  case TOKEN_BOOL: {
+    sprintf(buf, "TOKEN_BOOL {boolean=%s}",
+            tok->var.boolean ? "true" : "false");
+    break;
+  }
+  case TOKEN_RANGE: {
+    sprintf(buf, "TOKEN_RANGE ('..')");
+    break;
+  }
   case TOKEN_EOF: {
     sprintf(buf, "TOKEN_EOF");
     break;
@@ -182,6 +203,15 @@ void lexer_tokenize(Lexer *lexer, const char *src) {
         tok.type = TOKEN_STRUCT;
       } else if (strcmp(ident, "if") == 0) {
         tok.type = TOKEN_IF;
+      } else if (strcmp(ident, "in") == 0) {
+        tok.type = TOKEN_IN;
+      } else if (strcmp(ident, "it") == 0) {
+        tok.type = TOKEN_IT;
+      } else if (strcmp(ident, "for") == 0) {
+        tok.type = TOKEN_FOR;
+      } else if (strcmp(ident, "true") == 0 || strcmp(ident, "false") == 0) {
+        tok.type = TOKEN_BOOL;
+        tok.var.boolean = strcmp(ident, "true") == 0;
       } else {
         tok.type = TOKEN_IDENT;
         tok.var.ident = malloc(strlen(ident) + 1);
@@ -199,7 +229,10 @@ void lexer_tokenize(Lexer *lexer, const char *src) {
         next_char(lexer);
       }
       string[i] = '\0';
-      tok = (Token){.type = TOKEN_STRING, .var = {.string = strdup(string)}, .begin = begin, .len = i};
+      tok = (Token){.type = TOKEN_STRING,
+                    .var = {.string = strdup(string)},
+                    .begin = begin,
+                    .len = i};
     } else if (*lexer->cur_char >= '0' && *lexer->cur_char <= '9') {
       const char *begin = lexer->cur_char;
       size_t cap = 32;
@@ -215,13 +248,18 @@ void lexer_tokenize(Lexer *lexer, const char *src) {
       } while (*lexer->cur_char >= '0' && *lexer->cur_char <= '9');
       lexer->cur_char--;
       int_lit[i] = '\0';
-      tok = (Token){.type = TOKEN_INT, .var = {.integer = atoi(int_lit)}, .begin = begin, .len = i};
+      tok = (Token){.type = TOKEN_INT,
+                    .var = {.integer = atoi(int_lit)},
+                    .begin = begin,
+                    .len = i};
     } else if (*lexer->cur_char == ':') {
       if (*(lexer->cur_char + 1) == ':') {
-        tok = (Token){.type = TOKEN_DECL_CONST, .begin = lexer->cur_char, .len = 2};
+        tok = (Token){
+            .type = TOKEN_DECL_CONST, .begin = lexer->cur_char, .len = 2};
         next_char(lexer);
       } else if (*(lexer->cur_char + 1) == '=') {
-        tok = (Token){.type = TOKEN_DECL_VAR, .begin = lexer->cur_char, .len = 2};
+        tok =
+            (Token){.type = TOKEN_DECL_VAR, .begin = lexer->cur_char, .len = 2};
         next_char(lexer);
       } else {
         tok = (Token){.type = TOKEN_COLON, .begin = lexer->cur_char, .len = 1};
@@ -256,13 +294,18 @@ void lexer_tokenize(Lexer *lexer, const char *src) {
       tok = (Token){.type = TOKEN_PLUS, .begin = lexer->cur_char, .len = 1};
     } else if (*lexer->cur_char == '-') {
       if (*(lexer->cur_char + 1) == '>') {
-        tok = (Token){.type = TOKEN_ARROW, .begin = lexer->cur_char, .len = 12};
+        tok = (Token){.type = TOKEN_ARROW, .begin = lexer->cur_char, .len = 2};
         next_char(lexer);
       } else {
         tok = (Token){.type = TOKEN_MINUS, .begin = lexer->cur_char, .len = 1};
       }
     } else if (*lexer->cur_char == '.') {
-      tok = (Token){.type = TOKEN_DOT, .begin = lexer->cur_char, .len = 1};
+      if (*(lexer->cur_char + 1) == '.') {
+        tok = (Token){.type = TOKEN_RANGE, .begin = lexer->cur_char, .len = 2};
+        next_char(lexer);
+      } else {
+        tok = (Token){.type = TOKEN_DOT, .begin = lexer->cur_char, .len = 1};
+      }
     } else if (*lexer->cur_char == '=') {
       tok = (Token){.type = TOKEN_ASSIGN, .begin = lexer->cur_char, .len = 1};
     } else if (*lexer->cur_char == '[') {

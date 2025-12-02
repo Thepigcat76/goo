@@ -88,6 +88,7 @@ static void transform_generic_expr(TypeChecker *checker, Expression *expr,
   case EXPR_CALL:
   case EXPR_STRING_LIT:
   case EXPR_INTEGER_LIT:
+  case EXPR_BOOLEAN_LIT:
   case EXPR_IDENT:
   case EXPR_UNIT:
     break;
@@ -124,13 +125,13 @@ static ExprFunction transform_generic_function(TypeChecker *checker,
                                                ExprFunction *expr_func,
                                                Hashmap(Ident *, Type)
                                                    generics_lookup) {
-  TypedIdent *args = array_new_capacity(
-      TypedIdent, array_len(expr_func->desc.args), &HEAP_ALLOCATOR);
+  Argument *args = array_new_capacity(
+      Argument, array_len(expr_func->desc.args), &HEAP_ALLOCATOR);
   for (size_t i = 0; i < array_len(expr_func->desc.args); i++) {
     array_add(args,
-              (TypedIdent){.type = try_transform_generic_type(
-                               &expr_func->desc.args[i].type, generics_lookup),
-                           .ident = expr_func->desc.args[i].ident});
+              (Argument){.type = ARG_TYPED_ARG, .var = {.typed_arg = (TypedIdent){.type = try_transform_generic_type(
+                               &expr_func->desc.args[i].var.typed_arg.type, generics_lookup),
+                           .ident = expr_func->desc.args[i].var.typed_arg.ident}}});
   }
   ExprFunction func = {
       .desc = {.generics = NULL,
@@ -144,7 +145,7 @@ static ExprFunction transform_generic_function(TypeChecker *checker,
 // Returns null if type is not a generic
 // Otherwise the generic will be returned
 static Ident type_generic(const FuncDescriptor *desc, size_t arg_index) {
-  Type func_arg_type = desc->args[arg_index].type;
+  Type func_arg_type = desc->args[arg_index].var.typed_arg.type;
   if (func_arg_type.type == TYPE_IDENT && desc->generics != NULL) {
     for (size_t i = 0; i < array_len(desc->generics); i++) {
       Generic *generic = &desc->generics[i];

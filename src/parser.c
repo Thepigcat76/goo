@@ -1,6 +1,8 @@
 #include "../include/parser.h"
 #include "../vendor/lilc/alloc.h"
 #include "../vendor/lilc/array.h"
+#include "../vendor/lilc/eq.h"
+#include "../vendor/lilc/hash.h"
 #include "../vendor/lilc/panic.h"
 #include <stdbool.h>
 #include <stdio.h>
@@ -31,6 +33,10 @@ Parser parser_new(Token *tokens) {
   return (Parser){
       .tokens = tokens,
       .statements = array_new(Statement, &HEAP_ALLOCATOR),
+      .custom_types = hashmap_new(Ident *, TypeExpr, &HEAP_ALLOCATOR,
+                                  str_ptrv_hash, str_ptrv_eq, NULL),
+      .custom_functions = hashmap_new(Ident *, TypeExpr, &HEAP_ALLOCATOR,
+                                      str_ptrv_hash, str_ptrv_eq, NULL),
   };
 }
 
@@ -150,7 +156,7 @@ void func_desc_print(char *buf, const FuncDescriptor *desc) {
   if (desc->args != NULL) {
     for (size_t i = 0; i < array_len(desc->args); i++) {
       char arg_buf[64];
-      typed_ident_print(arg_buf, &desc->args[i]);
+      typed_ident_print(arg_buf, &desc->args[i].var.typed_arg);
       strcat(args_buf, arg_buf);
       strcat(args_buf, ", ");
     }
@@ -177,8 +183,10 @@ static void expr_block_print(char *buf, const ExprBlock *expr) {
     if (array_len(expr->statements) >= 1) {
       block_buf[strlen(block_buf) - 2] = '\0';
     }
+  } else {
+    strcpy(block_buf, "-");
   }
-  sprintf(buf, "ExprBlock{stmts=%s}", block_buf);
+  sprintf(buf, "ExprBlock{stmts=[%s]}", block_buf);
 }
 
 static void expr_print(char *buf, const Expression *expr) {
@@ -190,6 +198,11 @@ static void expr_print(char *buf, const Expression *expr) {
     expr_block_print(block_buf, &expr->var.expr_block);
     sprintf(buf, "ExprFunction{func_desc=%s, block=[%s]}", func_desc_buf,
             block_buf);
+    break;
+  }
+  case EXPR_BOOLEAN_LIT: {
+    sprintf(buf, "BooleanLiteral{value=%s}",
+            expr->var.expr_boolean_literal.boolean ? "true" : "false");
     break;
   }
   case EXPR_STRING_LIT: {
@@ -341,7 +354,7 @@ static void expr_print(char *buf, const Expression *expr) {
   case EXPR_CAST: {
     char type_buf[128];
     type_print(type_buf, &expr->var.expr_cast.type);
-      char expr_buf[128] = "";
+    char expr_buf[128] = "";
     if (expr->var.expr_cast.expr != NULL) {
       expr_print(expr_buf, expr->var.expr_cast.expr);
     }
@@ -371,6 +384,26 @@ static void expr_print(char *buf, const Expression *expr) {
     expr_block_print(block_expr_buf, &expr_if.block);
     sprintf(buf, "ExprIf{condition=%s, block=%s}", cond_expr_buf,
             block_expr_buf);
+    break;
+  }
+  case EXPR_FOR: {
+    ExprFor expr_for = expr->var.expr_for;
+    char range_expr_0_buf[128];
+    expr_print(range_expr_0_buf, expr_for.range.min);
+    char range_expr_1_buf[128];
+    expr_print(range_expr_1_buf, expr_for.range.max);
+    
+    char range_expr_buf[256];
+    sprintf(range_expr_buf, "ExprRange{min=%s, max=%s}", range_expr_0_buf, range_expr_1_buf);
+
+    char block_expr_buf[512];
+    expr_block_print(block_expr_buf, &expr_for.block);
+
+    sprintf(buf, "ExprFor{variable_name=%s, range=%s, block=%s}", expr_for.variable_name, range_expr_buf, block_expr_buf);
+    break;
+  }
+  case EXPR_IT: {
+    sprintf(buf, "ExprIt");
     break;
   }
   default: {
@@ -668,7 +701,11 @@ static FuncDescriptor parse_func_desc(Parser *parser) {
   FuncDescriptor desc = {};
   // cur_tok is first ident or end of args
   next_token(parser);
-  desc.args = parse_typed_ident_list(parser, TOKEN_RPAREN);
+  TypedIdent *typed_ident_args = parse_typed_ident_list(parser, TOKEN_RPAREN);
+  desc.args = array_new_capacity(Argument, array_len(typed_ident_args), &HEAP_ALLOCATOR);
+  for (size_t i = 0; i < array_len(typed_ident_args); i++) {
+    array_add(desc.args, (Argument){.type = ARG_TYPED_ARG, .var = {.typed_arg = typed_ident_args[i]}});
+  }
   if (parser->peek_tok->type == TOKEN_ARROW) {
     // cur_tok is arrow
     next_token(parser);
@@ -685,12 +722,26 @@ static FuncDescriptor parse_func_desc(Parser *parser) {
   return desc;
 }
 
+static bool ident_is_struct(Parser *parser, Ident *struct_name) {
+  TypeExpr *type_expr = hashmap_value(&parser->custom_types, struct_name);
+  return type_expr != NULL && type_expr->type == TYPE_EXPR_STRUCT;
+}
+
+static bool ident_is_builtin_function(Ident *function_name) {
+  return strv_eq(*function_name, "println") || strv_eq(*function_name, "printfn") || strv_eq(*function_name, "exit");
+}
+
 static Expression parse_expr(Parser *parser) {
   switch (parser->cur_tok->type) {
   case TOKEN_STRING: {
     return (Expression){
         .type = EXPR_STRING_LIT,
         .var = {.expr_string_literal = parser->cur_tok->var.string}};
+  }
+  case TOKEN_BOOL: {
+    return (Expression){
+        .type = EXPR_BOOLEAN_LIT,
+        .var = {.expr_boolean_literal = parser->cur_tok->var.boolean}};
   }
   case TOKEN_LPAREN: {
     FuncDescriptor desc = parse_func_desc(parser);
@@ -725,31 +776,43 @@ static Expression parse_expr(Parser *parser) {
     Ident ident = parser->cur_tok->var.ident;
     printf("Starting ident parsing: %s\n", ident);
     if (parser->peek_tok->type == TOKEN_LPAREN) {
-      // cur_tok is left parenthesis
-      next_token(parser);
-      // cur_tok is first expr
-      next_token(parser);
+      if (hashmap_contains(&parser->custom_functions,
+                           &ident) || ident_is_builtin_function(&ident)) { // cur_tok is left parenthesis
+        next_token(parser);
+        // cur_tok is first expr
+        next_token(parser);
 
-      Expression *exprs = parse_expr_list(parser, TOKEN_RPAREN);
-      // end: right parenthesis
-      return (Expression){
-          .type = EXPR_CALL,
-          .var = {.expr_call = {.function = ident, .args = exprs}}};
+        Expression *exprs = parse_expr_list(parser, TOKEN_RPAREN);
+        // end: right parenthesis
+        return (Expression){
+            .type = EXPR_CALL,
+            .var = {.expr_call = {.function = ident, .args = exprs}}};
+      } else {
+        fprintf(stderr, "Attempted to call unknown function %s\n", ident);
+        exit(1);
+      }
     } else if (parser->peek_tok->type == TOKEN_LCURLY) {
-      // cur_tok is lcurly
-      next_token(parser);
-      // cur_tok is first field name or rcurly
-      next_token(parser);
+      if (ident_is_struct(parser, &ident)) {
+        // cur_tok is lcurly
+        next_token(parser);
+        // cur_tok is first field name or rcurly
+        next_token(parser);
 
-      LabeledExpr *field_inits = parse_labeled_expr_list(parser, TOKEN_RCURLY);
-      char expr_buf[1024];
-      expr_print(expr_buf, &field_inits[0].expr);
-      printf("Expr for init: %s\n", expr_buf);
+        LabeledExpr *field_inits =
+            parse_labeled_expr_list(parser, TOKEN_RCURLY);
+        char expr_buf[1024];
+        expr_print(expr_buf, &field_inits[0].expr);
+        printf("Expr for init: %s\n", expr_buf);
 
-      return (Expression){
-          .type = EXPR_STRUCT_INIT,
-          .var = {.expr_struct_init = {.struct_name = ident,
-                                       .field_inits = field_inits}}};
+        return (Expression){
+            .type = EXPR_STRUCT_INIT,
+            .var = {.expr_struct_init = {.struct_name = ident,
+                                         .field_inits = field_inits}}};
+      } else {
+        printf("parsed ident expr\n");
+        return (Expression){.type = EXPR_IDENT,
+                            .var = {.expr_ident = {.ident = ident}}};
+      }
     } else if (parser->peek_tok->type == TOKEN_DOT &&
                (parser->peek_tok + 2)->type == TOKEN_LPAREN) {
       // cur_tok is dot
@@ -873,6 +936,7 @@ static Expression parse_expr(Parser *parser) {
     // cur_tok is expression
     next_token(parser);
 
+    // FIXME: condition is parsed as struct initializer
     Expression cond_expr = parse_expr1(parser, PREC_LOWEST);
 
     if (parser->peek_tok->type != TOKEN_LCURLY) {
@@ -890,6 +954,71 @@ static Expression parse_expr(Parser *parser) {
     return (Expression){.type = EXPR_IF,
                         .var = {.expr_if = {.condition = heap_clone(&cond_expr),
                                             .block = {.statements = stmts}}}};
+  }
+  case TOKEN_IT: {
+    return (Expression){.type = EXPR_IT};
+  }
+  case TOKEN_FOR: {
+    // cur_tok is <var name> or range expr
+    next_token(parser);
+
+    ExprFor expr_for = {0};
+
+    Expression first_expr = parse_expr1(parser, PREC_LOWEST);
+    if (parser->peek_tok->type == TOKEN_RANGE) {
+      expr_for.variable_name = NULL;
+
+      expr_for.range.min = heap_clone(&first_expr);
+      // cur_tok is TOKEN_RANGE
+      next_token(parser);
+      // cur_tok is second expr
+      next_token(parser);
+      Expression sec_expr = parse_expr1(parser, PREC_LOWEST);
+      expr_for.range.max = heap_clone(&sec_expr);
+    } else if (parser->peek_tok->type == TOKEN_IN) {
+      if (parser->cur_tok->type != TOKEN_IDENT) {
+        EXPECTED_TOKEN_ERR(TOKEN_IDENT, parser->cur_tok);
+      }
+
+      expr_for.variable_name = parser->cur_tok->var.ident;
+
+      // cur_tok is TOKEN_IN
+      next_token(parser);
+
+      // cur_tok is first token of range expr
+      next_token(parser);
+
+      Expression min_expr = parse_expr1(parser, PREC_LOWEST);
+      expr_for.range.min = heap_clone(&min_expr);
+
+      // cur_tok is TOKEN_RANGE
+      next_token(parser);
+      // cur_tok is second expr
+      next_token(parser);
+
+      Expression max_expr = parse_expr1(parser, PREC_LOWEST);
+      expr_for.range.max = heap_clone(&max_expr);
+    }
+
+    // cur_tok is curly bracket
+    next_token(parser);
+
+    if (parser->cur_tok->type != TOKEN_LCURLY) {
+      EXPECTED_TOKEN_ERR(TOKEN_LCURLY, parser->cur_tok);
+    }
+
+    // cur_tok is first stmt of block
+    next_token(parser);
+
+    char token_buf[128];
+    lexer_tok_print(token_buf, parser->cur_tok);
+    puts(token_buf);
+
+    Statement *block_stmts = parse_block_statements(parser, TOKEN_RCURLY);
+
+    expr_for.block.statements = block_stmts;
+
+    return (Expression){.type = EXPR_FOR, .var = {.expr_for = expr_for}};
   }
   case TOKEN_CAST: {
     if (parser->peek_tok->type != TOKEN_LANGLE) {
@@ -946,6 +1075,8 @@ static Expression parse_expr(Parser *parser) {
   case TOKEN_ASSIGN:
   case TOKEN_RSQUARE:
   case TOKEN_STRUCT:
+  case TOKEN_RANGE:
+  case TOKEN_IN:
   case TOKEN_ILLEGAL: {
     char print_buf[64];
     lexer_tok_print(print_buf, parser->cur_tok);
@@ -1117,111 +1248,125 @@ static Expression parse_expr1(Parser *parser, Precedence prec) {
   return left_expr;
 }
 
+static TypeExpr parse_type_expr(Parser *parser) {
+  if (parser->cur_tok->type == TOKEN_IDENT &&
+      hashmap_contains(&parser->custom_functions,
+                       &parser->cur_tok->var.ident)) {
+    token_debug_print(parser->peek_tok);
+    Ident *idents = array_new(Ident, &HEAP_ALLOCATOR);
+    while (parser->cur_tok->type == TOKEN_IDENT) {
+      array_add(idents, parser->cur_tok->var.ident);
+      if (parser->peek_tok->type == TOKEN_COMMA) {
+        // cur_tok is comma
+        next_token(parser);
+        if (parser->peek_tok->type == TOKEN_IDENT) {
+          // cur_tok is next ident
+          next_token(parser);
+        } else {
+          break;
+        }
+      } else {
+        break;
+      }
+    }
+    return (TypeExpr){.type = TYPE_EXPR_OVERLOAD_SET,
+                      .var = {.type_expr_overload_set = {.functions = idents}}};
+  } else if (parser->cur_tok->type == TOKEN_STRUCT) {
+    if (parser->peek_tok->type == TOKEN_LCURLY) {
+      // cur_tok is TOKEN_LCURLY
+      next_token(parser);
+      // cur_tok is first ident of fields
+      next_token(parser);
+      TypedIdent *fields = parse_typed_ident_list(parser, TOKEN_RCURLY);
+      return (TypeExpr){
+          .type = TYPE_EXPR_STRUCT,
+          .var = {.type_expr_struct = {.generics = NULL, .fields = fields}}};
+    } else {
+      EXPECTED_TOKEN_ERR(TOKEN_LCURLY, parser->peek_tok);
+    }
+  } else {
+    EXPECTED_TOKEN_ERR(TOKEN_IDENT | TOKEN_STRUCT, parser->peek_tok);
+  }
+}
+
+static ExpressionVariant parse_expr_var(Parser *parser) {
+  if (parser->cur_tok == TOKEN_IDENT &&
+      hashmap_contains(&parser->custom_functions,
+                       &parser->cur_tok->var.ident)) {
+    TypeExpr ty_expr = parse_type_expr(parser);
+    return EXPR_VAR_TYPE(ty_expr);
+  } else if (parser->cur_tok->type == TOKEN_STRUCT) {
+    TypeExpr ty_expr = parse_type_expr(parser);
+    return EXPR_VAR_TYPE(ty_expr);
+  } else {
+    Expression expr = parse_expr1(parser, PREC_LOWEST);
+    return EXPR_VAR_EXPR(expr);
+  }
+}
+
+static StmtDecl parse_decl_stmt(Parser *parser, bool typed) {
+  StmtDecl stmt_decl = {0};
+  stmt_decl.name = parser->cur_tok->var.ident;
+
+  if (typed) {
+    // cur_tok is colon
+    next_token(parser);
+    // cur_tok is first token of type
+    next_token(parser);
+    stmt_decl.type =
+        (OptionalType){.type = parse_type(parser), .present = true};
+
+    if (parser->peek_tok->type == TOKEN_ASSIGN ||
+        parser->peek_tok->type == TOKEN_COLON) {
+      // cur_tok is assign/colon
+      next_token(parser);
+
+      stmt_decl.mutable = parser->cur_tok->type == TOKEN_ASSIGN;
+    } else {
+      EXPECTED_TOKEN_ERR(TOKEN_ASSIGN | TOKEN_COLON, parser->peek_tok);
+    }
+
+    next_token(parser);
+    Expression value = parse_expr1(parser, PREC_LOWEST);
+    stmt_decl.value = (ExpressionVariant){.type = EXPR_VAR_REG_EXPR,
+                                          .var = {.expr_var_reg_expr = value}};
+  } else {
+    bool mutable = parser->peek_tok->type == TOKEN_DECL_VAR;
+    stmt_decl.mutable = mutable;
+    // cur token is DECL
+    next_token(parser);
+    // cur token is EXPR
+    next_token(parser);
+
+    ExpressionVariant expr_var = parse_expr_var(parser);
+    stmt_decl.value = expr_var;
+
+    switch (expr_var.type) {
+    case EXPR_VAR_TYPE_EXPR: {
+      hashmap_insert(&parser->custom_types, &stmt_decl.name,
+                     &expr_var.var.expr_var_type_expr);
+      break;
+    }
+    case EXPR_VAR_REG_EXPR: {
+      if (expr_var.var.expr_var_reg_expr.type == EXPR_FUNCTION) {
+        hashmap_insert(&parser->custom_functions, &stmt_decl.name,
+                       &expr_var.var.expr_var_reg_expr.var.expr_function);
+      }
+      break;
+    }
+    }
+  }
+  return stmt_decl;
+}
+
 static Statement parse_stmt(Parser *parser) {
   switch (parser->cur_tok->type) {
   case TOKEN_IDENT: {
-    if (parser->peek_tok->type == TOKEN_DECL_CONST ||
-        parser->peek_tok->type == TOKEN_DECL_VAR) {
-      Ident name = parser->cur_tok->var.ident;
-      bool mutable = parser->peek_tok->type == TOKEN_DECL_VAR;
-      // cur token is DECL
-      next_token(parser);
-      // cur token is EXPR
-      next_token(parser);
-      Statement stmt;
-      if (parser->cur_tok->type == TOKEN_IDENT &&
-          !(parser->peek_tok->type == TOKEN_LPAREN ||
-            parser->peek_tok->type == TOKEN_DOT ||
-            parser->peek_tok->type == TOKEN_LCURLY ||
-            parser->peek_tok->type == TOKEN_LSQUARE)) {
-        token_debug_print(parser->peek_tok);
-        Ident *idents = array_new(Ident, &HEAP_ALLOCATOR);
-        while (parser->cur_tok->type == TOKEN_IDENT) {
-          array_add(idents, parser->cur_tok->var.ident);
-          if (parser->peek_tok->type == TOKEN_COMMA) {
-            // cur_tok is comma
-            next_token(parser);
-            if (parser->peek_tok->type == TOKEN_IDENT) {
-              // cur_tok is next ident
-              next_token(parser);
-            } else {
-              break;
-            }
-          } else {
-            break;
-          }
-        }
-        stmt = (Statement){
-            .type = STMT_DECL,
-            .var = {.stmt_decl = {
-                        .name = name,
-                        .mutable = mutable,
-                        .value = (ExpressionVariant){
-                            .type = EXPR_VAR_TYPE_EXPR,
-                            .var = {.expr_var_type_expr = {
-                                        .type = TYPE_EXPR_OVERLOAD_SET,
-                                        .var = {.type_expr_overload_set = {
-                                                    .functions = idents}}}}}}}};
-      } else if (parser->cur_tok->type == TOKEN_STRUCT) {
-        printf("Structs are structing\n");
-        if (parser->peek_tok->type == TOKEN_LCURLY) {
-          // cur_tok is TOKEN_LCURLY
-          next_token(parser);
-          // cur_tok is first ident of fields
-          next_token(parser);
-          TypedIdent *fields = parse_typed_ident_list(parser, TOKEN_RCURLY);
-          stmt = (Statement){
-              .type = STMT_DECL,
-              .var = {
-                  .stmt_decl = {.name = name,
-                                .mutable = mutable,
-                                .value = (ExpressionVariant){
-                                    .type = EXPR_VAR_TYPE_EXPR,
-                                    .var = {.expr_var_type_expr = {
-                                                .type = TYPE_EXPR_STRUCT,
-                                                .var = {.type_expr_struct = {
-                                                            .fields = fields,
-                                                            .generics = NULL,
-                                                        }}}}}}}};
-        } else {
-          EXPECTED_TOKEN_ERR(TOKEN_LCURLY, parser->peek_tok);
-        }
-      } else {
-        Expression value = parse_expr1(parser, PREC_LOWEST);
-        stmt = (Statement){
-            .type = STMT_DECL,
-            .var = {.stmt_decl = {.name = name,
-                                  .mutable = mutable,
-                                  .value = (ExpressionVariant){
-                                      .type = EXPR_VAR_REG_EXPR,
-                                      .var = {.expr_var_reg_expr = value}}}}};
-      }
-      PREV_STMT = stmt;
-      return stmt;
-    } else if (parser->peek_tok->type == TOKEN_COLON) {
-      StmtDecl stmt_decl = {0};
-      stmt_decl.name = parser->cur_tok->var.ident;
-      // cur_tok is colon
-      next_token(parser);
-      // cur_tok is first token of type
-      next_token(parser);
-      stmt_decl.type =
-          (OptionalType){.type = parse_type(parser), .present = true};
+    TokenType peek_type = parser->peek_tok->type;
+    bool typed = peek_type == TOKEN_COLON;
 
-      if (parser->peek_tok->type == TOKEN_ASSIGN ||
-          parser->peek_tok->type == TOKEN_COLON) {
-        // cur_tok is assign/colon
-        next_token(parser);
-
-        stmt_decl.mutable = parser->cur_tok->type == TOKEN_ASSIGN;
-      } else {
-        EXPECTED_TOKEN_ERR(TOKEN_ASSIGN | TOKEN_COLON, parser->peek_tok);
-      }
-
-      next_token(parser);
-      Expression value = parse_expr1(parser, PREC_LOWEST);
-      stmt_decl.value = (ExpressionVariant){
-          .type = EXPR_VAR_REG_EXPR, .var = {.expr_var_reg_expr = value}};
+    if (peek_type == TOKEN_DECL_CONST || peek_type == TOKEN_DECL_VAR || typed) {
+      StmtDecl stmt_decl = parse_decl_stmt(parser, typed);
       return (Statement){.type = STMT_DECL, .var = {.stmt_decl = stmt_decl}};
     } else {
       goto parse_expr;
@@ -1229,10 +1374,13 @@ static Statement parse_stmt(Parser *parser) {
     exit(1);
   }
   case TOKEN_IF:
+  case TOKEN_IT:
+  case TOKEN_FOR:
   case TOKEN_CAST:
   case TOKEN_LSQUARE:
   case TOKEN_STRING:
   case TOKEN_INT:
+  case TOKEN_BOOL:
   parse_expr: {
     Expression expr = parse_expr1(parser, PREC_LOWEST);
     return (Statement){.type = STMT_EXPR, .var = {.stmt_expr = {.expr = expr}}};
@@ -1302,6 +1450,12 @@ static Statement parse_stmt(Parser *parser) {
   }
   case TOKEN_ASTERISK: {
     ILLEGAL_TOKEN_ERR(TOKEN_ASTERISK);
+  }
+  case TOKEN_RANGE: {
+    ILLEGAL_TOKEN_ERR(TOKEN_RANGE);
+  }
+  case TOKEN_IN: {
+    ILLEGAL_TOKEN_ERR(TOKEN_IN);
   }
   case TOKEN_STRUCT: {
     ILLEGAL_TOKEN_ERR(TOKEN_STRUCT);
