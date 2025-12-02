@@ -111,6 +111,13 @@ static Object execute_format(Object *objects) {
         new_string[new_string_len++] = cast_obj_str[i];
       }
       arg_index++;
+    } else if (*c == '\\') {
+      char next_c = *(c + 1);
+      if (next_c == '%') {
+        new_string[new_string_len++] = '%';
+        c++;
+        next_c = *(c + 1);
+      }
     } else {
       new_string[new_string_len++] = *c;
       if (new_string_len >= new_string_capacity) {
@@ -131,8 +138,9 @@ void builtin_functions_init(TypeTable *type_table) {
   BUILTIN_FUNCTION(PRINTFN_FUNCTION, "printfn", execute_printfn,
                    UNIT_BUILTIN_TYPE, ARG("format", STRING_BUILTIN_TYPE),
                    VARARG("args"));
-  BUILTIN_FUNCTION(FORMAT_FUNCTION, "format", execute_format, STRING_BUILTIN_TYPE,
-                   ARG("format", STRING_BUILTIN_TYPE), VARARG("args"));
+  BUILTIN_FUNCTION(FORMAT_FUNCTION, "format", execute_format,
+                   STRING_BUILTIN_TYPE, ARG("format", STRING_BUILTIN_TYPE),
+                   VARARG("args"));
   BUILTIN_FUNCTION(EXIT_FUNCTION, "exit", execute_exit, UNIT_BUILTIN_TYPE,
                    ARG("code", INT_BUILTIN_TYPE));
 

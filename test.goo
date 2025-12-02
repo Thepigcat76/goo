@@ -17,7 +17,7 @@ main :: () -> i32 {
     println(cast<string>(i))
   }
 
-  my_array := []string{"Hello", "World", "I", "Am", "Slaaaay"}
+  my_array: []string = []string{"Hello", "World", "I", "Am", "Slaaaay"}
 
   for 0..5 {
     println(my_array[it])
@@ -25,9 +25,9 @@ main :: () -> i32 {
 
   println(cast<string>(80))
 
-  printfn("Hello: %, I love % a lot % %%% Sllllllay", 69, "Cats", "Pen", "Volley", "Ball", "Sport")
+  printfn("Hello: %z, I love %t a lot % b%%b Sllllllay", 69, "Cats", "Pen")
 
-  msg := format("Hello %, how are you?", "Alexander")
+  msg: string = format("Hello %p, how are you \%%\%?", "Alexander", "Slay")
 
   println(msg)
 
