@@ -40,6 +40,7 @@ typedef struct {
   struct _generic *generics;
   Argument *args;
   Type ret_type;
+  bool has_ret_type;
 } FuncDescriptor;
 
 typedef struct {
@@ -251,14 +252,21 @@ typedef struct {
   Expression expr;
 } StmtExpr;
 
+typedef struct {
+  Expression ret_val;
+  bool has_ret_val;
+} StmtReturn;
+
 typedef struct _stmt {
   enum {
     STMT_DECL,
     STMT_EXPR,
+    STMT_RETURN,
   } type;
   union {
     StmtDecl stmt_decl;
     StmtExpr stmt_expr;
+    StmtReturn stmt_return;
   } var;
 } Statement;
 
@@ -269,9 +277,11 @@ typedef struct {
   Statement *statements;
   Hashmap(Ident *, TypeExpr) custom_types;
   Hashmap(Ident *, ExprFunction) custom_functions;
+  const char *source;
+  const char *filename;
 } Parser;
 
-Parser parser_new(Token *tokens);
+Parser parser_new(Token *tokens, const char *source, const char *filename);
 
 void parser_parse(Parser *parser);
 

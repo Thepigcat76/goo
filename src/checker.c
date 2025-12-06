@@ -7,6 +7,8 @@
 #include "../vendor/lilc/hash.h"
 #include <stdio.h>
 
+static const CheckerContext EMPTY_CONTEXT = {0};
+
 static void checker_type_table_push(TypeChecker *checker);
 
 TypeChecker checker_new(Statement *stmts) {
@@ -71,7 +73,7 @@ static void checker_type_table_pop(TypeChecker *checker) {
   checker->cur_type_table--;
 }
 
-static Type check_stmt(TypeChecker *checker, Statement *stmt);
+static Type check_stmt(TypeChecker *checker, Statement *stmt, CheckerContext context);
 
 static Type check_expr(TypeChecker *checker, Expression *expr);
 
@@ -277,7 +279,7 @@ static Type check_block_expr(TypeChecker *checker,
     Type last_type = UNIT_BUILTIN_TYPE;
     for (size_t i = 0; i < len; i++) {
       Statement stmt = expr_block->statements[i];
-      last_type = check_stmt(checker, &stmt);
+      last_type = check_stmt(checker, &stmt, EMPTY_CONTEXT);
     }
     return last_type;
   }
@@ -370,8 +372,10 @@ static Type check_expr(TypeChecker *checker, Expression *expr) {
         }
       }
 
+      CheckerContext context = {.cur_func_desc = &expr->var.expr_function.desc};
+
       for (size_t i = 0; i < array_len(expr_function.block->statements); i++) {
-        check_stmt(checker, &expr_function.block->statements[i]);
+        check_stmt(checker, &expr_function.block->statements[i], context);
       }
     }
     checker_type_table_pop(checker);
@@ -441,10 +445,12 @@ static Type check_expr(TypeChecker *checker, Expression *expr) {
   }
   case EXPR_ADDR_OF: {
     Type origin_type = check_expr(checker, expr->var.expr_addr_of.expr);
-    return (Type){.type = TYPE_POINTER, .var = {.type_pointer = {.type = heap_clone(&origin_type)}}};
+    return (Type){.type = TYPE_POINTER,
+                  .var = {.type_pointer = {.type = heap_clone(&origin_type)}}};
   }
   case EXPR_PTR_DEREF: {
-    return *check_expr(checker, expr->var.expr_ptr_deref.expr).var.type_pointer.type;
+    return *check_expr(checker, expr->var.expr_ptr_deref.expr)
+                .var.type_pointer.type;
   }
   case EXPR_GENERIC_CALL: {
     // TODO: More advanced checking (does generic definition contain bounds for
@@ -514,10 +520,32 @@ create_struct_from_expr(const TypeExprStruct *ty_expr_struct) {
   return type_struct;
 }
 
-static Type check_stmt(TypeChecker *checker, Statement *stmt) {
+static Type check_stmt(TypeChecker *checker, Statement *stmt, CheckerContext context) {
   char print_buf[1024];
   parser_stmt_print(print_buf, stmt);
   switch (stmt->type) {
+  case STMT_RETURN: {
+    StmtReturn stmt_return = stmt->var.stmt_return;
+
+    if (context.cur_func_desc == NULL) {
+      fprintf(stderr, "Cannot use return outside of function\n");
+      exit(1);
+    }
+    
+    if (stmt_return.has_ret_val) {
+      if (!context.cur_func_desc->has_ret_type) {
+        fprintf(stderr, "Return stmt cannot have return value, if the function doesn't have return value\n");
+        exit(1);
+      }
+    } else {
+      if (context.cur_func_desc->has_ret_type) {
+        fprintf(stderr, "Return stmt needs to have return value, because the function has return type\n");
+        exit(1);
+      }
+    }
+
+    return UNIT_BUILTIN_TYPE;
+  }
   case STMT_DECL: {
     OptionalType opt_type = stmt->var.stmt_decl.type;
     if (stmt->var.stmt_decl.value.type != EXPR_VAR_TYPE_EXPR) {
@@ -605,6 +633,6 @@ static Type check_stmt(TypeChecker *checker, Statement *stmt) {
 
 void checker_check(TypeChecker *checker) {
   for (size_t i = 0; i < array_len(checker->stmts); i++) {
-    check_stmt(checker, &checker->stmts[i]);
+    check_stmt(checker, &checker->stmts[i], EMPTY_CONTEXT);
   }
 }

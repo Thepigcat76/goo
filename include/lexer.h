@@ -37,6 +37,7 @@ typedef enum {
   TOKEN_IN,
   TOKEN_IT,
   TOKEN_FOR,
+  TOKEN_RETURN,
   TOKEN_TILDE,
   TOKEN_AMPERSAND,
   TOKEN_EOF,
@@ -51,7 +52,11 @@ typedef struct {
     int integer;
     bool boolean;
   } var;
-  // Beginning character of this token
+  // Line of this token
+  int line;
+  // Beginning pos of this token
+  int begin_pos;
+  // Beginning char of this token
   const char *begin;
   // Length of this token in the src text
   size_t len;
@@ -67,4 +72,4 @@ Lexer lexer_new(void);
 
 void lexer_tok_print(char *buf, const Token *tok);
 
-void lexer_tokenize(Lexer *lexer, const char *buf);
+void lexer_tokenize(Lexer *lexer, const char *buf, const char *filename);

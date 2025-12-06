@@ -5,7 +5,16 @@
 #include <stdio.h>
 #include <string.h>
 
+static char *obj_to_string(Object *val_ptr) {
+  Object obj = obj_cast(&STRING_BUILTIN_TYPE, val_ptr);
+  return obj_cast_string(&obj);
+}
+
+#define OBJ_TO_STRING(val_ptr) obj_cast_string(obj_cast(&STRING_BUILTIN_TYPE, val_ptr))
+
 const Object UNIT_OBJ = {.type = OBJECT_UNIT};
+
+static const OptionalObject EMPTY_OBJECT = {.present = false};
 
 static void evaluator_envs_push(Evaluator *evaluator);
 
@@ -100,15 +109,15 @@ static Object eval_expr_block(Evaluator *evaluator,
                               const ExprBlock *expr_block) {
   size_t len = array_len(expr_block->statements);
   for (size_t i = 0; i < len; i++) {
-    if (i == len - 1) {
-      Statement *stmt = &expr_block->statements[i];
-      if (stmt->type == STMT_EXPR) {
-        return evaluator_eval_expr(evaluator, &stmt->var.stmt_expr.expr);
-      } else {
-        evaluator_eval_stmt(evaluator, &expr_block->statements[i]);
-      }
+    Statement *stmt = &expr_block->statements[i];
+    if (i == len - 1 && stmt->type == STMT_EXPR) {
+      return evaluator_eval_expr(evaluator, &stmt->var.stmt_expr.expr);
     } else {
-      evaluator_eval_stmt(evaluator, &expr_block->statements[i]);
+      OptionalObject opt_obj =
+          evaluator_eval_stmt(evaluator, &expr_block->statements[i]);
+      if (opt_obj.present) {
+        return opt_obj.obj;
+      }
     }
   }
   return UNIT_OBJ;
@@ -135,7 +144,8 @@ Object eval_expr_call(Evaluator *evaluator, const ExprCall *expr_call) {
       // Push function arguments to environment in case there are any
       if (expr_call->args != NULL) {
         for (size_t i = 0; i < array_len(call_args); i++) {
-          if (obj_function.args[i].type != ARG_VARARG && i < array_len(obj_function.args)) {
+          if (obj_function.args[i].type != ARG_VARARG &&
+              i < array_len(obj_function.args)) {
             environment_add(evaluator->cur_env,
                             &obj_function.args[i].var.typed_arg.ident,
                             call_args[i]);
@@ -184,7 +194,8 @@ Object obj_cast(const Type *type, const Object *obj) {
         sprintf(string, "%d", obj->var.obj_int);
         return OBJ_STR(string);
       } else {
-        fprintf(stderr, "Casting to custom array types is currently not supported\n");
+        fprintf(stderr,
+                "Casting to custom array types is currently not supported\n");
         exit(1);
       }
     }
@@ -196,7 +207,7 @@ Object obj_cast(const Type *type, const Object *obj) {
   }
   case OBJECT_PTR: {
     if (type_eq(type, &INT_BUILTIN_TYPE)) {
-      return OBJ_INT((long) obj->var.obj_ptr);
+      return OBJ_INT((long)obj->var.obj_ptr);
     } else if (type_eq(type, &STRING_BUILTIN_TYPE)) {
       char *buf = malloc(128);
       sprintf(buf, "%p", obj->var.obj_ptr);
@@ -431,9 +442,9 @@ Object evaluator_eval_expr(Evaluator *evaluator, Expression *expr) {
         evaluator_eval_expr(evaluator, expr->var.expr_bin_op.right);
 
     int left = obj_try_cast_int(&left_obj,
-                                "Left object of bin expr is not an integer");
+                                "Left object (%s) of bin expr is not an integer\n", obj_to_string(&left_obj));
     int right = obj_try_cast_int(&right_obj,
-                                 "Right object of bin expr is not an integer");
+                                 "Right object (%s) of bin expr is not an integer\n", obj_to_string(&right_obj));
 
     switch (op) {
     case BIN_OP_ADD: {
@@ -505,16 +516,24 @@ Object evaluator_eval_expr(Evaluator *evaluator, Expression *expr) {
   }
 }
 
-void evaluator_eval_stmt(Evaluator *evaluator, Statement *stmt) {
+OptionalObject evaluator_eval_stmt(Evaluator *evaluator, Statement *stmt) {
   switch (stmt->type) {
   case STMT_DECL: {
     eval_stmt_decl(evaluator, &stmt->var.stmt_decl);
-    break;
+    return EMPTY_OBJECT;
   }
   case STMT_EXPR: {
     Expression expr = stmt->var.stmt_expr.expr;
     evaluator_eval_expr(evaluator, &expr);
-    break;
+    return EMPTY_OBJECT;
+  }
+  case STMT_RETURN: {
+    if (stmt->var.stmt_return.has_ret_val) {
+      Object ret_val =
+          evaluator_eval_expr(evaluator, &stmt->var.stmt_return.ret_val);
+      return (OptionalObject){.obj = ret_val, .present = true};
+    }
+    return EMPTY_OBJECT;
   }
   }
 }

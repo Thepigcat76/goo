@@ -25,7 +25,7 @@ static Statement PREV_STMT = {0};
 const Expression UNIT_EXPR = {.type = EXPR_UNIT};
 const OptionalType OPT_TYPE_EMPTY = {.present = false};
 
-Parser parser_new(Token *tokens) {
+Parser parser_new(Token *tokens, const char *source, const char *filename) {
   return (Parser){
       .tokens = tokens,
       .statements = array_new(Statement, &HEAP_ALLOCATOR),
@@ -33,6 +33,8 @@ Parser parser_new(Token *tokens) {
                                   str_ptrv_hash, str_ptrv_eq, NULL),
       .custom_functions = hashmap_new(Ident *, TypeExpr, &HEAP_ALLOCATOR,
                                       str_ptrv_hash, str_ptrv_eq, NULL),
+      .source = source,
+      .filename = filename,
   };
 }
 
@@ -57,6 +59,12 @@ static void type_print_as_ident(char *buf, const Type *type) {
     break;
   }
   case TYPE_TUPLE: {
+    break;
+  }
+  case TYPE_POINTER: {
+    char type_buf[128];
+    type_print_as_ident(type_buf, type->var.type_pointer.type);
+    sprintf(buf, "p%s", type_buf);
     break;
   }
   case TYPE_STRUCT: {
@@ -287,7 +295,7 @@ static void expr_print(char *buf, const Expression *expr) {
       break;
     }
     case BIN_OP_LT: {
-      op_buf = "OPLESS_THAN";
+      op_buf = "OP_LESS_THAN";
       break;
     }
     case BIN_OP_GT: {
@@ -468,7 +476,8 @@ static Type parse_type(Parser *parser) {
     next_token(parser);
     Type type = parse_type(parser);
 
-    return (Type){.type = TYPE_POINTER, .var = {.type_pointer = {.type = heap_clone(&type)}}};
+    return (Type){.type = TYPE_POINTER,
+                  .var = {.type_pointer = {.type = heap_clone(&type)}}};
   }
   case TOKEN_LPAREN: {
     if (parser->peek_tok->type == TOKEN_RPAREN) {
@@ -544,9 +553,7 @@ static TypedIdent *parse_typed_ident_list(Parser *parser, TokenType end) {
     }
     // cur_tok is type
     next_token(parser);
-    if (parser->cur_tok->type == TOKEN_IDENT) {
-      ti.type = parse_type(parser);
-    }
+    ti.type = parse_type(parser);
 
     if (parser->peek_tok->type == TOKEN_COMMA) {
       // cur_tok is comma
@@ -673,13 +680,9 @@ static FuncSignature parse_func_signature(Parser *parser) {
     // cur_tok is arrow
     next_token(parser);
 
-    if (parser->peek_tok->type == TOKEN_IDENT) {
-      // cur_tok is ident
-      next_token(parser);
-      signature.ret_type = parse_type(parser);
-    } else {
-      EXPECTED_TOKEN_ERR(TOKEN_IDENT, parser->peek_tok);
-    }
+    // cur_tok is ident
+    next_token(parser);
+    signature.ret_type = parse_type(parser);
   }
 
   return signature;
@@ -728,18 +731,15 @@ static FuncDescriptor parse_func_desc(Parser *parser) {
     array_add(desc.args, (Argument){.type = ARG_TYPED_ARG,
                                     .var = {.typed_arg = typed_ident_args[i]}});
   }
-  if (parser->peek_tok->type == TOKEN_ARROW) {
+  bool has_ret_type = parser->peek_tok->type == TOKEN_ARROW;
+  if (has_ret_type) {
     // cur_tok is arrow
     next_token(parser);
-
-    if (parser->peek_tok->type == TOKEN_IDENT) {
-      // cur_tok is ident
-      next_token(parser);
-      desc.ret_type = parse_type(parser);
-    } else {
-      EXPECTED_TOKEN_ERR(TOKEN_IDENT, parser->peek_tok);
-    }
+    // cur_tok is type
+    next_token(parser);
+    desc.ret_type = parse_type(parser);
   }
+  desc.has_ret_type = has_ret_type;
 
   return desc;
 }
@@ -809,6 +809,16 @@ static Expression parse_expr(Parser *parser) {
 
         Expression *exprs = parse_expr_list(parser, TOKEN_RPAREN);
         // end: right parenthesis
+
+        if (parser->cur_tok->type != TOKEN_RPAREN) {
+          fprintf(stderr, "No TOKEN_RPAREN at end of call");
+          exit(1);
+        } else {
+          char tok_buf[128];
+          lexer_tok_print(tok_buf, parser->cur_tok);
+          printf("Cur tok: %s\n", tok_buf);
+        }
+
         return (Expression){
             .type = EXPR_CALL,
             .var = {.expr_call = {.function = ident, .args = exprs}}};
@@ -1119,10 +1129,12 @@ static Expression parse_expr(Parser *parser) {
   case TOKEN_STRUCT:
   case TOKEN_RANGE:
   case TOKEN_IN:
+  case TOKEN_RETURN:
   case TOKEN_ILLEGAL: {
     char print_buf[64];
     lexer_tok_print(print_buf, parser->cur_tok);
-    printf("nyi/illegal token: %s\n", print_buf);
+    printf("%s:%d:%d nyi/illegal token: %s\n", parser->filename,
+           parser->cur_tok->line, parser->cur_tok->begin_pos, print_buf);
     exit(1);
   }
   }
@@ -1403,6 +1415,15 @@ static StmtDecl parse_decl_stmt(Parser *parser, bool typed) {
 
 static Statement parse_stmt(Parser *parser) {
   switch (parser->cur_tok->type) {
+  case TOKEN_RETURN: {
+    // cur_tok is first token of expression of return value
+    next_token(parser);
+
+    Expression expr = parse_expr1(parser, PREC_LOWEST);
+    return (Statement){
+        .type = STMT_RETURN,
+        .var = {.stmt_return = {.ret_val = expr, .has_ret_val = true}}};
+  }
   case TOKEN_IDENT: {
     TokenType peek_type = parser->peek_tok->type;
     bool typed = peek_type == TOKEN_COLON;
@@ -1420,6 +1441,8 @@ static Statement parse_stmt(Parser *parser) {
   case TOKEN_FOR:
   case TOKEN_CAST:
   case TOKEN_LSQUARE:
+  case TOKEN_AMPERSAND:
+  case TOKEN_TILDE:
   case TOKEN_STRING:
   case TOKEN_INT:
   case TOKEN_BOOL:
@@ -1441,6 +1464,9 @@ static Statement parse_stmt(Parser *parser) {
   }
   case TOKEN_RPAREN: {
     ILLEGAL_TOKEN_ERR(TOKEN_RPAREN);
+  }
+  case TOKEN_ASTERISK: {
+    ILLEGAL_TOKEN_ERR(TOKEN_ASTERISK);
   }
   case TOKEN_LCURLY: {
     ILLEGAL_TOKEN_ERR(TOKEN_LCURLY);
@@ -1489,9 +1515,6 @@ static Statement parse_stmt(Parser *parser) {
   }
   case TOKEN_SLASH: {
     ILLEGAL_TOKEN_ERR(TOKEN_SLASH);
-  }
-  case TOKEN_ASTERISK: {
-    ILLEGAL_TOKEN_ERR(TOKEN_ASTERISK);
   }
   case TOKEN_RANGE: {
     ILLEGAL_TOKEN_ERR(TOKEN_RANGE);

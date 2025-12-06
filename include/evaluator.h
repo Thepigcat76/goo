@@ -1,8 +1,9 @@
 #pragma once
 
-#include "types.h"
-#include "parser.h"
 #include "../vendor/lilc/hashmap.h"
+#include "parser.h"
+#include "types.h"
+#include <stdarg.h>
 #include <stdio.h>
 
 #define obj_cast_int(obj_ptr) (obj_ptr)->var.obj_int
@@ -10,20 +11,29 @@
 
 #define OBJ_STR(_str)                                                          \
   (Object) {                                                                   \
-    .type = OBJECT_STRING, .var = {.obj_string = _str }                              \
+    .type = OBJECT_STRING, .var = {.obj_string = _str }                        \
   }
-  
+
 #define OBJ_INT(_int)                                                          \
   (Object) {                                                                   \
     .type = OBJECT_INT, .var = {.obj_int = _int }                              \
   }
 
-static int exit_with_msg(char *err_msg, int exit_code) {
-  fputs(err_msg, stderr);
+#if defined(__GNUC__) || defined(__clang__)
+__attribute__((format(printf, 2, 3)))
+#endif
+static int exit_with_msg(int exit_code, const char *format, ...) {
+  va_list ap;
+  va_start(ap, format);
+  vprintf(format, ap);
+  va_end(ap);
   exit(exit_code);
 }
 
-#define obj_try_cast_int(obj_ptr, err_msg) ((obj_ptr)->type == OBJECT_INT) ? (obj_ptr)->var.obj_int : exit_with_msg(err_msg, 1)
+#define obj_try_cast_int(obj_ptr, err_msg, ...)                                \
+  ((obj_ptr)->type == OBJECT_INT)                                              \
+      ? (obj_ptr)->var.obj_int                                                 \
+      : exit_with_msg(1, err_msg __VA_OPT__(, ) __VA_ARGS__)
 
 typedef struct {
   Argument *args;
@@ -61,7 +71,7 @@ typedef struct _obj {
   } var;
 } Object;
 
-extern const Object UNIT_OBJ; 
+extern const Object UNIT_OBJ;
 
 typedef struct {
   Hashmap(Ident, Object) env;
@@ -80,11 +90,16 @@ typedef struct {
   Environment *cur_env;
 } Evaluator;
 
+typedef struct {
+  Object obj;
+  bool present;
+} OptionalObject;
+
 Evaluator evaluator_new(Statement *stmts);
 
 void evaluator_eval_global(Evaluator *evaluator, TypeTable *global_table);
 
-void evaluator_eval_stmt(Evaluator *evaluator, Statement *stmt);
+OptionalObject evaluator_eval_stmt(Evaluator *evaluator, Statement *stmt);
 
 Object evaluator_eval_expr(Evaluator *evaluator, Expression *expr);
 

@@ -20,6 +20,10 @@ typedef struct {
   Hashmap(Ident *, Expression *) generated_generic_functions;
 } TypeChecker;
 
+typedef struct {
+  FuncDescriptor *cur_func_desc;
+} CheckerContext;
+
 TypeChecker checker_new(Statement *stmts);
 
 void checker_check(TypeChecker *checker);

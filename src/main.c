@@ -34,7 +34,7 @@ void function_println_use_buffer(void) {
 }
 
 KEEPALIVE
-void run_program(char *buf) {
+void run_program(char *buf, const char *filename) {
   alloc_init();
 
 //  parser_test_functions();
@@ -43,7 +43,7 @@ void run_program(char *buf) {
 
   Lexer lexer = lexer_new();
 
-  lexer_tokenize(&lexer, buf);
+  lexer_tokenize(&lexer, buf, filename);
   array_add(lexer.tokens, (Token){.type = TOKEN_EOF});
 
   for (size_t i = 0; i < array_len(lexer.tokens); i++) {
@@ -52,7 +52,7 @@ void run_program(char *buf) {
     puts(print_buf);
   }
 
-  Parser parser = parser_new(lexer.tokens);
+  Parser parser = parser_new(lexer.tokens, buf, filename);
 
   parser_parse(&parser);
 
@@ -130,11 +130,11 @@ void function_println_buffer_clear(void) { println_buf[0] = '\0'; }
 
 int main(void) {
   char file_buf[4096];
-  FILE *file = fopen("test.goo", "r");
+  FILE *file = fopen("test1.goo", "r");
   size_t n = fread(file_buf, 1, sizeof(file_buf) - 1, file);
   file_buf[n] = '\0';
 
-  run_program(file_buf);
+  run_program(file_buf, "test1.goo");
 
   fclose(file);
 
