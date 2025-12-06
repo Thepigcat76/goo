@@ -178,10 +178,29 @@ Object obj_cast(const Type *type, const Object *obj) {
         exit(1);
       }
     }
+    case TYPE_ARRAY: {
+      if (type_eq(type, &STRING_BUILTIN_TYPE)) {
+        char *string = malloc(32);
+        sprintf(string, "%d", obj->var.obj_int);
+        return OBJ_STR(string);
+      } else {
+        fprintf(stderr, "Casting to custom array types is currently not supported\n");
+        exit(1);
+      }
+    }
     default: {
       fprintf(stderr, "Casting is only supported for int and string types\n");
       exit(1);
     }
+    }
+  }
+  case OBJECT_PTR: {
+    if (type_eq(type, &INT_BUILTIN_TYPE)) {
+      return OBJ_INT((long) obj->var.obj_ptr);
+    } else if (type_eq(type, &STRING_BUILTIN_TYPE)) {
+      char *buf = malloc(128);
+      sprintf(buf, "%p", obj->var.obj_ptr);
+      return OBJ_STR(buf);
     }
   }
   case OBJECT_STRING: {
@@ -362,6 +381,9 @@ Object evaluator_eval_expr(Evaluator *evaluator, Expression *expr) {
       fprintf(stderr, "Index not an integer!\n");
       exit(1);
     }
+    if (arr_obj.type == OBJECT_STRING) {
+      return OBJ_INT(arr_obj.var.obj_string[obj_cast_int(&index_obj)]);
+    }
     return arr_obj.var.obj_array.items[obj_cast_int(&index_obj)];
   }
   case EXPR_CAST: {
@@ -374,6 +396,18 @@ Object evaluator_eval_expr(Evaluator *evaluator, Expression *expr) {
     ExprCall expr_call = expr->var.expr_generic_call.expr_call;
     fprintf(stderr, "Evaluating generic call\n");
     return eval_expr_call(evaluator, &expr_call);
+  }
+  case EXPR_ADDR_OF: {
+    Object obj = evaluator_eval_expr(evaluator, expr->var.expr_addr_of.expr);
+    return (Object){.type = OBJECT_PTR, .var = {.obj_ptr = heap_clone(&obj)}};
+  }
+  case EXPR_PTR_DEREF: {
+    Object obj = evaluator_eval_expr(evaluator, expr->var.expr_ptr_deref.expr);
+    if (obj.type != OBJECT_PTR) {
+      fprintf(stderr, "Cannot deref non-pointer\n");
+      exit(1);
+    }
+    return *obj.var.obj_ptr;
   }
   case EXPR_ARRAY_INIT: {
     ExprArrayInit expr_array = expr->var.expr_array_init;

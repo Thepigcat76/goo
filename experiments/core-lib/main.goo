@@ -1,0 +1,23 @@
+string :: <const N: arr_size> [N]u8
+
+# Format a byte/integer to a char and return it as a string
+fmt_char :: <N: Numeric>(char: N) -> string
+
+# Format a number using the standard way to format numbers and return it as a string
+fmt_number :: <N: Numeric>(number: N) -> string
+
+fmt_float :: _impl_fmt_f32, _impl_fmt_f64
+
+print :: (s: string)
+
+println :: (s: string)
+
+printfn :: (fmt: string, ...args)
+
+format :: (fmt: string, ...args)
+
+
+
+main :: () {
+
+}

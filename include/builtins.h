@@ -10,6 +10,8 @@ typedef struct {
   Object (*execute)(Object *objects);
 } BuiltinFunction;
 
+extern BuiltinFunction *BUILTIN_FUNCTIONS;
+
 extern BuiltinFunction PRINTLN_FUNCTION;
 extern BuiltinFunction PRINTFN_FUNCTION;
 extern BuiltinFunction FORMAT_FUNCTION;

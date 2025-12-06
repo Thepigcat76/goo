@@ -37,6 +37,8 @@ typedef enum {
   TOKEN_IN,
   TOKEN_IT,
   TOKEN_FOR,
+  TOKEN_TILDE,
+  TOKEN_AMPERSAND,
   TOKEN_EOF,
   TOKEN_ILLEGAL,
 } TokenType;

@@ -5,6 +5,10 @@
 #include "types.h"
 #include <stdbool.h>
 
+void *_internal_heap_clone(void *ptr, size_t size);
+
+#define heap_clone(ptr) _internal_heap_clone(ptr, sizeof(typeof(*(ptr))))
+
 #define EXPR_VAR_TYPE(expr)                                                    \
   (ExpressionVariant) {                                                        \
     .type = EXPR_VAR_TYPE_EXPR, .var = {.expr_var_type_expr = expr }           \
@@ -78,6 +82,14 @@ typedef struct {
   struct _expr *array_expr;
   struct _expr *index_expr;
 } ExprArrayAccess;
+
+typedef struct {
+  struct _expr *expr;
+} ExprPointerDeref;
+
+typedef struct {
+  struct _expr *expr;
+} ExprAddrOf;
 
 typedef struct {
   Type type;
@@ -154,6 +166,8 @@ typedef struct _expr {
     EXPR_BIN_OP,
     EXPR_STRUCT_INIT,
     EXPR_STRUCT_ACCESS,
+    EXPR_PTR_DEREF,
+    EXPR_ADDR_OF,
     EXPR_IF,
     EXPR_FOR,
     EXPR_IT,
@@ -172,6 +186,8 @@ typedef struct _expr {
     ExprIf expr_if;
     ExprFor expr_for;
     ExprRange expr_range;
+    ExprPointerDeref expr_ptr_deref;
+    ExprAddrOf expr_addr_of;
     struct {
       Ident ident;
     } expr_ident;

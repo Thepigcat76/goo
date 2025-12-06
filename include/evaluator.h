@@ -48,6 +48,7 @@ typedef struct _obj {
     OBJECT_UNIT,
     OBJECT_STRUCT,
     OBJECT_ARRAY,
+    OBJECT_PTR,
   } type;
   union {
     int obj_int;
@@ -56,6 +57,7 @@ typedef struct _obj {
     ObjectFunction obj_function;
     ObjectStruct obj_struct;
     ObjectArray obj_array;
+    struct _obj *obj_ptr;
   } var;
 } Object;
 

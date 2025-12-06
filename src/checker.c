@@ -220,7 +220,8 @@ static Type check_call_expr(TypeChecker *checker, ExprCall *expr_call) {
       }
     }
     if (!(i >= func_args_len && has_varargs)) {
-      if (expr_function.desc.args[i].type != ARG_VARARG && !type_eq(&arg_type, &expr_function.desc.args[i].var.typed_arg.type) &&
+      if (expr_function.desc.args[i].type != ARG_VARARG &&
+          !type_eq(&arg_type, &expr_function.desc.args[i].var.typed_arg.type) &&
           !generic_type) {
         type_table_dump(checker->cur_type_table);
         char caller_arg_type_buf[512];
@@ -292,8 +293,15 @@ static Type check_expr(TypeChecker *checker, Expression *expr) {
     for (size_t i = 0; i < declared_items_len; i++) {
       Type item_type = check_expr(checker, &expr->var.expr_array_init.items[i]);
       if (!type_eq(&item_type, expected_item_type)) {
-        fprintf(stderr, "Type error: Expected and provided array item types do "
-                        "not match\n");
+        char expected_buf[512];
+        type_print(expected_buf, expected_item_type);
+        char provided_buf[512];
+        type_print(provided_buf, &item_type);
+        fprintf(
+            stderr,
+            "Type error: Expected (%s) and provided (%s) array item types do "
+            "not match\n",
+            expected_buf, provided_buf);
         exit(1);
       }
     }
@@ -431,6 +439,13 @@ static Type check_expr(TypeChecker *checker, Expression *expr) {
       }
     }
   }
+  case EXPR_ADDR_OF: {
+    Type origin_type = check_expr(checker, expr->var.expr_addr_of.expr);
+    return (Type){.type = TYPE_POINTER, .var = {.type_pointer = {.type = heap_clone(&origin_type)}}};
+  }
+  case EXPR_PTR_DEREF: {
+    return *check_expr(checker, expr->var.expr_ptr_deref.expr).var.type_pointer.type;
+  }
   case EXPR_GENERIC_CALL: {
     // TODO: More advanced checking (does generic definition contain bounds for
     // method call)
@@ -527,11 +542,15 @@ static Type check_stmt(TypeChecker *checker, Statement *stmt) {
 
       if (opt_type.present) {
         if (!type_eq(&value_type, &opt_type.type)) {
-          fprintf(
-              stderr,
-              "Type error: Type of declaration and value do not match, decl "
-              "name: %s\n",
-              stmt->var.stmt_decl.name);
+          char value_type_buf[256];
+          type_print(value_type_buf, &value_type);
+          char decl_type_buf[256];
+          type_print(decl_type_buf, &opt_type.type);
+          fprintf(stderr,
+                  "Type error: Type of declaration (%s) and value (%s) do not "
+                  "match, decl "
+                  "name: %s\n",
+                  decl_type_buf, value_type_buf, stmt->var.stmt_decl.name);
           exit(1);
         }
       } else {

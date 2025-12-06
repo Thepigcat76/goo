@@ -56,14 +56,6 @@ void run_program(char *buf) {
 
   parser_parse(&parser);
 
-  puts("-- AST --");
-
-  for (size_t i = 0; i < array_len(parser.statements); i++) {
-    char print_buf[1024];
-    parser_stmt_print(print_buf, &parser.statements[i]);
-    printf("%s\n", print_buf);
-  }
-
   puts("---");
 
   puts("-- FUNCTIONS --");
@@ -93,6 +85,14 @@ void run_program(char *buf) {
 
   checker_gen_functions(&checker);
 
+  puts("-- AST --");
+
+  for (size_t i = 0; i < array_len(checker.stmts); i++) {
+    char print_buf[1024];
+    parser_stmt_print(print_buf, &checker.stmts[i]);
+    printf("%s\n", print_buf);
+  }
+
   Evaluator evaluator = evaluator_new(checker.stmts);
 
   evaluator_eval_global(&evaluator, checker.global_type_table);
@@ -102,6 +102,24 @@ void run_program(char *buf) {
   Expression expr = {.type = EXPR_CALL,
                      .var = {.expr_call = {.function = "main", .args = NULL}}};
   evaluator_eval_expr(&evaluator, &expr);
+
+//  array_free(lexer.tokens);
+//
+//  array_free(parser.statements);
+//  hashmap_free(&parser.custom_functions);
+//  hashmap_free(&parser.custom_types);
+//
+//  array_free(&checker.generated_generic_functions);
+//  for (size_t i = 0; i < array_len(checker.type_tables); i++) {
+//    hashmap_free(&checker.type_tables->type_table);
+//  }
+//  array_free(checker.type_tables);
+//
+//  array_free(&evaluator.environments);
+//  for (size_t i = 0; i < array_len(evaluator.environments); i++) {
+//    hashmap_free(&evaluator.environments->env);
+//  }
+//  array_free(evaluator.environments);
 }
 
 KEEPALIVE
@@ -117,5 +135,8 @@ int main(void) {
   file_buf[n] = '\0';
 
   run_program(file_buf);
+
+  fclose(file);
+
   return 0;
 }

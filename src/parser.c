@@ -8,10 +8,6 @@
 #include <stdio.h>
 #include <string.h>
 
-#define heap_clone(ptr) _internal_heap_clone(ptr, sizeof(typeof(*(ptr))))
-
-static void *_internal_heap_clone(void *ptr, size_t size);
-
 #define EXPECTED_TOKEN_ERR(expected, received_ptr)                             \
   do {                                                                         \
     char print_buf[64];                                                        \
@@ -392,18 +388,32 @@ static void expr_print(char *buf, const Expression *expr) {
     expr_print(range_expr_0_buf, expr_for.range.min);
     char range_expr_1_buf[128];
     expr_print(range_expr_1_buf, expr_for.range.max);
-    
+
     char range_expr_buf[256];
-    sprintf(range_expr_buf, "ExprRange{min=%s, max=%s}", range_expr_0_buf, range_expr_1_buf);
+    sprintf(range_expr_buf, "ExprRange{min=%s, max=%s}", range_expr_0_buf,
+            range_expr_1_buf);
 
     char block_expr_buf[512];
     expr_block_print(block_expr_buf, &expr_for.block);
 
-    sprintf(buf, "ExprFor{variable_name=%s, range=%s, block=%s}", expr_for.variable_name, range_expr_buf, block_expr_buf);
+    sprintf(buf, "ExprFor{variable_name=%s, range=%s, block=%s}",
+            expr_for.variable_name, range_expr_buf, block_expr_buf);
     break;
   }
   case EXPR_IT: {
     sprintf(buf, "ExprIt");
+    break;
+  }
+  case EXPR_PTR_DEREF: {
+    char expr_ptr_buf[128];
+    expr_print(expr_ptr_buf, expr->var.expr_ptr_deref.expr);
+    sprintf(buf, "ExprPtrDeref{ptr=%s}", expr_ptr_buf);
+    break;
+  }
+  case EXPR_ADDR_OF: {
+    char expr_ptr_buf[128];
+    expr_print(expr_ptr_buf, expr->var.expr_addr_of.expr);
+    sprintf(buf, "ExprAddrOf{ptr=%s}", expr_ptr_buf);
     break;
   }
   default: {
@@ -447,8 +457,18 @@ static Statement parse_stmt(Parser *parser);
 static Type parse_type(Parser *parser) {
   switch (parser->cur_tok->type) {
   case TOKEN_IDENT: {
-    return (Type){.type = TYPE_IDENT,
-                  .var = {.type_ident = parser->cur_tok->var.ident}};
+    Ident ident = parser->cur_tok->var.ident;
+    if (strv_eq(ident, "string")) {
+      return STRING_BUILTIN_TYPE;
+    }
+    return (Type){.type = TYPE_IDENT, .var = {.type_ident = ident}};
+  }
+  case TOKEN_ASTERISK: {
+    // cur_tok is type
+    next_token(parser);
+    Type type = parse_type(parser);
+
+    return (Type){.type = TYPE_POINTER, .var = {.type_pointer = {.type = heap_clone(&type)}}};
   }
   case TOKEN_LPAREN: {
     if (parser->peek_tok->type == TOKEN_RPAREN) {
@@ -702,9 +722,11 @@ static FuncDescriptor parse_func_desc(Parser *parser) {
   // cur_tok is first ident or end of args
   next_token(parser);
   TypedIdent *typed_ident_args = parse_typed_ident_list(parser, TOKEN_RPAREN);
-  desc.args = array_new_capacity(Argument, array_len(typed_ident_args), &HEAP_ALLOCATOR);
+  desc.args = array_new_capacity(Argument, array_len(typed_ident_args),
+                                 &HEAP_ALLOCATOR);
   for (size_t i = 0; i < array_len(typed_ident_args); i++) {
-    array_add(desc.args, (Argument){.type = ARG_TYPED_ARG, .var = {.typed_arg = typed_ident_args[i]}});
+    array_add(desc.args, (Argument){.type = ARG_TYPED_ARG,
+                                    .var = {.typed_arg = typed_ident_args[i]}});
   }
   if (parser->peek_tok->type == TOKEN_ARROW) {
     // cur_tok is arrow
@@ -728,7 +750,9 @@ static bool ident_is_struct(Parser *parser, Ident *struct_name) {
 }
 
 static bool ident_is_builtin_function(Ident *function_name) {
-  return strv_eq(*function_name, "println") || strv_eq(*function_name, "printfn") || strv_eq(*function_name, "format") || strv_eq(*function_name, "exit");
+  return strv_eq(*function_name, "println") ||
+         strv_eq(*function_name, "printfn") ||
+         strv_eq(*function_name, "format") || strv_eq(*function_name, "exit");
 }
 
 static Expression parse_expr(Parser *parser) {
@@ -777,7 +801,8 @@ static Expression parse_expr(Parser *parser) {
     printf("Starting ident parsing: %s\n", ident);
     if (parser->peek_tok->type == TOKEN_LPAREN) {
       if (hashmap_contains(&parser->custom_functions,
-                           &ident) || ident_is_builtin_function(&ident)) { // cur_tok is left parenthesis
+                           &ident) ||
+          ident_is_builtin_function(&ident)) { // cur_tok is left parenthesis
         next_token(parser);
         // cur_tok is first expr
         next_token(parser);
@@ -936,7 +961,6 @@ static Expression parse_expr(Parser *parser) {
     // cur_tok is expression
     next_token(parser);
 
-    // FIXME: condition is parsed as struct initializer
     Expression cond_expr = parse_expr1(parser, PREC_LOWEST);
 
     if (parser->peek_tok->type != TOKEN_LCURLY) {
@@ -957,6 +981,24 @@ static Expression parse_expr(Parser *parser) {
   }
   case TOKEN_IT: {
     return (Expression){.type = EXPR_IT};
+  }
+  case TOKEN_TILDE: {
+    // cur_tok is first token of expr
+    next_token(parser);
+
+    Expression expr = parse_expr1(parser, PREC_LOWEST);
+
+    return (Expression){.type = EXPR_PTR_DEREF,
+                        .var = {.expr_ptr_deref = {.expr = heap_clone(&expr)}}};
+  }
+  case TOKEN_AMPERSAND: {
+    // cur_tok is first token of expr
+    next_token(parser);
+
+    Expression expr = parse_expr1(parser, PREC_LOWEST);
+
+    return (Expression){.type = EXPR_ADDR_OF,
+                        .var = {.expr_addr_of = {.expr = heap_clone(&expr)}}};
   }
   case TOKEN_FOR: {
     // cur_tok is <var name> or range expr
@@ -1114,7 +1156,7 @@ static BinOperator tok_to_bin_op(const Token *tok) {
   }
 }
 
-static void *_internal_heap_clone(void *ptr, size_t size) {
+void *_internal_heap_clone(void *ptr, size_t size) {
   void *new_ptr = malloc(size);
   memcpy(new_ptr, ptr, size);
   return new_ptr;

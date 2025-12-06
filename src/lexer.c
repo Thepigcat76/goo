@@ -316,6 +316,10 @@ void lexer_tokenize(Lexer *lexer, const char *src) {
       tok = (Token){.type = TOKEN_ASTERISK, .begin = lexer->cur_char, .len = 1};
     } else if (*lexer->cur_char == '/') {
       tok = (Token){.type = TOKEN_SLASH, .begin = lexer->cur_char, .len = 1};
+    } else if (*lexer->cur_char == '~') {
+      tok = (Token){.type = TOKEN_TILDE, .begin = lexer->cur_char, .len = 1};
+    } else if (*lexer->cur_char == '&') {
+      tok = (Token){.type = TOKEN_AMPERSAND, .begin = lexer->cur_char, .len = 1};
     } else {
       printf("Illegal token cur char: %c\n", *lexer->cur_char);
       tok = (Token){.type = TOKEN_ILLEGAL, .begin = lexer->cur_char, .len = 0};

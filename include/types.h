@@ -18,6 +18,10 @@ typedef struct {
 } TypeArray;
 
 typedef struct {
+  struct _type *type;
+} TypePointer;
+
+typedef struct {
   struct _generic *generics;
   struct _type *arg_types;
   struct _type *ret_type;
@@ -40,6 +44,7 @@ typedef struct _type {
     // unit is just an empty tuple and used as the "void" type
     TYPE_UNIT,
     TYPE_STRUCT,
+    TYPE_POINTER,
   } type;
   union {
     Ident type_ident;
@@ -47,6 +52,7 @@ typedef struct _type {
     TypeFunc type_func;
     TypeTuple type_tuple;
     TypeStruct type_struct;
+    TypePointer type_pointer;
   } var;
 } Type;
 
@@ -64,7 +70,7 @@ typedef struct _generic {
 
 extern const Type UNIT_BUILTIN_TYPE;
 extern const Type STRING_BUILTIN_TYPE;
-extern const Type INT_BUILTIN_TYPE;
+extern Type INT_BUILTIN_TYPE;
 extern const Type BOOL_BUILTIN_TYPE;
 
 typedef struct _typed_ident {

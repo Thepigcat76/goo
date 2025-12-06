@@ -9,26 +9,28 @@ main :: () -> i32 {
   #  println("Hello")
   #}
 
-  for 0..100 {
-    println(cast<string>(it))
-  }
+  #for 0..100 {
+  #  println(cast<string>(it))
+  #}
 
-  for i in 0..100 {
-    println(cast<string>(i))
-  }
+  #for i in 0..100 {
+  #  println(cast<string>(i))
+  #}
 
-  my_array: []string = []string{"Hello", "World", "I", "Am", "Slaaaay"}
-
-  for 0..5 {
-    println(my_array[it])
-  }
-
-  println(cast<string>(80))
-
-  printfn("Hello: %z, I love %t a lot % b%%b Sllllllay", 69, "Cats", "Pen")
-
-  msg: string = format("Hello %p, how are you \%%\%?", "Alexander", "Slay")
+  msg: string = format("Hello %, how are you %?", "Alexander", "Slay")
 
   println(msg)
+
+  c := msg[0]
+
+  println(cast<string>(c))
+
+  i := "Slaye eeeeeeee"
+
+  p: *string = &i
+
+  println(cast<string>(p))
+
+  println(~p)
 
 }

@@ -32,6 +32,7 @@
     BUILTIN_FUNCTION_SET_ARG_TYPES(expr, __VA_ARGS__);                         \
     func = (BuiltinFunction){                                                  \
         .expr = expr, .name = _name, .execute = _execute_func};                \
+    array_add(BUILTIN_FUNCTIONS, func);                                        \
   } while (0)
 
 #define ARG(_ident, _type)                                                     \
@@ -45,6 +46,8 @@
   (Argument) {                                                                 \
     .type = ARG_VARARG, .var = {.vararg = _ident }                             \
   }
+
+BuiltinFunction *BUILTIN_FUNCTIONS;
 
 BuiltinFunction PRINTLN_FUNCTION;
 BuiltinFunction PRINTFN_FUNCTION;
@@ -133,6 +136,8 @@ static Object execute_format(Object *objects) {
 }
 
 void builtin_functions_init(TypeTable *type_table) {
+  BUILTIN_FUNCTIONS = array_new(BuiltinFunction, &HEAP_ALLOCATOR);
+
   BUILTIN_FUNCTION(PRINTLN_FUNCTION, "println", execute_println,
                    UNIT_BUILTIN_TYPE, ARG("value", STRING_BUILTIN_TYPE));
   BUILTIN_FUNCTION(PRINTFN_FUNCTION, "printfn", execute_printfn,

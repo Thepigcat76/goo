@@ -9,9 +9,14 @@
     .type = TYPE_IDENT, .var = {.type_ident = _ident }                         \
   }
 
+#define BUILTIN_TYPE_ARRAY(_ident, _variant, _type)                                             \
+  (Type) {                                                                     \
+    .type = TYPE_ARRAY, .var = {.type_array = {.variant = _variant, .type = _type} }                         \
+  }
+
 const Type UNIT_BUILTIN_TYPE = {.type = TYPE_UNIT};
-const Type STRING_BUILTIN_TYPE = BUILTIN_TYPE_IDENT("string");
-const Type INT_BUILTIN_TYPE = BUILTIN_TYPE_IDENT("i32");
+Type INT_BUILTIN_TYPE = BUILTIN_TYPE_IDENT("i32");
+const Type STRING_BUILTIN_TYPE = BUILTIN_TYPE_ARRAY("string", TYPE_ARRAY_VARIANT_SIZE_UNKNOWN, &INT_BUILTIN_TYPE);
 const Type BOOL_BUILTIN_TYPE = BUILTIN_TYPE_IDENT("bool");
 
 bool type_eq(const Type *a, const Type *b) {
@@ -44,6 +49,9 @@ bool type_eq(const Type *a, const Type *b) {
   }
   case TYPE_UNIT: {
     return true;
+  }
+  case TYPE_POINTER: {
+    return type_eq(a->var.type_pointer.type, b->var.type_pointer.type);
   }
   case TYPE_STRUCT: {
     TypeStruct a_struct = a->var.type_struct;
@@ -79,6 +87,12 @@ void type_print(char *buf, const Type *type) {
   switch (type->type) {
   case TYPE_IDENT: {
     sprintf(buf, "TypeIdent{ident=%s}", type->var.type_ident);
+    break;
+  }
+  case TYPE_POINTER: {
+    char type_buf[256];
+    type_print(type_buf, type->var.type_pointer.type);
+    sprintf(buf, "TypePointer{type=%s}", type_buf);
     break;
   }
   case TYPE_ARRAY: {
