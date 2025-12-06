@@ -66,6 +66,8 @@ typedef struct {
   size_t index;
   const char *cur_char;
   Token *tokens;
+  int line;
+  int pos;
 } Lexer;
 
 Lexer lexer_new(void);

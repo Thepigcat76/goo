@@ -9,6 +9,8 @@
 Lexer lexer_new(void) {
   return (Lexer){
       .tokens = array_new(Token, &HEAP_ALLOCATOR),
+      .line = 1,
+      .pos = 1,
   };
 }
 
@@ -156,6 +158,12 @@ void lexer_tok_print(char *buf, const Token *tok) {
 
 static bool next_char(Lexer *lexer) {
   lexer->cur_char++;
+  if (*lexer->cur_char == '\n') {
+    lexer->pos = 0;
+    lexer->line++;
+  } else {
+    lexer->pos++;
+  }
   return *lexer->cur_char != '\0';
 }
 
@@ -166,19 +174,12 @@ void lexer_tokenize(Lexer *lexer, const char *src, const char *filename) {
 
   lexer->cur_char = src;
 
-  int line = 1;
-  int pos = 1;
-
   while (*lexer->cur_char != '\0') {
     Token tok;
     if (*lexer->cur_char == ' ' || *lexer->cur_char == '\n') {
       do {
-        if (*lexer->cur_char == '\n') {
-          line++;
-          pos = 1;
-        }
         next_char(lexer);
-      } while (*lexer->cur_char == ' ');
+      } while (*lexer->cur_char == ' ' || *lexer->cur_char == '\n');
       continue;
     } else if (*lexer->cur_char == '#') {
       size_t len = 0;
@@ -230,6 +231,8 @@ void lexer_tokenize(Lexer *lexer, const char *src, const char *filename) {
         tok.var.ident = malloc(strlen(ident) + 1);
         strcpy(tok.var.ident, ident);
       }
+      tok.begin_pos = lexer->pos;
+      tok.line = lexer->line;
       tok.begin = begin;
       tok.len = i;
     } else if (*lexer->cur_char == '"') {
@@ -245,6 +248,8 @@ void lexer_tokenize(Lexer *lexer, const char *src, const char *filename) {
       tok = (Token){.type = TOKEN_STRING,
                     .var = {.string = strdup(string)},
                     .begin = begin,
+                    .begin_pos = lexer->pos,
+                    .line = lexer->line,
                     .len = i};
     } else if (*lexer->cur_char >= '0' && *lexer->cur_char <= '9') {
       const char *begin = lexer->cur_char;
@@ -264,82 +269,185 @@ void lexer_tokenize(Lexer *lexer, const char *src, const char *filename) {
       tok = (Token){.type = TOKEN_INT,
                     .var = {.integer = atoi(int_lit)},
                     .begin = begin,
+                    .begin_pos = lexer->pos,
+                    .line = lexer->line,
                     .len = i};
     } else if (*lexer->cur_char == ':') {
       if (*(lexer->cur_char + 1) == ':') {
-        tok = (Token){
-            .type = TOKEN_DECL_CONST, .begin_pos = pos, .line = line, .begin = lexer->cur_char, .len = 2};
+        tok = (Token){.type = TOKEN_DECL_CONST,
+                      .begin_pos = lexer->pos,
+                      .line = lexer->line,
+                      .begin = lexer->cur_char,
+                      .len = 2};
         next_char(lexer);
       } else if (*(lexer->cur_char + 1) == '=') {
-        tok =
-            (Token){.type = TOKEN_DECL_VAR, .begin_pos = pos, .line = line, .begin = lexer->cur_char, .len = 2};
+        tok = (Token){.type = TOKEN_DECL_VAR,
+                      .begin_pos = lexer->pos,
+                      .line = lexer->line,
+                      .begin = lexer->cur_char,
+                      .len = 2};
         next_char(lexer);
       } else {
-        tok = (Token){.type = TOKEN_COLON, .begin_pos = pos, .line = line, .begin = lexer->cur_char, .len = 1};
+        tok = (Token){.type = TOKEN_COLON,
+                      .begin_pos = lexer->pos,
+                      .line = lexer->line,
+                      .begin = lexer->cur_char,
+                      .len = 1};
       }
     } else if (*lexer->cur_char == '(') {
-      tok = (Token){.type = TOKEN_LPAREN, .begin_pos = pos, .line = line, .begin = lexer->cur_char, .len = 1};
+      tok = (Token){.type = TOKEN_LPAREN,
+                    .begin_pos = lexer->pos,
+                    .line = lexer->line,
+                    .begin = lexer->cur_char,
+                    .len = 1};
     } else if (*lexer->cur_char == ')') {
-      tok = (Token){.type = TOKEN_RPAREN, .begin_pos = pos, .line = line, .begin = lexer->cur_char, .len = 1};
+      tok = (Token){.type = TOKEN_RPAREN,
+                    .begin_pos = lexer->pos,
+                    .line = lexer->line,
+                    .begin = lexer->cur_char,
+                    .len = 1};
     } else if (*lexer->cur_char == '{') {
-      tok = (Token){.type = TOKEN_LCURLY, .begin_pos = pos, .line = line, .begin = lexer->cur_char, .len = 1};
+      tok = (Token){.type = TOKEN_LCURLY,
+                    .begin_pos = lexer->pos,
+                    .line = lexer->line,
+                    .begin = lexer->cur_char,
+                    .len = 1};
     } else if (*lexer->cur_char == '}') {
-      tok = (Token){.type = TOKEN_RCURLY, .begin_pos = pos, .line = line, .begin = lexer->cur_char, .len = 1};
+      tok = (Token){.type = TOKEN_RCURLY,
+                    .begin_pos = lexer->pos,
+                    .line = lexer->line,
+                    .begin = lexer->cur_char,
+                    .len = 1};
     } else if (*lexer->cur_char == '<') {
       if (*(lexer->cur_char + 1) == '=') {
-        tok = (Token){.type = TOKEN_LTE, .begin_pos = pos, .line = line, .begin = lexer->cur_char, .len = 2};
+        tok = (Token){.type = TOKEN_LTE,
+                      .begin_pos = lexer->pos,
+                      .line = lexer->line,
+                      .begin = lexer->cur_char,
+                      .len = 2};
         next_char(lexer);
       } else {
-        tok = (Token){.type = TOKEN_LANGLE, .begin_pos = pos, .line = line, .begin = lexer->cur_char, .len = 1};
+        tok = (Token){.type = TOKEN_LANGLE,
+                      .begin_pos = lexer->pos,
+                      .line = lexer->line,
+                      .begin = lexer->cur_char,
+                      .len = 1};
       }
     } else if (*lexer->cur_char == '>') {
       if (*(lexer->cur_char + 1) == '=') {
-        tok = (Token){.type = TOKEN_GTE, .begin_pos = pos, .line = line, .begin = lexer->cur_char, .len = 2};
+        tok = (Token){.type = TOKEN_GTE,
+                      .begin_pos = lexer->pos,
+                      .line = lexer->line,
+                      .begin = lexer->cur_char,
+                      .len = 2};
         next_char(lexer);
       } else {
-        tok = (Token){.type = TOKEN_RANGLE, .begin_pos = pos, .line = line, .begin = lexer->cur_char, .len = 1};
+        tok = (Token){.type = TOKEN_RANGLE,
+                      .begin_pos = lexer->pos,
+                      .line = lexer->line,
+                      .begin = lexer->cur_char,
+                      .len = 1};
       }
     } else if (*lexer->cur_char == ',') {
-      tok = (Token){.type = TOKEN_COMMA, .begin_pos = pos, .line = line, .begin = lexer->cur_char, .len = 1};
+      tok = (Token){.type = TOKEN_COMMA,
+                    .begin_pos = lexer->pos,
+                    .line = lexer->line,
+                    .begin = lexer->cur_char,
+                    .len = 1};
     } else if (*lexer->cur_char == '+') {
-      tok = (Token){.type = TOKEN_PLUS, .begin_pos = pos, .line = line, .begin = lexer->cur_char, .len = 1};
+      tok = (Token){.type = TOKEN_PLUS,
+                    .begin_pos = lexer->pos,
+                    .line = lexer->line,
+                    .begin = lexer->cur_char,
+                    .len = 1};
     } else if (*lexer->cur_char == '+') {
-      tok = (Token){.type = TOKEN_PLUS, .begin_pos = pos, .line = line, .begin = lexer->cur_char, .len = 1};
+      tok = (Token){.type = TOKEN_PLUS,
+                    .begin_pos = lexer->pos,
+                    .line = lexer->line,
+                    .begin = lexer->cur_char,
+                    .len = 1};
     } else if (*lexer->cur_char == '-') {
       if (*(lexer->cur_char + 1) == '>') {
-        tok = (Token){.type = TOKEN_ARROW, .begin_pos = pos, .line = line, .begin = lexer->cur_char, .len = 2};
+        tok = (Token){.type = TOKEN_ARROW,
+                      .begin_pos = lexer->pos,
+                      .line = lexer->line,
+                      .begin = lexer->cur_char,
+                      .len = 2};
         next_char(lexer);
       } else {
-        tok = (Token){.type = TOKEN_MINUS, .begin_pos = pos, .line = line, .begin = lexer->cur_char, .len = 1};
+        tok = (Token){.type = TOKEN_MINUS,
+                      .begin_pos = lexer->pos,
+                      .line = lexer->line,
+                      .begin = lexer->cur_char,
+                      .len = 1};
       }
     } else if (*lexer->cur_char == '.') {
       if (*(lexer->cur_char + 1) == '.') {
-        tok = (Token){.type = TOKEN_RANGE, .begin_pos = pos, .line = line, .begin = lexer->cur_char, .len = 2};
+        tok = (Token){.type = TOKEN_RANGE,
+                      .begin_pos = lexer->pos,
+                      .line = lexer->line,
+                      .begin = lexer->cur_char,
+                      .len = 2};
         next_char(lexer);
       } else {
-        tok = (Token){.type = TOKEN_DOT, .begin_pos = pos, .line = line, .begin = lexer->cur_char, .len = 1};
+        tok = (Token){.type = TOKEN_DOT,
+                      .begin_pos = lexer->pos,
+                      .line = lexer->line,
+                      .begin = lexer->cur_char,
+                      .len = 1};
       }
     } else if (*lexer->cur_char == '=') {
-      tok = (Token){.type = TOKEN_ASSIGN, .begin_pos = pos, .line = line, .begin = lexer->cur_char, .len = 1};
+      tok = (Token){.type = TOKEN_ASSIGN,
+                    .begin_pos = lexer->pos,
+                    .line = lexer->line,
+                    .begin = lexer->cur_char,
+                    .len = 1};
     } else if (*lexer->cur_char == '[') {
-      tok = (Token){.type = TOKEN_LSQUARE, .begin_pos = pos, .line = line, .begin = lexer->cur_char, .len = 1};
+      tok = (Token){.type = TOKEN_LSQUARE,
+                    .begin_pos = lexer->pos,
+                    .line = lexer->line,
+                    .begin = lexer->cur_char,
+                    .len = 1};
     } else if (*lexer->cur_char == ']') {
-      tok = (Token){.type = TOKEN_RSQUARE, .begin_pos = pos, .line = line, .begin = lexer->cur_char, .len = 1};
+      tok = (Token){.type = TOKEN_RSQUARE,
+                    .begin_pos = lexer->pos,
+                    .line = lexer->line,
+                    .begin = lexer->cur_char,
+                    .len = 1};
     } else if (*lexer->cur_char == '*') {
-      tok = (Token){.type = TOKEN_ASTERISK, .begin_pos = pos, .line = line, .begin = lexer->cur_char, .len = 1};
+      tok = (Token){.type = TOKEN_ASTERISK,
+                    .begin_pos = lexer->pos,
+                    .line = lexer->line,
+                    .begin = lexer->cur_char,
+                    .len = 1};
     } else if (*lexer->cur_char == '/') {
-      tok = (Token){.type = TOKEN_SLASH, .begin_pos = pos, .line = line, .begin = lexer->cur_char, .len = 1};
+      tok = (Token){.type = TOKEN_SLASH,
+                    .begin_pos = lexer->pos,
+                    .line = lexer->line,
+                    .begin = lexer->cur_char,
+                    .len = 1};
     } else if (*lexer->cur_char == '~') {
-      tok = (Token){.type = TOKEN_TILDE, .begin_pos = pos, .line = line, .begin = lexer->cur_char, .len = 1};
+      tok = (Token){.type = TOKEN_TILDE,
+                    .begin_pos = lexer->pos,
+                    .line = lexer->line,
+                    .begin = lexer->cur_char,
+                    .len = 1};
     } else if (*lexer->cur_char == '&') {
-      tok =
-          (Token){.type = TOKEN_AMPERSAND, .begin_pos = pos, .line = line, .begin = lexer->cur_char, .len = 1};
+      tok = (Token){.type = TOKEN_AMPERSAND,
+                    .begin_pos = lexer->pos,
+                    .line = lexer->line,
+                    .begin = lexer->cur_char,
+                    .len = 1};
     } else {
-      printf("Illegal token cur char: %c at %s:%d:%d\n", *lexer->cur_char, filename, line, pos);
-      tok = (Token){.type = TOKEN_ILLEGAL, .begin_pos = pos, .line = line, .begin = lexer->cur_char, .len = 0};
+      printf("Illegal token cur char: %c at %s:%d:%d\n", *lexer->cur_char,
+             filename, lexer->line, lexer->pos);
+      tok = (Token){.type = TOKEN_ILLEGAL,
+                    .begin_pos = lexer->pos,
+                    .line = lexer->line,
+                    .begin = lexer->cur_char,
+                    .len = 0};
     }
     array_add(lexer->tokens, tok);
     next_char(lexer);
-    pos++;
   }
 }
