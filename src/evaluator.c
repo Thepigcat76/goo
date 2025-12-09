@@ -1,7 +1,7 @@
 #include "../include/evaluator.h"
-#include "../vendor/lilc/alloc.h"
-#include "../vendor/lilc/array.h"
-#include "../vendor/lilc/panic.h"
+#include "lilc/alloc.h"
+#include "lilc/array.h"
+#include "lilc/panic.h"
 #include <stdio.h>
 #include <string.h>
 

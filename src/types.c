@@ -1,6 +1,6 @@
 #include "../include/types.h"
-#include "../vendor/lilc/array.h"
-#include "../vendor/lilc/eq.h"
+#include "lilc/array.h"
+#include "lilc/eq.h"
 #include <stdio.h>
 #include <string.h>
 

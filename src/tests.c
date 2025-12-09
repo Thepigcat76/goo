@@ -1,6 +1,6 @@
 #include "../include/parser.h"
 #include "../include/types.h"
-#include "../vendor/lilc/array.h"
+#include "lilc/array.h"
 #include <stdio.h>
 
 typedef struct {

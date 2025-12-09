@@ -1,10 +1,10 @@
 #include "../include/checker.h"
 #include "../include/types.h"
-#include "../vendor/lilc/array.h"
-#include "../vendor/lilc/hash.h"
-#include "../vendor/lilc/eq.h"
+#include "lilc/array.h"
+#include "lilc/hash.h"
+#include "lilc/eq.h"
 #include <stdio.h>
-#include "../vendor/lilc/hashmap.h"
+#include "lilc/hashmap.h"
 
 GenericFunction *gft_get(GenericFunctionsTable *table, Ident *name) {
   return hashmap_value(&table->table, name);

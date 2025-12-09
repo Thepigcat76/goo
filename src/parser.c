@@ -1,9 +1,9 @@
 #include "../include/parser.h"
-#include "../vendor/lilc/alloc.h"
-#include "../vendor/lilc/array.h"
-#include "../vendor/lilc/eq.h"
-#include "../vendor/lilc/hash.h"
-#include "../vendor/lilc/panic.h"
+#include "lilc/alloc.h"
+#include "lilc/array.h"
+#include "lilc/eq.h"
+#include "lilc/hash.h"
+#include "lilc/panic.h"
 #include <stdarg.h>
 #include <stdbool.h>
 #include <stdio.h>

@@ -15,8 +15,8 @@
 #include "../include/evaluator.h"
 #include "../include/lexer.h"
 #include "../include/parser.h"
-#include "../vendor/lilc/alloc.h"
-#include "../vendor/lilc/array.h"
+#include "lilc/alloc.h"
+#include "lilc/array.h"
 #include "tests.c"
 #include <stdarg.h>
 #include <stdbool.h>

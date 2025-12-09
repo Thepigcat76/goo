@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../vendor/lilc/hashmap.h"
+#include "lilc/hashmap.h"
 #include "parser.h"
 #include "generics.h"
 

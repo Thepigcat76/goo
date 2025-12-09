@@ -1,10 +1,10 @@
 #include "../include/checker.h"
 #include "../include/generics.h"
 #include "../include/types.h"
-#include "../vendor/lilc/alloc.h"
-#include "../vendor/lilc/array.h"
-#include "../vendor/lilc/eq.h"
-#include "../vendor/lilc/hash.h"
+#include "lilc/alloc.h"
+#include "lilc/array.h"
+#include "lilc/eq.h"
+#include "lilc/hash.h"
 #include <stdio.h>
 
 static const CheckerContext EMPTY_CONTEXT = {0};

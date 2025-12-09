@@ -40,8 +40,7 @@ int main(int argc, char **argv) {
   }
 
   char *compiler = build_compiler(OPTS.compiler, OPTS.target);
-  collect_src_files("../goo/src/");
-  char *files = collect_src_files("../goo/vendor/lilc/src/");
+  char *files = collect_src_files("../goo/src/");
   char *libraries = link_libs(OPTS.libraries);
   char *flags = build_flags(&OPTS);
   char *out_name = build_name(OPTS.out_name, OPTS.target);
