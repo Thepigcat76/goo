@@ -9,6 +9,13 @@
 #include <stdio.h>
 #include <string.h>
 
+#define DEBUG_TOK(tok_ptr, ctx_msg)                                            \
+  do {                                                                         \
+    char tok_buf[64];                                                          \
+    lexer_tok_print(tok_buf, tok_ptr);                                         \
+    printf("DEBUG: TOKEN %s - " ctx_msg "\n", tok_buf);                        \
+  } while (0)
+
 typedef struct {
   Expression expr;
   bool present;
@@ -670,6 +677,7 @@ typedef struct {
 static ParseResult parse_expr_list(Parser *parser, Expression *exprs,
                                    TokenType end) {
   while (parser->cur_tok->type != end) {
+    DEBUG_TOK(parser->cur_tok, "begin of arg");
     OptionalExpr expr = parse_expr1(parser, PREC_LOWEST);
 
     if (expr.present) {
@@ -680,6 +688,7 @@ static ParseResult parse_expr_list(Parser *parser, Expression *exprs,
 
     if (parser->peek_tok->type != TOKEN_COMMA &&
         parser->peek_tok->type != end) {
+      DEBUG_TOK(parser->cur_tok, "Args error");
       return (ParseResult){
           .success = false,
           .line = parser->cur_tok->line,
@@ -687,8 +696,14 @@ static ParseResult parse_expr_list(Parser *parser, Expression *exprs,
           .error_msg = "Function call is missing closing right parenthesis"};
     }
 
-    // cur_tok is comma
-    next_token(parser);
+    if (parser->peek_tok->type == TOKEN_COMMA) {
+      next_token(parser);
+    }
+
+    if (parser->peek_tok->type == TOKEN_RPAREN) {
+      next_token(parser);
+      return (ParseResult){.success = true, .error_msg = NULL};
+    }
 
     // cur_tok is next expr
     next_token(parser);
@@ -809,13 +824,6 @@ static OptionalExpr _internal_empty_expr(char *format, ...) {
 
 #define EMPTY_EXPR(msg, ...)                                                   \
   _internal_empty_expr(msg __VA_OPT__(, ) __VA_ARGS__)
-
-#define DEBUG_TOK(tok_ptr, ctx_msg)                                            \
-  do {                                                                         \
-    char tok_buf[64];                                                          \
-    lexer_tok_print(tok_buf, tok_ptr);                                         \
-    printf("DEBUG: TOKEN %s - " ctx_msg "\n", tok_buf);                        \
-  } while (0)
 
 static OptionalExpr parse_expr(Parser *parser) {
   switch (parser->cur_tok->type) {

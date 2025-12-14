@@ -7,6 +7,8 @@
 #define KEEPALIVE
 #endif
 
+//#define INTERPRETER
+
 #define COMPILER
 
 #include "../include/builtins.h"

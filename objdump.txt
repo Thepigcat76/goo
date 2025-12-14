@@ -1,0 +1,29 @@
+
+output/out.o:     file format elf64-x86-64
+
+
+Disassembly of section .text:
+
+0000000000000000 <slay>:
+   0:	55                   	push   %rbp
+   1:	48 89 e5             	mov    %rsp,%rbp
+   4:	48 c7 45 fc 64 00 00 	movq   $0x64,-0x4(%rbp)
+   b:	00 
+   c:	48 c7 45 f8 45 00 00 	movq   $0x45,-0x8(%rbp)
+  13:	00 
+  14:	48 c7 45 f4 ff ff ff 	movq   $0x7fffffff,-0xc(%rbp)
+  1b:	7f 
+  1c:	5d                   	pop    %rbp
+  1d:	c3                   	ret
+
+000000000000001e <test>:
+  1e:	e8 dd ff ff ff       	call   0 <slay>
+  23:	c3                   	ret
+
+0000000000000024 <main>:
+  24:	e8 d7 ff ff ff       	call   0 <slay>
+  29:	e8 f0 ff ff ff       	call   1e <test>
+  2e:	48 c7 c0 23 00 00 00 	mov    $0x23,%rax
+  35:	48 31 ff             	xor    %rdi,%rdi
+  38:	0f 05                	syscall
+  3a:	c3                   	ret

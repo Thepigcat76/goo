@@ -1,18 +1,5 @@
-integer :: 100
-
-integer2 := 200
-
-integer3 :: 900
+test :: "Hello"
 
 main :: () {
-}
-
-#test :: () {
-#  x := 0
-#}
-
-slay :: () {
-  x := 100
-  y := 69
-  z := 2147483647
+  println("UwU")
 }

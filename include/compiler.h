@@ -16,7 +16,9 @@ typedef enum {
   INS_RESET_SP,
   INS_RET,
   INS_SYSCALL,
+  INS_LEA_RBX,
   INS_CALL,
+  INS_FOREIGN_CALL,
 } InstructionType;
 
 typedef uint8_t Opcode[3];
@@ -33,7 +35,9 @@ typedef struct {
     struct { Register dest; Register val; } mov_r2r_ins;
     struct { Register dest; Memory val; } mov_m2r_ins;
     struct { Register dest; int32_t val; } mov_i2r_ins;
-    struct { int function; } call_ins;
+    struct { int32_t immediate; } lea_rbx_ins;
+    struct { char *function_name; } foreign_call_ins;
+    struct { char *function_name; } call_ins;
   } var;
 } Instruction;
 // clang-format on
@@ -43,9 +47,7 @@ typedef struct {
   size_t bytes_len;
 } DataValue;
 
-typedef struct {
-  DataValue *values;
-} DataSection;
+typedef Hashmap(Ident *, DataValue) DataSection;
 
 typedef enum {
   COMPILE_STEP_COMPILE_SRC,
@@ -58,12 +60,26 @@ typedef struct {
   size_t sp_offset;
 } Frame;
 
+typedef enum {
+  RELOCATION_RODATA,
+  RELOCATION_DATA,
+  RELOCATION_FUNCTION,
+} RelocationType;
+
+typedef struct {
+  RelocationType rel_type;
+  char *symbol;
+  size_t program_offset;
+} Relocation;
+
 typedef struct {
   const Statement *stmts;
   size_t stmt_index;
   Instruction *insns;
+  Relocation *relocations;
   CompilerStep step;
   Hashmap(Ident *, size_t) labels;
+  Hashmap(Ident *, size_t) extern_functions;
   Frame cur_frame;
   /* Data */
   DataSection data_section;
