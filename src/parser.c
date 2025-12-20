@@ -460,7 +460,7 @@ void parser_stmt_print(char *buf, const Statement *stmt) {
     }
     sprintf(buf, "StmtDecl{name=%s, type=%s, mutable=%s, value=%s}",
             stmt->var.stmt_decl.name, type_buf,
-            stmt->var.stmt_decl.mutable ? "true" : "false", expr_buf);
+            stmt->var.stmt_decl.mut ? "true" : "false", expr_buf);
     break;
   }
   case STMT_EXPR: {
@@ -1499,7 +1499,7 @@ static StmtDecl parse_decl_stmt(Parser *parser, bool typed) {
       // cur_tok is assign/colon
       next_token(parser);
 
-      stmt_decl.mutable = parser->cur_tok->type == TOKEN_ASSIGN;
+      stmt_decl.mut = parser->cur_tok->type == TOKEN_ASSIGN;
     } else {
       EXPECTED_TOKEN_ERR(TOKEN_ASSIGN | TOKEN_COLON, parser->peek_tok);
     }
@@ -1516,7 +1516,7 @@ static StmtDecl parse_decl_stmt(Parser *parser, bool typed) {
     }
   } else {
     bool mutable = parser->peek_tok->type == TOKEN_DECL_VAR;
-    stmt_decl.mutable = mutable;
+    stmt_decl.mut = mutable;
     // cur token is DECL
     next_token(parser);
     // cur token is EXPR

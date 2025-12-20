@@ -1,5 +1,5 @@
-test :: "Hello"
-
 main :: () {
-  println("UwU")
+  x := 1
+  z := ":3"
+  println(z)
 }

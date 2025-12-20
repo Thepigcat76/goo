@@ -1,7 +1,7 @@
 #pragma once
 
-#include "lilc/hashmap.h"
 #include "lexer.h"
+#include "lilc/hashmap.h"
 #include "types.h"
 #include <stdbool.h>
 
@@ -150,6 +150,22 @@ typedef struct {
   } var;
 } TypeExpr;
 
+typedef struct {
+  Ident ident;
+} ExprIdent;
+
+typedef struct {
+  char *string;
+} ExprStringLiteral;
+
+typedef struct {
+  int integer;
+} ExprIntegerLiteral;
+
+typedef struct {
+  bool boolean;
+} ExprBooleanLiteral;
+
 typedef struct _expr {
   enum {
     EXPR_CAST,
@@ -189,18 +205,10 @@ typedef struct _expr {
     ExprRange expr_range;
     ExprPointerDeref expr_ptr_deref;
     ExprAddrOf expr_addr_of;
-    struct {
-      Ident ident;
-    } expr_ident;
-    struct {
-      char *string;
-    } expr_string_literal;
-    struct {
-      int integer;
-    } expr_integer_literal;
-    struct {
-      bool boolean;
-    } expr_boolean_literal;
+    ExprIdent expr_ident;
+    ExprStringLiteral expr_string_literal;
+    ExprIntegerLiteral expr_integer_literal;
+    ExprBooleanLiteral expr_boolean_literal;
   } var;
   const char *begin;
   size_t len;
@@ -245,7 +253,7 @@ typedef struct {
   Ident name;
   OptionalType type;
   ExpressionVariant value;
-  bool mutable;
+  bool mut;
 } StmtDecl;
 
 typedef struct {
