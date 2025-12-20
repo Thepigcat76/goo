@@ -4,26 +4,29 @@ output/out.o:     file format elf64-x86-64
 
 Disassembly of section .text:
 
-0000000000000000 <slay>:
+0000000000000000 <test>:
    0:	55                   	push   %rbp
    1:	48 89 e5             	mov    %rsp,%rbp
-   4:	48 c7 45 fc 64 00 00 	movq   $0x64,-0x4(%rbp)
-   b:	00 
-   c:	48 c7 45 f8 45 00 00 	movq   $0x45,-0x8(%rbp)
-  13:	00 
-  14:	48 c7 45 f4 ff ff ff 	movq   $0x7fffffff,-0xc(%rbp)
-  1b:	7f 
-  1c:	5d                   	pop    %rbp
-  1d:	c3                   	ret
+   4:	48 83 ec 10          	sub    $0x10,%rsp
+   8:	48 89 7d 08          	mov    %rdi,0x8(%rbp)
+   c:	48 8b 7d 08          	mov    0x8(%rbp),%rdi
+  10:	e8 00 00 00 00       	call   15 <test+0x15>
+  15:	48 83 c4 10          	add    $0x10,%rsp
+  19:	c9                   	leave
+  1a:	c3                   	ret
 
-000000000000001e <test>:
-  1e:	e8 dd ff ff ff       	call   0 <slay>
-  23:	c3                   	ret
-
-0000000000000024 <main>:
-  24:	e8 d7 ff ff ff       	call   0 <slay>
-  29:	e8 f0 ff ff ff       	call   1e <test>
-  2e:	48 c7 c0 23 00 00 00 	mov    $0x23,%rax
-  35:	48 31 ff             	xor    %rdi,%rdi
-  38:	0f 05                	syscall
-  3a:	c3                   	ret
+000000000000001b <main>:
+  1b:	55                   	push   %rbp
+  1c:	48 89 e5             	mov    %rsp,%rbp
+  1f:	48 83 ec 10          	sub    $0x10,%rsp
+  23:	c7 45 04 64 00 00 00 	movl   $0x64,0x4(%rbp)
+  2a:	bf 64 00 00 00       	mov    $0x64,%edi
+  2f:	e8 00 00 00 00       	call   34 <main+0x19>
+  34:	48 8d 3d 00 00 00 00 	lea    0x0(%rip),%rdi        # 3b <main+0x20>
+  3b:	e8 00 00 00 00       	call   40 <main+0x25>
+  40:	48 8d 3d 00 00 00 00 	lea    0x0(%rip),%rdi        # 47 <main+0x2c>
+  47:	e8 00 00 00 00       	call   4c <main+0x31>
+  4c:	31 c0                	xor    %eax,%eax
+  4e:	48 83 c4 10          	add    $0x10,%rsp
+  52:	c9                   	leave
+  53:	c3                   	ret

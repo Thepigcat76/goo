@@ -145,7 +145,11 @@ void function_println_buffer_clear(void) { println_buf[0] = '\0'; }
 
 int main(void) {
   char file_buf[4096];
-  FILE *file = fopen("test1.goo", "r");
+  #ifdef COMPILER
+  FILE *file = fopen("test_compiler.goo", "r");
+  #elif defined (INTERPRETER)
+  FILE *file = fopen("test_interpreter.goo", "r");
+  #endif
   size_t n = fread(file_buf, 1, sizeof(file_buf) - 1, file);
   file_buf[n] = '\0';
 

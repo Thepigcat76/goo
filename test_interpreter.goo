@@ -1,0 +1,4 @@
+main :: () {
+  y := 100 + 20 * 3
+  printfn("Integer: %", y)
+}

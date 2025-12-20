@@ -1,0 +1,1 @@
+gurd r && objdump -d output/out.o && gcc output/out.o print_int.a -o output/bin && ./output/bin

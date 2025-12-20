@@ -4,6 +4,7 @@
 #include "lilc/eq.h"
 #include "lilc/hash.h"
 #include "lilc/panic.h"
+#include <lilc/log.h>
 #include <stdarg.h>
 #include <stdbool.h>
 #include <stdio.h>
@@ -802,7 +803,9 @@ static bool ident_is_struct(Parser *parser, Ident *struct_name) {
 static bool ident_is_builtin_function(Ident *function_name) {
   return strv_eq(*function_name, "println") ||
          strv_eq(*function_name, "printfn") ||
-         strv_eq(*function_name, "format") || strv_eq(*function_name, "exit");
+         strv_eq(*function_name, "format") || strv_eq(*function_name, "exit") ||
+         strv_eq(*function_name, "print_int") ||
+         strv_eq(*function_name, "print_int_ptr");
 }
 
 #define OPTIONAL_EXPR(...)                                                     \
@@ -1395,7 +1398,7 @@ static Expression parse_array_access(Parser *parser, Expression expr) {
 static OptionalExpr parse_expr1(Parser *parser, Precedence prec) {
   OptionalExpr expr = parse_expr(parser);
 
-  if (expr.present)
+  if (!expr.present)
     return expr;
 
   Expression left_expr = expr.expr;
@@ -1409,6 +1412,10 @@ static OptionalExpr parse_expr1(Parser *parser, Precedence prec) {
     next_token(parser);
     left_expr = parse_array_access(parser, left_expr);
   }
+
+  char left_expr_buf[512];
+  expr_print(left_expr_buf, &left_expr);
+  log_debug("Left expr: %s", left_expr_buf);
 
   while (tok_is_op(parser->peek_tok) &&
          prec < op_to_prec(tok_to_bin_op(parser->peek_tok))) {

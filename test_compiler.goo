@@ -1,0 +1,14 @@
+global_var := 100
+sec_var := 800
+
+test :: () -> i32 {
+  print_int(global_var)
+  x := global_var + sec_var
+  return x
+}
+
+main :: () {
+  print_int(sec_var)
+  x := test()
+  print_int(x)
+}

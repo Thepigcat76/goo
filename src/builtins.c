@@ -52,6 +52,8 @@ BuiltinFunction *BUILTIN_FUNCTIONS;
 BuiltinFunction PRINTLN_FUNCTION;
 BuiltinFunction PRINTFN_FUNCTION;
 BuiltinFunction FORMAT_FUNCTION;
+BuiltinFunction PRINT_INT_FUNCTION;
+BuiltinFunction PRINT_INT_PTR_FUNCTION;
 BuiltinFunction EXIT_FUNCTION;
 
 char println_buf[1024] = {'\0'};
@@ -146,6 +148,10 @@ void builtin_functions_init(TypeTable *type_table) {
   BUILTIN_FUNCTION(FORMAT_FUNCTION, "format", execute_format,
                    STRING_BUILTIN_TYPE, ARG("format", STRING_BUILTIN_TYPE),
                    VARARG("args"));
+  BUILTIN_FUNCTION(PRINT_INT_FUNCTION, "print_int", NULL, UNIT_BUILTIN_TYPE,
+                   ARG("i", INT_BUILTIN_TYPE));
+  BUILTIN_FUNCTION(PRINT_INT_PTR_FUNCTION, "print_int_ptr", NULL, UNIT_BUILTIN_TYPE,
+                   ARG("i", INT_BUILTIN_TYPE));
   BUILTIN_FUNCTION(EXIT_FUNCTION, "exit", execute_exit, UNIT_BUILTIN_TYPE,
                    ARG("code", INT_BUILTIN_TYPE));
 
@@ -155,6 +161,10 @@ void builtin_functions_init(TypeTable *type_table) {
                  EXPR_VAR_EXPR(PRINTFN_FUNCTION.expr), OPT_TYPE_EMPTY);
   type_table_add(type_table, &EXIT_FUNCTION.name,
                  EXPR_VAR_EXPR(EXIT_FUNCTION.expr), OPT_TYPE_EMPTY);
+  type_table_add(type_table, &PRINT_INT_FUNCTION.name,
+                 EXPR_VAR_EXPR(PRINT_INT_FUNCTION.expr), OPT_TYPE_EMPTY);
+  type_table_add(type_table, &PRINT_INT_PTR_FUNCTION.name,
+                 EXPR_VAR_EXPR(PRINT_INT_PTR_FUNCTION.expr), OPT_TYPE_EMPTY);
   type_table_add(type_table, &FORMAT_FUNCTION.name,
                  EXPR_VAR_EXPR(FORMAT_FUNCTION.expr), OPT_TYPE_EMPTY);
 }
