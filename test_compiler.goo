@@ -1,9 +1,9 @@
 global_var := 100
-sec_var := 800
+sec_var := 10
 
 test :: () -> i32 {
   print_int(global_var)
-  x := global_var + sec_var
+  x := global_var * 10 * sec_var
   return x
 }
 

@@ -322,6 +322,145 @@ static void expr_func_compile(Compiler *compiler, const ExprFunction *expr_func,
   insns_add_return(compiler->insns);
 }
 
+static uint32_t apply_lit_bin_op(uint32_t a, uint32_t b, BinOperator op) {
+  switch (op) {
+  case BIN_OP_ADD:
+    return a + b;
+  case BIN_OP_SUB:
+    return a - b;
+  case BIN_OP_MUL:
+    return a * b;
+  case BIN_OP_DIV:
+    return a / b;
+  case BIN_OP_LT:
+    return a < b;
+  case BIN_OP_GT:
+    return a > b;
+  case BIN_OP_LTE:
+    return a <= b;
+  case BIN_OP_GTE:
+    return a >= b;
+  }
+}
+
+/* Sets the opcode to the one for performing specified op with imm32. Returns
+ * whether the operation is supported */
+static bool opcode_imm32_rax_bin_op(Opcode *opcode, BinOperator op) {
+  switch (op) {
+  case BIN_OP_ADD:
+    *opcode = INS_ADD_IMM32_RAX;
+    return true;
+  case BIN_OP_SUB:
+    *opcode = INS_SUB_IMM32_RAX;
+    return true;
+  case BIN_OP_MUL:
+    *opcode = INS_MUL_IMM32_RAX;
+    return true;
+  default:
+    return false;
+  }
+}
+
+/* Sets the opcode to the one for performing specified op with imm32. Returns
+ * whether the operation is supported */
+static bool opcode_rdx_rax_bin_op(Opcode *opcode, BinOperator op) {
+  switch (op) {
+  case BIN_OP_ADD:
+    *opcode = INS_ADD_RDX_RAX;
+    return true;
+  case BIN_OP_SUB:
+    *opcode = INS_SUB_RDX_RAX;
+    return true;
+  case BIN_OP_MUL:
+    *opcode = INS_IMUL_RDX_RAX;
+    return true;
+  default:
+    return false;
+  }
+}
+
+static ExprCompileResult expr_bin_op_compile(Compiler *compiler,
+                                             const ExprBinOp *expr_bin_op) {
+  ExprCompileResult res_left = expr_compile(compiler, expr_bin_op->left);
+  ExprCompileResult res_right = expr_compile(compiler, expr_bin_op->right);
+  if (res_left.type == EXPR_COMPILE_RES_IMM32 &&
+      res_right.type == EXPR_COMPILE_RES_IMM32) {
+    return EXPR_COMPILE_RES(EXPR_COMPILE_RES_IMM32,
+                            .imm32 = apply_lit_bin_op(res_left.var.imm32,
+                                                      res_right.var.imm32,
+                                                      expr_bin_op->op));
+  } else if (expr_bin_op->op == BIN_OP_ADD || expr_bin_op->op == BIN_OP_SUB ||
+             expr_bin_op->op == BIN_OP_MUL) {
+    Opcode imm32_rax_bin_op_opcode;
+    opcode_imm32_rax_bin_op(&imm32_rax_bin_op_opcode, expr_bin_op->op);
+    Opcode rdx_rax_bin_op_opcode;
+    opcode_rdx_rax_bin_op(&rdx_rax_bin_op_opcode, expr_bin_op->op);
+    switch (res_left.type) {
+    case EXPR_COMPILE_RES_REG: {
+      Register reg = res_left.var.reg;
+      if (reg != REG_RAX) {
+        insns_add(compiler->insns, INSN(INS_MOV_REG_RAX, .reg = {.reg = reg}));
+      }
+      if (res_right.type == EXPR_COMPILE_RES_IMM32) {
+        insns_add(compiler->insns,
+                  INSN(imm32_rax_bin_op_opcode, .imm32 = {
+                                              .imm = res_right.var.imm32,
+                                          }));
+      }
+      return EXPR_COMPILE_RES(EXPR_COMPILE_RES_REG, .reg = REG_RAX);
+    }
+    case EXPR_COMPILE_RES_RODATA_IDX:
+    case EXPR_COMPILE_RES_DATA_IDX: {
+      insns_add(compiler->insns,
+                INSN(INS_MOV_I32_RAX,
+                     .imm32 = {.imm = res_left.var.data_idx.idx,
+                               .r_offset = 3,
+                               .foreign = true,
+                               .sec = res_left.type == EXPR_COMPILE_RES_DATA_IDX
+                                          ? SECTION_DATA
+                                          : SECTION_RODATA}));
+      switch (res_right.type) {
+      case EXPR_COMPILE_RES_RODATA_IDX:
+      case EXPR_COMPILE_RES_DATA_IDX: {
+        insns_add(
+            compiler->insns,
+            INSN(INS_MOV_I32_RDX,
+                 .imm32 = {.imm = res_right.var.data_idx.idx,
+                           .r_offset = 3,
+                           .foreign = true,
+                           .sec = res_right.type == EXPR_COMPILE_RES_DATA_IDX
+                                      ? SECTION_DATA
+                                      : SECTION_RODATA}));
+        insns_add(compiler->insns, INSN(rdx_rax_bin_op_opcode));
+        break;
+      }
+      case EXPR_COMPILE_RES_IMM32: {
+        insns_add(compiler->insns, INSN(imm32_rax_bin_op_opcode,
+                                        .imm32 = {.imm = res_right.var.imm32}));
+        break;
+      }
+      case EXPR_COMPILE_RES_STACK_LOC: {
+        break;
+      }
+      case EXPR_COMPILE_RES_REG: {
+        break;
+      }
+      }
+      return EXPR_COMPILE_RES(EXPR_COMPILE_RES_REG, .reg = REG_RAX);
+    }
+    case EXPR_COMPILE_RES_IMM32: {
+
+      break;
+    }
+    case EXPR_COMPILE_RES_STACK_LOC: {
+      break;
+    }
+    default:
+      break;
+    }
+  }
+}
+
 static ExprCompileResult expr_compile(Compiler *compiler,
                                       const Expression *expr) {
   switch (expr->type) {
@@ -362,65 +501,7 @@ static ExprCompileResult expr_compile(Compiler *compiler,
   }
   case EXPR_BIN_OP: {
     ExprBinOp expr_bin_op = expr->var.expr_bin_op;
-    if (expr_bin_op.op == BIN_OP_ADD) {
-      ExprCompileResult res_left = expr_compile(compiler, expr_bin_op.left);
-      ExprCompileResult res_right = expr_compile(compiler, expr_bin_op.right);
-      if (res_left.type == EXPR_COMPILE_RES_IMM32 &&
-          res_right.type == EXPR_COMPILE_RES_IMM32) {
-        return EXPR_COMPILE_RES(EXPR_COMPILE_RES_IMM32,
-                                .imm32 =
-                                    res_left.var.imm32 + res_right.var.imm32);
-      } else {
-        switch (res_left.type) {
-        case EXPR_COMPILE_RES_RODATA_IDX:
-        case EXPR_COMPILE_RES_DATA_IDX: {
-          insns_add(
-              compiler->insns,
-              INSN(INS_MOV_I32_RAX,
-                   .imm32 = {.imm = res_left.var.data_idx.idx,
-                             .r_offset = 3,
-                             .foreign = true,
-                             .sec = res_left.type == EXPR_COMPILE_RES_DATA_IDX
-                                        ? SECTION_DATA
-                                        : SECTION_RODATA}));
-          switch (res_right.type) {
-          case EXPR_COMPILE_RES_RODATA_IDX: {
-            break;
-          }
-          case EXPR_COMPILE_RES_DATA_IDX: {
-            insns_add(compiler->insns,
-                      INSN(INS_MOV_I32_RDX,
-                           .imm32 = {.imm = res_right.var.data_idx.idx,
-                                     .r_offset = 3,
-                                     .foreign = true,
-                                     .sec = res_right.type ==
-                                                    EXPR_COMPILE_RES_DATA_IDX
-                                                ? SECTION_DATA
-                                                : SECTION_RODATA}));
-            insns_add(compiler->insns, INSN(INS_ADD_RDX_RAX));
-            break;
-          }
-          case EXPR_COMPILE_RES_IMM32: {
-            insns_add(
-                compiler->insns,
-                INSN(INS_ADD_IMM32_RAX, .imm32 = {.imm = res_right.var.imm32}));
-            break;
-          }
-          case EXPR_COMPILE_RES_STACK_LOC: {
-            break;
-          }
-          case EXPR_COMPILE_RES_REG: {
-            break;
-          }
-          }
-          return EXPR_COMPILE_RES(EXPR_COMPILE_RES_REG, .reg = REG_RAX);
-        }
-        default:
-          break;
-        }
-      }
-    }
-    break;
+    return expr_bin_op_compile(compiler, &expr_bin_op);
   }
   default: {
     fprintf(stderr, "Failed to compile expr, not yet implemented\n");
@@ -798,6 +879,11 @@ static size_t insn_generate(Instruction *ins, Relocation *relocations,
     ins_len += sizeof(uint32_t);
     break;
   }
+  case IF_ARG_REG: {
+    insn_bytes[ins_len] = ins->args.reg.reg;
+    ins_len += 1;
+    break;
+  }
   case IF_ARG_REG_DISP8: {
     insn_bytes[ins_len] = ins->args.reg_disp8.reg;
     insn_bytes[ins_len + 1] = ins->args.reg_disp8.disp;
@@ -859,6 +945,10 @@ static size_t insn_generate(Instruction *ins, Relocation *relocations,
       /* Leave the rest of the instruction bytes 0, relocation will fix it */
       ins_len += 4;
     }
+    break;
+  }
+  case INS_IMUL_RDX_RAX: {
+    insn_bytes[ins_len++] = 0xc2;
     break;
   }
   default: {

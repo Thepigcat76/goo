@@ -16,6 +16,7 @@
 #define IF_ARG_DISP32 0x7
 #define IF_ARG_REG_DISP8 0x8
 #define IF_ARG_REG_DISP32 0x9
+#define IF_ARG_REG 0x10
 
 #define OPCODE1(flag, b0) (flag << 0) | (0x01 << 6) | (b0 << 8)
 
@@ -41,8 +42,14 @@ typedef enum {
   INS_MOV_REG_RBP_DISP8 = OPCODE2(IF_ARG_REG_DISP8, 0x48, 0x89),
   INS_ADD_IMM8_RSP = OPCODE3(IF_ARG_IMM8, 0x48, 0x83, 0xc4),
   INS_SUB_IMM8_RSP = OPCODE3(IF_ARG_IMM8, 0x48, 0x83, 0xec),
+  /* Arithmetic operations */
   INS_ADD_IMM32_RAX = OPCODE2(IF_ARG_IMM32, 0x48, 0x05),
+  INS_SUB_IMM32_RAX = OPCODE2(IF_ARG_IMM32, 0x48, 0x2d),
+  INS_MUL_IMM32_RAX = OPCODE3(IF_ARG_IMM32, 0x48, 0x69, 0xc0),
   INS_ADD_RDX_RAX = OPCODE3(IF_NO_ARG, 0x48, 0x01, 0xd0),
+  INS_SUB_RDX_RAX = OPCODE3(IF_NO_ARG, 0x48, 0x29, 0xd0),
+  INS_IMUL_RDX_RAX = OPCODE3(IF_SPECIAL, 0x48, 0x0f, 0xaf),
+  /* End of arithmetic operations */
   INS_MOV_RIP_REG_DISP32 = OPCODE2(IF_ARG_REG_DISP32, 0x48, 0x8b),
   /* Load effective address */
   INS_LEA_RIP_RDI = OPCODE3(IF_ARG_IMM32, 0x48, 0x8d, 0x3d),
@@ -52,6 +59,7 @@ typedef enum {
   INS_MOV_I32_RAX = OPCODE3(IF_ARG_IMM32, 0x48, 0x8b, 0x05),
   INS_MOV_I32_RDX = OPCODE3(IF_ARG_IMM32, 0x48, 0x8b, 0x15),
   INS_MOV_I32_EAX = OPCODE1(IF_ARG_IMM32, 0xb8),
+  INS_MOV_REG_RAX = OPCODE2(IF_ARG_REG, 0x48, 0x8b),
   /* Arg related Operations */
   /* Args: 32-bit */
   INS_MOV_I32_EDI = OPCODE1(IF_ARG_IMM32, 0xbf),
@@ -111,6 +119,7 @@ typedef struct {
     struct { uint32_t disp; bool foreign; SectionType sec; uint8_t r_offset; } disp32;
     struct { Register reg; uint8_t disp; } reg_disp8;
     struct { Register reg; uint32_t disp; bool foreign; SectionType sec; uint8_t r_offset; } reg_disp32;
+    struct { Register reg; } reg;
     struct { char *function_name; bool foreign; } call_ins;
   } args;
 } Instruction;
