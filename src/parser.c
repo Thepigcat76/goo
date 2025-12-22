@@ -50,6 +50,7 @@ Parser parser_new(Token *tokens, const char *source, const char *filename) {
                                       str_ptrv_hash, str_ptrv_eq, NULL),
       .source = source,
       .filename = filename,
+      .foreign_functions = array_new(Ident, &HEAP_ALLOCATOR),
   };
 }
 
@@ -800,7 +801,12 @@ static bool ident_is_struct(Parser *parser, Ident *struct_name) {
   return type_expr != NULL && type_expr->type == TYPE_EXPR_STRUCT;
 }
 
-static bool ident_is_builtin_function(Ident *function_name) {
+static bool ident_is_builtin_function(const Parser *parser,
+                                      Ident *function_name) {
+  for (size_t i = 0; i < array_len(parser->foreign_functions); i++) {
+    if (strv_eq(parser->foreign_functions[i], *function_name))
+      return true;
+  }
   return strv_eq(*function_name, "println") ||
          strv_eq(*function_name, "printfn") ||
          strv_eq(*function_name, "format") || strv_eq(*function_name, "exit") ||
@@ -873,9 +879,9 @@ static OptionalExpr parse_expr(Parser *parser) {
     Ident ident = parser->cur_tok->var.ident;
     printf("Starting ident parsing: %s\n", ident);
     if (parser->peek_tok->type == TOKEN_LPAREN) {
-      if (hashmap_contains(&parser->custom_functions,
-                           &ident) ||
-          ident_is_builtin_function(&ident)) { // cur_tok is left parenthesis
+      if (hashmap_contains(&parser->custom_functions, &ident) ||
+          ident_is_builtin_function(parser,
+                                    &ident)) { // cur_tok is left parenthesis
         next_token(parser);
         // cur_tok is first expr
         next_token(parser);
@@ -1119,47 +1125,56 @@ static OptionalExpr parse_expr(Parser *parser) {
 
     ExprFor expr_for = {0};
 
-    OptionalExpr first_expr = parse_expr1(parser, PREC_LOWEST);
-    if (parser->peek_tok->type == TOKEN_RANGE) {
-      expr_for.variable_name = NULL;
-
-      expr_for.range.min = heap_clone(&first_expr.expr);
-      // cur_tok is TOKEN_RANGE
-      next_token(parser);
-      // cur_tok is second expr
-      next_token(parser);
-      OptionalExpr sec_expr = parse_expr1(parser, PREC_LOWEST);
-      expr_for.range.max = heap_clone(&sec_expr.expr);
-    } else if (parser->peek_tok->type == TOKEN_IN) {
-      if (parser->cur_tok->type != TOKEN_IDENT) {
-        EXPECTED_TOKEN_ERR(TOKEN_IDENT, parser->cur_tok);
-      }
-
-      expr_for.variable_name = parser->cur_tok->var.ident;
-
-      // cur_tok is TOKEN_IN
-      next_token(parser);
-
-      // cur_tok is first token of range expr
-      next_token(parser);
-
-      OptionalExpr min_expr = parse_expr1(parser, PREC_LOWEST);
-      expr_for.range.min = heap_clone(&min_expr.expr);
-
-      // cur_tok is TOKEN_RANGE
-      next_token(parser);
-      // cur_tok is second expr
-      next_token(parser);
-
-      OptionalExpr max_expr = parse_expr1(parser, PREC_LOWEST);
-      expr_for.range.max = heap_clone(&max_expr.expr);
+    bool has_range = true;
+    if (parser->cur_tok->type == TOKEN_LCURLY) {
+      has_range = false;
     }
 
-    // cur_tok is curly bracket
-    next_token(parser);
+    expr_for.has_range = has_range;
 
-    if (parser->cur_tok->type != TOKEN_LCURLY) {
-      EXPECTED_TOKEN_ERR(TOKEN_LCURLY, parser->cur_tok);
+    if (has_range) {
+      OptionalExpr first_expr = parse_expr1(parser, PREC_LOWEST);
+      if (parser->peek_tok->type == TOKEN_RANGE) {
+        expr_for.variable_name = NULL;
+
+        expr_for.range.min = heap_clone(&first_expr.expr);
+        // cur_tok is TOKEN_RANGE
+        next_token(parser);
+        // cur_tok is second expr
+        next_token(parser);
+        OptionalExpr sec_expr = parse_expr1(parser, PREC_LOWEST);
+        expr_for.range.max = heap_clone(&sec_expr.expr);
+      } else if (parser->peek_tok->type == TOKEN_IN) {
+        if (parser->cur_tok->type != TOKEN_IDENT) {
+          EXPECTED_TOKEN_ERR(TOKEN_IDENT, parser->cur_tok);
+        }
+
+        expr_for.variable_name = parser->cur_tok->var.ident;
+
+        // cur_tok is TOKEN_IN
+        next_token(parser);
+
+        // cur_tok is first token of range expr
+        next_token(parser);
+
+        OptionalExpr min_expr = parse_expr1(parser, PREC_LOWEST);
+        expr_for.range.min = heap_clone(&min_expr.expr);
+
+        // cur_tok is TOKEN_RANGE
+        next_token(parser);
+        // cur_tok is second expr
+        next_token(parser);
+
+        OptionalExpr max_expr = parse_expr1(parser, PREC_LOWEST);
+        expr_for.range.max = heap_clone(&max_expr.expr);
+      }
+
+      // cur_tok is curly bracket
+      next_token(parser);
+
+      if (parser->cur_tok->type != TOKEN_LCURLY) {
+        EXPECTED_TOKEN_ERR(TOKEN_LCURLY, parser->cur_tok);
+      }
     }
 
     // cur_tok is first stmt of block
@@ -1412,10 +1427,10 @@ static OptionalExpr parse_expr1(Parser *parser, Precedence prec) {
     next_token(parser);
     left_expr = parse_array_access(parser, left_expr);
   }
-
-  char left_expr_buf[512];
-  expr_print(left_expr_buf, &left_expr);
-  log_debug("Left expr: %s", left_expr_buf);
+  
+  //char left_expr_buf[512];
+  //expr_print(left_expr_buf, &left_expr);
+  //log_debug("Left expr: %s", left_expr_buf);
 
   while (tok_is_op(parser->peek_tok) &&
          prec < op_to_prec(tok_to_bin_op(parser->peek_tok))) {
@@ -1577,6 +1592,21 @@ static Statement parse_stmt(Parser *parser) {
       goto parse_expr;
     }
     exit(1);
+  }
+  case TOKEN_FOREIGN: {
+    if (parser->peek_tok->type != TOKEN_IDENT) {
+      log_error("Expected function name after TOKEN_FOREIGN");
+      exit(1);
+    }
+    // Cur token is ident
+    next_token(parser);
+    Ident name = parser->cur_tok->var.ident;
+    // Cur tok is first token of func desc
+    next_token(parser);
+    FuncDescriptor desc = parse_func_desc(parser);
+    array_add(parser->foreign_functions, name);
+    return (Statement){.type = STMT_FOREIGN,
+                       .var = {.stmt_foreign = {.name = name, .desc = desc}}};
   }
   case TOKEN_IF:
   case TOKEN_IT:

@@ -521,8 +521,8 @@ create_struct_from_expr(const TypeExprStruct *ty_expr_struct) {
 }
 
 static Type check_stmt(TypeChecker *checker, Statement *stmt, CheckerContext context) {
-  char print_buf[1024];
-  parser_stmt_print(print_buf, stmt);
+  //char print_buf[1024];
+//  parser_stmt_print(print_buf, stmt);
   switch (stmt->type) {
   case STMT_RETURN: {
     StmtReturn stmt_return = stmt->var.stmt_return;
@@ -624,6 +624,12 @@ static Type check_stmt(TypeChecker *checker, Statement *stmt, CheckerContext con
     }
 
     return UNIT_BUILTIN_TYPE;
+  }
+  case STMT_FOREIGN: {
+    StmtForeign stmt_foreign = stmt->var.stmt_foreign;
+    ExprFunction expr_function = {.desc = stmt_foreign.desc, .native_function = NULL, .block = NULL};
+    Expression expr = {.type = EXPR_FUNCTION, .var = {.expr_function = expr_function}};
+    type_table_add(checker->global_type_table, &stmt_foreign.name, EXPR_VAR_EXPR(expr), OPT_TYPE_EMPTY);
   }
   case STMT_EXPR: {
     return check_expr(checker, &stmt->var.stmt_expr.expr);

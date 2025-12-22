@@ -17,6 +17,7 @@
 #define IF_ARG_REG_DISP8 0x8
 #define IF_ARG_REG_DISP32 0x9
 #define IF_ARG_REG 0x10
+#define IF_ARG_REG_IMM32 0x11
 
 #define OPCODE1(flag, b0) (flag << 0) | (0x01 << 6) | (b0 << 8)
 
@@ -27,6 +28,7 @@
 
 // src -> dest
 typedef enum {
+  INS_JMP_iMM8 = OPCODE1(IF_ARG_IMM8, 0xeb),
   INS_XOR_RDI_RDI = OPCODE2(IF_NO_ARG, 0x31, 0xff),
   INS_XOR_RAX_RAX = OPCODE2(IF_NO_ARG, 0x31, 0xc0),
   INS_MOV_I64_RBP = OPCODE2(IF_ARG_IMM64, 0x48, 0xbd),
@@ -43,6 +45,9 @@ typedef enum {
   INS_ADD_IMM8_RSP = OPCODE3(IF_ARG_IMM8, 0x48, 0x83, 0xc4),
   INS_SUB_IMM8_RSP = OPCODE3(IF_ARG_IMM8, 0x48, 0x83, 0xec),
   /* Arithmetic operations */
+  INS_ADD_IMM32_REG = OPCODE1(IF_ARG_REG_IMM32, 0x48),
+  INS_SUB_IMM32_REG = OPCODE1(IF_ARG_REG_IMM32, 0x48),
+  INS_MUL_IMM32_REG = OPCODE1(IF_ARG_REG_IMM32, 0x48),
   INS_ADD_IMM32_RAX = OPCODE2(IF_ARG_IMM32, 0x48, 0x05),
   INS_SUB_IMM32_RAX = OPCODE2(IF_ARG_IMM32, 0x48, 0x2d),
   INS_MUL_IMM32_RAX = OPCODE3(IF_ARG_IMM32, 0x48, 0x69, 0xc0),
@@ -56,10 +61,12 @@ typedef enum {
   INS_LEA_RIP_REG = OPCODE2(IF_ARG_REG_DISP32, 0x48, 0x8d),
   INS_LEA_RIP_RAX = OPCODE3(IF_ARG_IMM32, 0x48, 0x8d, 0x05),
   INS_LEA_RBP_DISP8_RAX = OPCODE3(IF_ARG_DISP8, 0x48, 0x8d, 0x45),
+  INS_MOV_I32_REG = OPCODE2(IF_ARG_REG_IMM32, 0x48, 0x8b),
   INS_MOV_I32_RAX = OPCODE3(IF_ARG_IMM32, 0x48, 0x8b, 0x05),
   INS_MOV_I32_RDX = OPCODE3(IF_ARG_IMM32, 0x48, 0x8b, 0x15),
   INS_MOV_I32_EAX = OPCODE1(IF_ARG_IMM32, 0xb8),
   INS_MOV_REG_RAX = OPCODE2(IF_ARG_REG, 0x48, 0x8b),
+  INS_MOV_REG_RDX = OPCODE2(IF_ARG_REG, 0x48, 0x89),
   /* Arg related Operations */
   /* Args: 32-bit */
   INS_MOV_I32_EDI = OPCODE1(IF_ARG_IMM32, 0xbf),
@@ -87,7 +94,7 @@ typedef enum {
   SECTION_TEXT,
 } SectionType;
 
-typedef uint8_t Register;
+typedef int8_t Register;
 
 #define REG_RAX 0x00
 #define REG_RCX 0x08
@@ -100,8 +107,11 @@ typedef uint8_t Register;
 #define REG_R8 0x40
 #define REG_R9 0x48
 
-#define LEA_REG(reg) 0x05 + reg
-#define MOV_REG(reg) 0x45 + reg
+// used to be Lea
+#define REG_BASE_05(reg) 0x05 + reg
+// used to be Move
+#define REG_BASE_45(reg) 0x45 + reg
+#define REG_BASE_C2(reg) 0xc2 + reg
 
 // clang-format off
 typedef struct {
@@ -113,6 +123,7 @@ typedef struct {
     struct { uint32_t imm; bool foreign; SectionType sec; uint8_t r_offset; } imm8; 
     struct { uint32_t imm; bool foreign; SectionType sec; uint8_t r_offset; } imm32; 
     struct { uint64_t imm; bool foreign; SectionType sec; uint8_t r_offset; } imm64;
+    struct { Register reg; uint32_t imm; bool foreign; SectionType sec; uint8_t r_offset; } reg_imm32; 
     struct { uint32_t imm; uint8_t disp; bool foreign; SectionType sec; uint8_t r_offset; } imm32_disp8;
     struct { uint64_t imm; uint8_t disp; bool foreign; SectionType sec; uint8_t r_offset; } imm64_disp8;
     struct { uint8_t disp; } disp8;

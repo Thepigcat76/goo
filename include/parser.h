@@ -66,6 +66,7 @@ typedef struct {
 typedef struct {
   Ident variable_name;
   ExprRange range;
+  bool has_range;
   ExprBlock block;
 } ExprFor;
 
@@ -265,16 +266,23 @@ typedef struct {
   bool has_ret_val;
 } StmtReturn;
 
+typedef struct {
+  Ident name;
+  FuncDescriptor desc;
+} StmtForeign;
+
 typedef struct _stmt {
   enum {
     STMT_DECL,
     STMT_EXPR,
     STMT_RETURN,
+    STMT_FOREIGN,
   } type;
   union {
     StmtDecl stmt_decl;
     StmtExpr stmt_expr;
     StmtReturn stmt_return;
+    StmtForeign stmt_foreign;
   } var;
 } Statement;
 
@@ -285,6 +293,7 @@ typedef struct {
   Statement *statements;
   Hashmap(Ident *, TypeExpr) custom_types;
   Hashmap(Ident *, ExprFunction) custom_functions;
+  Ident *foreign_functions;
   const char *source;
   const char *filename;
 } Parser;

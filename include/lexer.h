@@ -40,6 +40,7 @@ typedef enum {
   TOKEN_RETURN,
   TOKEN_TILDE,
   TOKEN_AMPERSAND,
+  TOKEN_FOREIGN,
   TOKEN_EOF,
   TOKEN_ILLEGAL,
 } TokenType;

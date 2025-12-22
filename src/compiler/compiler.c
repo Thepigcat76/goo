@@ -195,8 +195,14 @@ static char *PRINTF_FUNCTION_NAME = "puts";
 static void compiler_arg_push(Compiler *compiler, size_t arg_idx,
                               const ExprCompileResult *res);
 
+static ExprCompileResult expr_compile_with_res(Compiler *compiler,
+                                               const Expression *expr,
+                                               Register bin_op_res_reg);
+
 static ExprCompileResult expr_compile(Compiler *compiler,
-                                      const Expression *expr);
+                                      const Expression *expr) {
+  return expr_compile_with_res(compiler, expr, -1);
+};
 
 static ExprCompileResult expr_call_compile(Compiler *compiler,
                                            const ExprCall *expr_call) {
@@ -249,7 +255,7 @@ static void compiler_stack_alloc_reg(Compiler *compiler, Ident *name,
                  &compiler->cur_frame.sp_offset);
   insns_add(compiler->insns,
             INSN(INS_MOV_REG_RBP_DISP8,
-                 .reg_disp8 = {.reg = MOV_REG(reg),
+                 .reg_disp8 = {.reg = REG_BASE_45(reg),
                                .disp = 256 - compiler->cur_frame.sp_offset}));
 }
 
@@ -379,10 +385,32 @@ static bool opcode_rdx_rax_bin_op(Opcode *opcode, BinOperator op) {
   }
 }
 
+static bool opcode_imm32_reg_bin_op(Opcode *opcode, BinOperator op) {
+  switch (op) {
+  case BIN_OP_ADD:
+    *opcode = INS_ADD_IMM32_REG;
+    return true;
+  case BIN_OP_SUB:
+    *opcode = INS_SUB_IMM32_REG;
+    return true;
+  case BIN_OP_MUL:
+    *opcode = INS_MUL_IMM32_REG;
+    return true;
+  default:
+    return false;
+  }
+}
+
+/*
+ */
+
 static ExprCompileResult expr_bin_op_compile(Compiler *compiler,
-                                             const ExprBinOp *expr_bin_op) {
-  ExprCompileResult res_left = expr_compile(compiler, expr_bin_op->left);
-  ExprCompileResult res_right = expr_compile(compiler, expr_bin_op->right);
+                                             const ExprBinOp *expr_bin_op,
+                                             Register res_reg) {
+  ExprCompileResult res_left =
+      expr_compile_with_res(compiler, expr_bin_op->left, REG_RAX);
+  ExprCompileResult res_right =
+      expr_compile_with_res(compiler, expr_bin_op->right, REG_RDX);
   if (res_left.type == EXPR_COMPILE_RES_IMM32 &&
       res_right.type == EXPR_COMPILE_RES_IMM32) {
     return EXPR_COMPILE_RES(EXPR_COMPILE_RES_IMM32,
@@ -391,53 +419,30 @@ static ExprCompileResult expr_bin_op_compile(Compiler *compiler,
                                                       expr_bin_op->op));
   } else if (expr_bin_op->op == BIN_OP_ADD || expr_bin_op->op == BIN_OP_SUB ||
              expr_bin_op->op == BIN_OP_MUL) {
-    Opcode imm32_rax_bin_op_opcode;
-    opcode_imm32_rax_bin_op(&imm32_rax_bin_op_opcode, expr_bin_op->op);
-    Opcode rdx_rax_bin_op_opcode;
-    opcode_rdx_rax_bin_op(&rdx_rax_bin_op_opcode, expr_bin_op->op);
     switch (res_left.type) {
-    case EXPR_COMPILE_RES_REG: {
-      Register reg = res_left.var.reg;
-      if (reg != REG_RAX) {
-        insns_add(compiler->insns, INSN(INS_MOV_REG_RAX, .reg = {.reg = reg}));
-      }
-      if (res_right.type == EXPR_COMPILE_RES_IMM32) {
-        insns_add(compiler->insns,
-                  INSN(imm32_rax_bin_op_opcode, .imm32 = {
-                                              .imm = res_right.var.imm32,
-                                          }));
-      }
-      return EXPR_COMPILE_RES(EXPR_COMPILE_RES_REG, .reg = REG_RAX);
-    }
-    case EXPR_COMPILE_RES_RODATA_IDX:
-    case EXPR_COMPILE_RES_DATA_IDX: {
-      insns_add(compiler->insns,
-                INSN(INS_MOV_I32_RAX,
-                     .imm32 = {.imm = res_left.var.data_idx.idx,
-                               .r_offset = 3,
-                               .foreign = true,
-                               .sec = res_left.type == EXPR_COMPILE_RES_DATA_IDX
-                                          ? SECTION_DATA
-                                          : SECTION_RODATA}));
+    case EXPR_COMPILE_RES_IMM32: {
       switch (res_right.type) {
       case EXPR_COMPILE_RES_RODATA_IDX:
       case EXPR_COMPILE_RES_DATA_IDX: {
-        insns_add(
-            compiler->insns,
-            INSN(INS_MOV_I32_RDX,
-                 .imm32 = {.imm = res_right.var.data_idx.idx,
+        printf("REG_IMM32 target register during bin op: %d\n", res_reg);
+        insns_add(compiler->insns,
+                  INSN(INS_MOV_I32_REG,
+                       .reg_imm32 = {
+                           .reg = REG_BASE_05(res_reg),
+                           .imm = res_right.var.data_idx.idx,
                            .r_offset = 3,
                            .foreign = true,
                            .sec = res_right.type == EXPR_COMPILE_RES_DATA_IDX
                                       ? SECTION_DATA
-                                      : SECTION_RODATA}));
-        insns_add(compiler->insns, INSN(rdx_rax_bin_op_opcode));
-        break;
-      }
-      case EXPR_COMPILE_RES_IMM32: {
-        insns_add(compiler->insns, INSN(imm32_rax_bin_op_opcode,
-                                        .imm32 = {.imm = res_right.var.imm32}));
-        break;
+                                      : SECTION_RODATA,
+                       }));
+        Opcode opcode;
+        opcode_imm32_reg_bin_op(&opcode, expr_bin_op->op);
+        insns_add(
+            compiler->insns,
+            INSN(INS_ADD_IMM32_REG, .reg_imm32 = {.reg = REG_BASE_05(res_reg),
+                                                  .imm = res_left.var.imm32}));
+        return EXPR_COMPILE_RES(EXPR_COMPILE_RES_REG, .reg = res_reg);
       }
       case EXPR_COMPILE_RES_STACK_LOC: {
         break;
@@ -445,24 +450,26 @@ static ExprCompileResult expr_bin_op_compile(Compiler *compiler,
       case EXPR_COMPILE_RES_REG: {
         break;
       }
+      default: {
+        break;
       }
-      return EXPR_COMPILE_RES(EXPR_COMPILE_RES_REG, .reg = REG_RAX);
-    }
-    case EXPR_COMPILE_RES_IMM32: {
-
+      }
       break;
     }
-    case EXPR_COMPILE_RES_STACK_LOC: {
-      break;
-    }
-    default:
+    case EXPR_COMPILE_RES_RODATA_IDX:
+    case EXPR_COMPILE_RES_DATA_IDX:
+    case EXPR_COMPILE_RES_STACK_LOC:
+    case EXPR_COMPILE_RES_REG:
       break;
     }
   }
 }
 
-static ExprCompileResult expr_compile(Compiler *compiler,
-                                      const Expression *expr) {
+static size_t for_loop_idx = 0;
+
+static ExprCompileResult expr_compile_with_res(Compiler *compiler,
+                                               const Expression *expr,
+                                               Register bin_op_res_reg) {
   switch (expr->type) {
   case EXPR_STRING_LIT: {
     size_t rodata_idx =
@@ -501,7 +508,21 @@ static ExprCompileResult expr_compile(Compiler *compiler,
   }
   case EXPR_BIN_OP: {
     ExprBinOp expr_bin_op = expr->var.expr_bin_op;
-    return expr_bin_op_compile(compiler, &expr_bin_op);
+    return expr_bin_op_compile(compiler, &expr_bin_op,
+                               bin_op_res_reg == -1 ? REG_RAX : bin_op_res_reg);
+  }
+  case EXPR_FOR: {
+    if (!expr->var.expr_for.has_range) {
+      Statement *stmts = expr->var.expr_for.block.statements;
+      for_loop_idx = array_len(compiler->insns);
+      for (size_t i = 0; i < array_len(stmts); i++) {
+        stmt_compile(compiler, &stmts[i],
+                     (CompileContext){.level = COMPILE_LEVEL_LOCAL,
+                                      .function_name = NULL});
+      }
+      insns_add(compiler->insns, INSN(INS_JMP_iMM8, .imm8 = -2));
+    }
+    return (ExprCompileResult){0};
   }
   default: {
     fprintf(stderr, "Failed to compile expr, not yet implemented\n");
@@ -512,10 +533,27 @@ static ExprCompileResult expr_compile(Compiler *compiler,
 
 static void compiler_arg_push(Compiler *compiler, size_t arg_idx,
                               const ExprCompileResult *res) {
+  uint32_t x = 0xffffffff;
   switch (res->type) {
   case EXPR_COMPILE_RES_IMM32: {
-    insns_add(compiler->insns,
-              INSN(INS_MOV_I32_EDI, .imm32 = {.imm = res->var.imm32}));
+    Register arg_reg;
+    bool valid = reg_for_arg(&arg_reg, arg_idx);
+    Opcode opcode;
+    switch (arg_reg) {
+    case REG_RDI:
+      opcode = INS_MOV_I32_EDI;
+      break;
+    case REG_RSI:
+      opcode = INS_MOV_I32_ESI;
+      break;
+    case REG_RDX:
+      opcode = INS_MOV_I32_EDX;
+      break;
+    case REG_RCX:
+      opcode = INS_MOV_I32_ECX;
+      break;
+    }
+    insns_add(compiler->insns, INSN(opcode, .imm32 = {.imm = res->var.imm32}));
     break;
   }
   case EXPR_COMPILE_RES_DATA_IDX:
@@ -526,7 +564,7 @@ static void compiler_arg_push(Compiler *compiler, size_t arg_idx,
       insns_add(compiler->insns,
                 INSN(INS_LEA_RIP_REG,
                      .reg_disp32 = {
-                         .reg = LEA_REG(arg_reg),
+                         .reg = REG_BASE_05(arg_reg),
                          .disp = res->var.data_idx.idx,
                          .r_offset = 3,
                          .foreign = true,
@@ -538,7 +576,7 @@ static void compiler_arg_push(Compiler *compiler, size_t arg_idx,
       insns_add(compiler->insns,
                 INSN(INS_MOV_RIP_REG_DISP32,
                      .reg_disp32 = {
-                         .reg = LEA_REG(arg_reg),
+                         .reg = REG_BASE_05(arg_reg),
                          .disp = res->var.data_idx.idx,
                          .r_offset = 3,
                          .foreign = true,
@@ -555,7 +593,7 @@ static void compiler_arg_push(Compiler *compiler, size_t arg_idx,
     if (valid) {
       insns_add(compiler->insns,
                 INSN(INS_MOV_RPB_DISP8_REG,
-                     .reg_disp8 = {.reg = MOV_REG(arg_reg),
+                     .reg_disp8 = {.reg = REG_BASE_45(arg_reg),
                                    .disp = 256 - res->var.stack_loc}));
     }
     break;
@@ -571,6 +609,8 @@ static void stmt_compile(Compiler *compiler, const Statement *stmt,
     if (expr.type == EXPR_CALL) {
       ExprCall expr_call = expr.var.expr_call;
       expr_call_compile(compiler, &expr_call);
+    } else if (expr.type == EXPR_FOR) {
+      expr_compile(compiler, &expr);
     }
     break;
   }
@@ -641,7 +681,7 @@ static void stmt_compile(Compiler *compiler, const Statement *stmt,
           insns_add(
               compiler->insns,
               INSN(INS_MOV_REG_RBP_DISP8,
-                   .reg_disp8 = {.reg = MOV_REG(REG_RAX),
+                   .reg_disp8 = {.reg = REG_BASE_45(REG_RAX),
                                  .disp = 256 - compiler->cur_frame.sp_offset}));
           break;
         }
@@ -825,6 +865,24 @@ static size_t insn_generate(Instruction *ins, Relocation *relocations,
     ins_len += sizeof(uint32_t);
     break;
   }
+  case IF_ARG_REG_IMM32: {
+    insn_bytes[ins_len] = ins->args.reg_imm32.reg;
+    printf("REG_IMM32 target register: %d\n", ins->args.reg_imm32.reg);
+    ins_len += 1;
+    /* If the instruction is foreign, we just put 4 empty bytes */
+    if (!ins->args.reg_imm32.foreign) {
+      uint32_t imm32 = htole32(ins->args.reg_imm32.imm);
+      for (size_t i = 0; i < sizeof(uint32_t); i++) {
+        insn_bytes[ins_len + i] = (imm32 >> (i * 8)) & 0xff;
+      }
+    } else {
+      relocations_add_data(relocations, ins->args.reg_imm32.sec,
+                           ins->args.reg_imm32.imm,
+                           ins->args.reg_imm32.r_offset, context);
+    }
+    ins_len += sizeof(uint32_t);
+    break;
+  }
   /* 64 bit immediates */
   // TODO: Use 64 bit integers again
   case IF_ARG_IMM64_DISP8: {
@@ -962,7 +1020,7 @@ static size_t insn_generate(Instruction *ins, Relocation *relocations,
   return ins_len;
 }
 
-int cmp_size_t(const void *a, const void *b) {
+int32_t cmp_size_t(const void *a, const void *b) {
   size_t x = *(const size_t *)a;
   size_t y = *(const size_t *)b;
   return (x > y) - (x < y); // returns positive, zero, or negative
@@ -997,6 +1055,7 @@ void compiler_generate(Compiler *compiler) {
   qsort(sizes, compiler->labels.len, sizeof(size_t), cmp_size_t);
   size_t label_idx = 0;
 
+  size_t for_loop_block_len = 0;
   for (size_t i = 0; i < array_len(compiler->insns); i++) {
     Instruction ins = compiler->insns[i];
     uint8_t insn_bytes[16] = {0};
@@ -1042,6 +1101,15 @@ void compiler_generate(Compiler *compiler) {
                                  .data_section = &compiler->data_section,
                                  .data_offsets = data_offsets,
                                  .program_data_offset = program_data_offset};
+
+    if (for_loop_idx == i) {
+      printf("For loop idx: %zu, program data offset: %zu\n", i,
+             program_data_offset);
+      for_loop_block_len = program_data_offset;
+    } else if (ins.opcode == INS_JMP_iMM8) {
+      printf("!for loop offset: %zu\n", for_loop_block_len);
+      ins.args.imm8.imm = -(program_data_offset - for_loop_block_len + 2);
+    }
     size_t ins_len =
         insn_generate(&ins, compiler->relocations, insn_bytes, context);
 

@@ -145,6 +145,10 @@ void lexer_tok_print(char *buf, const Token *tok) {
     sprintf(buf, "TOKEN_RANGE ('..')");
     break;
   }
+  case TOKEN_FOREIGN: {
+    sprintf(buf, "TOKEN_FOREIGN ('foreign')");
+    break;
+  }
   case TOKEN_EOF: {
     sprintf(buf, "TOKEN_EOF");
     break;
@@ -219,6 +223,8 @@ void lexer_tokenize(Lexer *lexer, const char *src, const char *filename) {
         tok.type = TOKEN_IN;
       } else if (strcmp(ident, "it") == 0) {
         tok.type = TOKEN_IT;
+      } else if (strcmp(ident, "foreign") == 0) {
+        tok.type = TOKEN_FOREIGN;
       } else if (strcmp(ident, "for") == 0) {
         tok.type = TOKEN_FOR;
       } else if (strcmp(ident, "return") == 0) {

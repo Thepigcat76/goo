@@ -1,14 +1,22 @@
-global_var := 100
-sec_var := 10
-
-test :: () -> i32 {
-  print_int(global_var)
-  x := global_var * 10 * sec_var
-  return x
-}
+foreign puts(msg: string)
+foreign InitWindow(width: i32, height: i32, title: string)
+foreign CloseWindow()
+foreign BeginDrawing()
+foreign EndDrawing()
+foreign HideCursor()
+foreign ClearBackground(r: u8, g: u8, b: u8, a: u8)
+foreign draw_rect(x: i32, y: i32, width: i32, height: i32)
 
 main :: () {
-  print_int(sec_var)
-  x := test()
-  print_int(x)
+  InitWindow(400, 400, "Hello")
+  HideCursor()
+
+  for {
+    BeginDrawing()
+    ClearBackground(4294967295, 255, 255, 255)
+    draw_rect(20, 30, 60, 10)
+    EndDrawing()
+  }
+
+  CloseWindow()
 }

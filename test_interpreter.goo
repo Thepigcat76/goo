@@ -1,4 +1,7 @@
+foreign puts(msg: string)
+
 main :: () {
   y := 100 + 20 * 3
   printfn("Integer: %", y)
+  puts("Hello")
 }

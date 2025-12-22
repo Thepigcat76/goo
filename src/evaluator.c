@@ -535,6 +535,9 @@ OptionalObject evaluator_eval_stmt(Evaluator *evaluator, Statement *stmt) {
     }
     return EMPTY_OBJECT;
   }
+  case STMT_FOREIGN: {
+    return EMPTY_OBJECT;
+  }
   }
 }
 
