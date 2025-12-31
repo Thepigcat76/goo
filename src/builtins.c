@@ -149,11 +149,11 @@ void builtin_functions_init(TypeTable *type_table) {
                    STRING_BUILTIN_TYPE, ARG("format", STRING_BUILTIN_TYPE),
                    VARARG("args"));
   BUILTIN_FUNCTION(PRINT_INT_FUNCTION, "print_int", NULL, UNIT_BUILTIN_TYPE,
-                   ARG("i", INT_BUILTIN_TYPE));
+                   ARG("i", I32_BUILTIN_TYPE));
   BUILTIN_FUNCTION(PRINT_INT_PTR_FUNCTION, "print_int_ptr", NULL, UNIT_BUILTIN_TYPE,
-                   ARG("i", INT_BUILTIN_TYPE));
+                   ARG("i", I32_BUILTIN_TYPE));
   BUILTIN_FUNCTION(EXIT_FUNCTION, "exit", execute_exit, UNIT_BUILTIN_TYPE,
-                   ARG("code", INT_BUILTIN_TYPE));
+                   ARG("code", I32_BUILTIN_TYPE));
 
   type_table_add(type_table, &PRINTLN_FUNCTION.name,
                  EXPR_VAR_EXPR(PRINTLN_FUNCTION.expr), OPT_TYPE_EMPTY);

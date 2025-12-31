@@ -181,7 +181,7 @@ Object obj_cast(const Type *type, const Object *obj) {
         char *string = malloc(32);
         sprintf(string, "%d", obj->var.obj_int);
         return (Object){.type = OBJECT_STRING, .var = {.obj_string = string}};
-      } else if (type_eq(type, &INT_BUILTIN_TYPE)) {
+      } else if (type_eq(type, &I32_BUILTIN_TYPE)) {
         return *obj;
       } else {
         fprintf(stderr, "Casting to custom types is currently not supported\n");
@@ -206,7 +206,7 @@ Object obj_cast(const Type *type, const Object *obj) {
     }
   }
   case OBJECT_PTR: {
-    if (type_eq(type, &INT_BUILTIN_TYPE)) {
+    if (type_eq(type, &I32_BUILTIN_TYPE)) {
       return OBJ_INT((long)obj->var.obj_ptr);
     } else if (type_eq(type, &STRING_BUILTIN_TYPE)) {
       char *buf = malloc(128);
@@ -217,7 +217,7 @@ Object obj_cast(const Type *type, const Object *obj) {
   case OBJECT_STRING: {
     switch (type->type) {
     case TYPE_IDENT: {
-      if (type_eq(type, &INT_BUILTIN_TYPE)) {
+      if (type_eq(type, &I32_BUILTIN_TYPE)) {
         return (Object){.type = OBJECT_INT,
                         .var = {.obj_int = atoi(obj->var.obj_string)}};
       } else if (type_eq(type, &STRING_BUILTIN_TYPE)) {
@@ -276,7 +276,7 @@ Object obj_cast(const Type *type, const Object *obj) {
     case TYPE_IDENT: {
       if (type_eq(type, &BOOL_BUILTIN_TYPE)) {
         return *obj;
-      } else if (type_eq(type, &INT_BUILTIN_TYPE)) {
+      } else if (type_eq(type, &I32_BUILTIN_TYPE)) {
         return OBJ_INT(obj->var.obj_bool ? 1 : 0);
       } else if (type_eq(type, &STRING_BUILTIN_TYPE)) {
         return (Object){

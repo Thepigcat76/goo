@@ -5,88 +5,142 @@
 
 // If an instruction doesn't have a flag, you need to manually add it to the
 // switch statement in the insn_generate function
-#define IF_SPECIAL 0x0
-#define IF_NO_ARG 0x0
-#define IF_ARG_IMM8 0x1
-#define IF_ARG_IMM32 0x2
-#define IF_ARG_IMM64 0x3
-#define IF_ARG_IMM32_DISP8 0x4
-#define IF_ARG_IMM64_DISP8 0x5
-#define IF_ARG_DISP8 0x6
-#define IF_ARG_DISP32 0x7
-#define IF_ARG_REG_DISP8 0x8
-#define IF_ARG_REG_DISP32 0x9
-#define IF_ARG_REG 0x10
-#define IF_ARG_REG_IMM32 0x11
 
-#define OPCODE1(flag, b0) (flag << 0) | (0x01 << 6) | (b0 << 8)
+// clang-format off
+/* Arg Flags */
+#define IF_ARG_SPECIAL         0x00
+#define IF_ARG_NONE            0x00
+#define IF_ARG_IMM8            0x01
+#define IF_ARG_IMM16           0x02
+#define IF_ARG_IMM32           0x03
+#define IF_ARG_IMM64           0x04
+#define IF_ARG_IMM8_DISP8      0x05
+#define IF_ARG_IMM16_DISP8     0x06
+#define IF_ARG_IMM32_DISP8     0x07
+#define IF_ARG_IMM64_DISP8     0x08
+#define IF_ARG_DISP8           0x09
+#define IF_ARG_DISP32          0x0a
+#define IF_ARG_REG_DISP8       0x0b
+#define IF_ARG_REG_DISP32      0x0c
+#define IF_ARG_REG_IMM8        0x0d
+#define IF_ARG_REG_IMM16       0x0e
+#define IF_ARG_REG_IMM32       0x0f
+#define IF_ARG_REG_IMM64       0x10
+#define IF_ARG_REG             0x11
+#define IF_ARG_REG_REG         0x12
+#define IF_ARG_REG_IMM_DISP8   0x13
+#define IF_ARG_IMM8_DISP32     0x14
+#define IF_ARG_IMM16_DISP32    0x15
+#define IF_ARG_IMM32_DISP32    0x16
+#define IF_ARG_IMM64_DISP32    0x17
 
-#define OPCODE2(flag, b0, b1) (flag << 0) | (0x02 << 6) | (b0 << 8) | (b1 << 16)
+/* Ins Flags */
+#define IF_INS_XOR     0x00
+#define IF_INS_MOV     0x01
+#define IF_INS_JMP     0x02
+#define IF_INS_CALL    0x03
+#define IF_INS_LEA     0x04
+#define IF_INS_ADD     0x05
+#define IF_INS_SUB     0x06
+#define IF_INS_MUL     0x07
+#define IF_INS_DIV     0x08
+#define IF_INS_PUSH    0x09
+#define IF_INS_POP     0x0a
+#define IF_INS_GENERIC 0x0b            /* An instruction without args that does not need manual adjustments */
 
-#define OPCODE3(flag, b0, b1, b2)                                              \
-  (flag << 0) | (0x03 << 6) | (b0 << 8) | (b1 << 16) | (b2 << 24)
+#define OPCODE1(flag_arg, flag_ins, b0)                                         \
+  (((uint64_t)(flag_arg) << 0) |                                                \
+  ((uint64_t)(flag_ins) << 8) |                                                 \
+  ((uint64_t)(0x01) << 16) |                                                    \
+  ((uint64_t)(b0) << 24))
+
+#define OPCODE2(flag_arg, flag_ins, b0, b1)                                     \
+  (((uint64_t)(flag_arg) << 0) |                                                \
+  ((uint64_t)(flag_ins) << 8) |                                                 \
+  ((uint64_t)(0x02) << 16) |                                                    \
+  ((uint64_t)(b0) << 24) |                                                      \
+  ((uint64_t)(b1) << 32))
+
+#define OPCODE3(flag_arg, flag_ins, b0, b1, b2)                                 \
+  (((uint64_t)(flag_arg) << 0) |                                                \
+  ((uint64_t)(flag_ins) << 8) |                                                 \
+  ((uint64_t)(0x03) << 16) |                                                    \
+  ((uint64_t)(b0) << 24) |                                                      \
+  ((uint64_t)(b1) << 32) |                                                      \
+  ((uint64_t)(b2) << 40))
+
+typedef uint64_t Opcode;
 
 // src -> dest
-typedef enum {
-  INS_JMP_iMM8 = OPCODE1(IF_ARG_IMM8, 0xeb),
-  INS_XOR_RDI_RDI = OPCODE2(IF_NO_ARG, 0x31, 0xff),
-  INS_XOR_RAX_RAX = OPCODE2(IF_NO_ARG, 0x31, 0xc0),
-  INS_MOV_I64_RBP = OPCODE2(IF_ARG_IMM64, 0x48, 0xbd),
-  INS_MOV_I32_RBP_DISP8 = OPCODE2(IF_ARG_IMM32_DISP8, 0xc7, 0x45),
-  INS_MOV_I64_RBP_DISP8 = OPCODE3(IF_ARG_IMM64_DISP8, 0x48, 0xc7, 0x45),
-  INS_MOV_I64_RAX = OPCODE2(IF_ARG_IMM64, 0x48, 0xb8),
-  INS_MOV_RAX_RDI = OPCODE3(IF_NO_ARG, 0x48, 0x89, 0xc7),
-  INS_MOV_RPB_DISP8_REG = OPCODE2(IF_ARG_REG_DISP8, 0x48, 0x8b),
-  INS_RET = OPCODE1(IF_NO_ARG, 0xc3),
-  INS_LEAVE = OPCODE1(IF_NO_ARG, 0xc9),
-  INS_CALL = OPCODE1(IF_SPECIAL, 0xe8),
-  INS_SYSCALL = OPCODE2(IF_NO_ARG, 0x0f, 0x05),
-  INS_MOV_REG_RBP_DISP8 = OPCODE2(IF_ARG_REG_DISP8, 0x48, 0x89),
-  INS_ADD_IMM8_RSP = OPCODE3(IF_ARG_IMM8, 0x48, 0x83, 0xc4),
-  INS_SUB_IMM8_RSP = OPCODE3(IF_ARG_IMM8, 0x48, 0x83, 0xec),
-  /* Arithmetic operations */
-  INS_ADD_IMM32_REG = OPCODE1(IF_ARG_REG_IMM32, 0x48),
-  INS_SUB_IMM32_REG = OPCODE1(IF_ARG_REG_IMM32, 0x48),
-  INS_MUL_IMM32_REG = OPCODE1(IF_ARG_REG_IMM32, 0x48),
-  INS_ADD_IMM32_RAX = OPCODE2(IF_ARG_IMM32, 0x48, 0x05),
-  INS_SUB_IMM32_RAX = OPCODE2(IF_ARG_IMM32, 0x48, 0x2d),
-  INS_MUL_IMM32_RAX = OPCODE3(IF_ARG_IMM32, 0x48, 0x69, 0xc0),
-  INS_ADD_RDX_RAX = OPCODE3(IF_NO_ARG, 0x48, 0x01, 0xd0),
-  INS_SUB_RDX_RAX = OPCODE3(IF_NO_ARG, 0x48, 0x29, 0xd0),
-  INS_IMUL_RDX_RAX = OPCODE3(IF_SPECIAL, 0x48, 0x0f, 0xaf),
-  /* End of arithmetic operations */
-  INS_MOV_RIP_REG_DISP32 = OPCODE2(IF_ARG_REG_DISP32, 0x48, 0x8b),
-  /* Load effective address */
-  INS_LEA_RIP_RDI = OPCODE3(IF_ARG_IMM32, 0x48, 0x8d, 0x3d),
-  INS_LEA_RIP_REG = OPCODE2(IF_ARG_REG_DISP32, 0x48, 0x8d),
-  INS_LEA_RIP_RAX = OPCODE3(IF_ARG_IMM32, 0x48, 0x8d, 0x05),
-  INS_LEA_RBP_DISP8_RAX = OPCODE3(IF_ARG_DISP8, 0x48, 0x8d, 0x45),
-  INS_MOV_I32_REG = OPCODE2(IF_ARG_REG_IMM32, 0x48, 0x8b),
-  INS_MOV_I32_RAX = OPCODE3(IF_ARG_IMM32, 0x48, 0x8b, 0x05),
-  INS_MOV_I32_RDX = OPCODE3(IF_ARG_IMM32, 0x48, 0x8b, 0x15),
-  INS_MOV_I32_EAX = OPCODE1(IF_ARG_IMM32, 0xb8),
-  INS_MOV_REG_RAX = OPCODE2(IF_ARG_REG, 0x48, 0x8b),
-  INS_MOV_REG_RDX = OPCODE2(IF_ARG_REG, 0x48, 0x89),
-  /* Arg related Operations */
-  /* Args: 32-bit */
-  INS_MOV_I32_EDI = OPCODE1(IF_ARG_IMM32, 0xbf),
-  INS_MOV_I32_ESI = OPCODE1(IF_ARG_IMM32, 0xbe),
-  INS_MOV_I32_EDX = OPCODE1(IF_ARG_IMM32, 0xba),
-  INS_MOV_I32_ECX = OPCODE1(IF_ARG_IMM32, 0xb9),
-  /* Arg: 64-bit */
-  INS_MOV_I64_RDI = OPCODE2(IF_ARG_IMM64, 0x48, 0xbf),
-  INS_MOV_I64_RSI = OPCODE2(IF_ARG_IMM64, 0x48, 0xbe),
-  INS_MOV_I64_RDX = OPCODE2(IF_ARG_IMM64, 0x48, 0xba),
-  /* End of arg related operations*/
-  /* Stack Pointer Operations */
-  INS_PUSH_SP = OPCODE1(IF_NO_ARG, 0x55),
-  INS_POP_SP = OPCODE1(IF_NO_ARG, 0x5d),
-  INS_RESET_SP = OPCODE3(IF_NO_ARG, 0x48, 0x89, 0xe5),
-} Opcode;
-
-#undef OPCODE1
-#undef OPCODE2
-#undef OPCODE3
+  /* INS_JMP_<imm> */
+#define INS_JMP_IMM8                OPCODE1(IF_ARG_IMM8, IF_INS_JMP, 0xeb)
+#define INS_JMP_IMM32               OPCODE1(IF_ARG_IMM32, IF_INS_JMP, 0xe9)
+  /* END INS_JMP_<imm> */
+  /* INS_XOR_<reg>_<reg> (Reg-Base: C0) */
+// FIXME: This xors <rax> <reg64>
+#define INS_XOR_REG64               OPCODE2(IF_ARG_REG, IF_INS_XOR, 0x48, 0x31)
+#define INS_XOR_REG32               OPCODE1(IF_ARG_REG, IF_INS_XOR, 0x31)
+#define INS_XOR_REG16               OPCODE2(IF_ARG_REG, IF_INS_XOR, 0x66, 0x31)
+#define INS_XOR_REG8                OPCODE1(IF_ARG_REG, IF_INS_XOR, 0x30)
+  /* END - INS_XOR_<reg>_<reg> */
+  /* INS_MOV_<imm>_<reg> (Reg-Base: 05) */
+#define INS_MOV_IMM64_REG           OPCODE2(IF_ARG_REG_IMM64, IF_INS_MOV, 0x48, 0xb8)            /* [SPECIAL]: r8-r15 need REX.B prefix (0x49), [SPECIAL]: rcx needs 0xb9 as sec byte */
+#define INS_MOV_IMM32_REG           OPCODE1(IF_ARG_REG_IMM32, IF_INS_MOV, 0xb8)                  /* [SPECIAL]: R8d-R15d need REX.B prefix (0x49), [SPECIAL]: ecx needs 0xb9 as first byte */
+#define INS_MOV_IMM16_REG           OPCODE2(IF_ARG_REG_IMM16, IF_INS_MOV, 0x66, 0xb8)
+#define INS_MOV_IMM8_REG            OPCODE1(IF_ARG_REG_IMM8, IF_INS_MOV, 0xb0)
+  /* END - INS_MOV_<imm>_<reg> */
+  /* INS_MOV_<imm>_<reg>_<disp> (Reg-Base: 01) */
+#define INS_MOV_IMM8_REG_DISP8      OPCODE2(IF_ARG_REG_IMM_DISP8, IF_INS_MOV, 0xc6, 0x40)
+#define INS_MOV_IMM8_REG_DISP32     OPCODE2(IF_ARG_REG_IMM_DISP32, IF_INS_MOV, 0xc6, 0x80)
+#define INS_MOV_IMM16_REG_DISP8     OPCODE3(IF_ARG_REG_IMM_DISP8, IF_INS_MOV, 0x66, 0xc7, 0x40)
+#define INS_MOV_IMM16_REG_DISP32    OPCODE3(IF_ARG_REG_IMM_DISP32, IF_INS_MOV, 0x66, 0xc7, 0x80)
+#define INS_MOV_IMM32_REG_DISP8     OPCODE2(IF_ARG_REG_IMM_DISP8, IF_INS_MOV, 0xc7, 0x40)
+#define INS_MOV_IMM32_REG_DISP32    OPCODE2(IF_ARG_REG_IMM_DISP32, IF_INS_MOV, 0xc7, 0x80)
+#define INS_MOV_IMM64_REG_DISP8     OPCODE3(IF_ARG_REG_IMM_DISP8, IF_INS_MOV, 0x48, 0xc7, 0x40)
+#define INS_MOV_IMM64_REG_DISP32    OPCODE3(IF_ARG_REG_IMM_DISP32, IF_INS_MOV, 0x48, 0xc7, 0x80)
+  /* END - INS_MOV_<imm>_<reg>_<disp> */
+  /* INS_MOV_<reg0>_<reg1> */
+#define INS_MOV_REG32_REG32         OPCODE1(IF_ARG_REG_REG, IF_INS_MOV, 0x89)
+#define INS_MOV_REG32_DISP8_REG32   OPCODE3(IF_ARG_REG_REG)
+#define INS_MOV_REG32_DISP32_REG32  OPCODE3()
+#define INS_MOV_REG32_REG32_DISP8   OPCODE3()
+#define INS_MOV_REG32_REG32_DISP32  OPCODE3()
+  /* END - INS_MOV_<reg0>_<reg1> */
+#define INS_MOV_RPB_DISP8_REG   OPCODE2(IF_ARG_REG_DISP8, IF_INS_MOV, 0x48, 0x8b)
+#define INS_MOV_REG_RBP_DISP8   OPCODE2(IF_ARG_REG_DISP8, IF_INS_MOV, 0x48, 0x89)
+#define INS_ADD_IMM8_RSP        OPCODE3(IF_ARG_IMM8, IF_INS_ADD, 0x48, 0x83, 0xc4)
+#define INS_SUB_IMM8_RSP        OPCODE3(IF_ARG_IMM8, IF_INS_ADD, 0x48, 0x83, 0xec)
+/* Arithmetic operations */
+#define INS_ADD_IMM32_REG       OPCODE1(IF_ARG_REG_IMM32, IF_INS_ADD, 0x48)
+#define INS_SUB_IMM32_REG       OPCODE1(IF_ARG_REG_IMM32, IF_INS_SUB, 0x48)
+#define INS_MUL_IMM32_REG       OPCODE1(IF_ARG_REG_IMM32, IF_INS_MUL, 0x48)
+#define INS_ADD_IMM32_RAX       OPCODE2(IF_ARG_IMM32, IF_INS_ADD, 0x48, 0x05)
+#define INS_SUB_IMM32_RAX       OPCODE2(IF_ARG_IMM32, IF_INS_SUB, 0x48, 0x2d)
+#define INS_MUL_IMM32_RAX       OPCODE3(IF_ARG_IMM32, IF_INS_MUL, 0x48, 0x69, 0xc0)
+#define INS_ADD_RDX_RAX         OPCODE3(IF_ARG_NONE, IF_INS_ADD, 0x48, 0x01, 0xd0)
+#define INS_SUB_RDX_RAX         OPCODE3(IF_ARG_NONE, IF_INS_SUB, 0x48, 0x29, 0xd0)
+#define INS_IMUL_RDX_RAX        OPCODE3(IF_ARG_SPECIAL, IF_INS_MUL, 0x48, 0x0f, 0xaf)
+/* End of arithmetic operations */
+#define INS_MOV_RIP_REG_DISP32  OPCODE2(IF_ARG_REG_DISP32, IF_INS_MOV, 0x48, 0x8b)
+/* Load effective address */
+#define INS_LEA_RIP_RDI         OPCODE3(IF_ARG_IMM32, IF_INS_LEA, 0x48, 0x8d, 0x3d)
+#define INS_LEA_RIP_REG         OPCODE2(IF_ARG_REG_DISP32, IF_INS_LEA, 0x48, 0x8d)
+#define INS_LEA_RIP_RAX         OPCODE3(IF_ARG_IMM32, IF_INS_LEA, 0x48, 0x8d, 0x05)
+#define INS_LEA_RBP_DISP8_RAX   OPCODE3(IF_ARG_DISP8, IF_INS_LEA, 0x48, 0x8d, 0x45)
+#define INS_MOV_I32_REG         OPCODE2(IF_ARG_REG_IMM32, IF_INS_MOV, 0x48, 0x8b)
+#define INS_MOV_I32_RAX         OPCODE3(IF_ARG_IMM32, IF_INS_MOV, 0x48, 0x8b, 0x05)
+#define INS_MOV_I32_RDX         OPCODE3(IF_ARG_IMM32, IF_INS_MOV, 0x48, 0x8b, 0x15)
+#define INS_MOV_I32_EAX         OPCODE1(IF_ARG_IMM32, IF_INS_MOV, 0xb8)
+#define INS_MOV_REG_RAX         OPCODE2(IF_ARG_REG, IF_INS_MOV, 0x48, 0x8b)
+#define INS_MOV_REG_RDX         OPCODE2(IF_ARG_REG, IF_INS_MOV, 0x48, 0x89)
+/* MISC */
+#define INS_RESET_SP            OPCODE3(IF_ARG_NONE, IF_INS_MOV, 0x48, 0x89, 0xe5)
+#define INS_PUSH_SP             OPCODE1(IF_ARG_NONE, IF_INS_PUSH, 0x55)
+#define INS_POP_SP              OPCODE1(IF_ARG_NONE, IF_INS_POP, 0x5d)
+#define INS_RET                 OPCODE1(IF_ARG_NONE, IF_INS_GENERIC, 0xc3)
+#define INS_SYSCALL             OPCODE2(IF_ARG_NONE, IF_INS_GENERIC, 0x0f, 0x05)
+#define INS_CALL                OPCODE1(IF_ARG_SPECIAL, IF_INS_CALL, 0xe8)
+// clang-format on
 
 typedef enum {
   SECTION_DATA,
@@ -94,19 +148,27 @@ typedef enum {
   SECTION_TEXT,
 } SectionType;
 
-typedef int8_t Register;
+typedef enum {
+  REG_RAX,
+  REG_RCX,
+  REG_RDX,
+  REG_RBX,
+  REG_RSP,
+  REG_RBP,
+  REG_RSI,
+  REG_RDI,
+  REG_R8,
+  REG_R9,
+  REG_R10,
+  REG_R11,
+  REG_R12,
+  REG_R13,
+  REG_R14,
+  REG_R15,
+} Register;
 
-#define REG_RAX 0x00
-#define REG_RCX 0x08
-#define REG_RDX 0x10
-#define REG_RBX 0x18
-#define REG_RSP 0x20
-#define REG_RBP 0x28
-#define REG_RSI 0x30
-#define REG_RDI 0x38
-#define REG_R8 0x40
-#define REG_R9 0x48
-
+#define REG_ALIGN_09(reg) reg * 0x09
+#define REG_BASE_C0(reg) 0xc0 + reg
 // used to be Lea
 #define REG_BASE_05(reg) 0x05 + reg
 // used to be Move
@@ -116,22 +178,27 @@ typedef int8_t Register;
 // clang-format off
 typedef struct {
   Opcode opcode;
-  union {
-    // In case these are foreign, the 'imm' field is used as the offset/index
-    // and the sec field needs to be filled with the section the foreign
-    // value is stored in, otherwise it can stay empty
-    struct { uint32_t imm; bool foreign; SectionType sec; uint8_t r_offset; } imm8; 
-    struct { uint32_t imm; bool foreign; SectionType sec; uint8_t r_offset; } imm32; 
-    struct { uint64_t imm; bool foreign; SectionType sec; uint8_t r_offset; } imm64;
-    struct { Register reg; uint32_t imm; bool foreign; SectionType sec; uint8_t r_offset; } reg_imm32; 
-    struct { uint32_t imm; uint8_t disp; bool foreign; SectionType sec; uint8_t r_offset; } imm32_disp8;
-    struct { uint64_t imm; uint8_t disp; bool foreign; SectionType sec; uint8_t r_offset; } imm64_disp8;
-    struct { uint8_t disp; } disp8;
-    struct { uint32_t disp; bool foreign; SectionType sec; uint8_t r_offset; } disp32;
-    struct { Register reg; uint8_t disp; } reg_disp8;
-    struct { Register reg; uint32_t disp; bool foreign; SectionType sec; uint8_t r_offset; } reg_disp32;
-    struct { Register reg; } reg;
-    struct { char *function_name; bool foreign; } call_ins;
+  struct {
+    // In case an instruction uses a foreign value, the 'imm' field is
+    // used as the offset/index and the sec field needs to be filled
+    // with the section the foreign value is stored in
+    union {
+      Register reg;
+      uint64_t imm;
+    } op0, op1;
+    size_t op0_size;
+    size_t op1_size;
+    uint32_t disp;
+    /* if near_disp is true, the disp is 8 bits, otherwise it is 32 bits */
+    bool near_disp;
+    struct {
+      bool foreign;
+      SectionType sec;
+      uint8_t r_offset;
+    } reloc_info;
+    struct {
+      char *function_name;
+    } special;
   } args;
 } Instruction;
 // clang-format on

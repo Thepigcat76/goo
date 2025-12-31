@@ -269,7 +269,7 @@ static bool is_type_generic(const TypeChecker *checker, Type *type) {
 }
 
 static bool type_is_numeric(const Type *type) {
-  return type_eq(type, &INT_BUILTIN_TYPE);
+  return type_eq(type, &I32_BUILTIN_TYPE);
 }
 
 static Type check_block_expr(TypeChecker *checker,
@@ -336,7 +336,7 @@ static Type check_expr(TypeChecker *checker, Expression *expr) {
   case EXPR_IF: {
     ExprIf expr_if = expr->var.expr_if;
     Type cond_ty = check_expr(checker, expr_if.condition);
-    if (!type_eq(&cond_ty, &INT_BUILTIN_TYPE) &&
+    if (!type_eq(&cond_ty, &I32_BUILTIN_TYPE) &&
         !type_eq(&cond_ty, &BOOL_BUILTIN_TYPE)) {
       char type_buf[128];
       type_print(type_buf, &cond_ty);
@@ -392,14 +392,14 @@ static Type check_expr(TypeChecker *checker, Expression *expr) {
     Type cast_type = expr->var.expr_cast.type;
 
     bool str_to_int = type_eq(&expr_type, &STRING_BUILTIN_TYPE) &&
-                      type_eq(&cast_type, &INT_BUILTIN_TYPE);
+                      type_eq(&cast_type, &I32_BUILTIN_TYPE);
 
-    bool int_to_str = type_eq(&expr_type, &INT_BUILTIN_TYPE) &&
+    bool int_to_str = type_eq(&expr_type, &I32_BUILTIN_TYPE) &&
                       type_eq(&cast_type, &STRING_BUILTIN_TYPE);
 
     bool str_to_arr = type_eq(&expr_type, &STRING_BUILTIN_TYPE) &&
                       cast_type.type == TYPE_ARRAY &&
-                      type_eq(cast_type.var.type_array.type, &INT_BUILTIN_TYPE);
+                      type_eq(cast_type.var.type_array.type, &I32_BUILTIN_TYPE);
 
     bool arr_to_str = expr_type.type == TYPE_ARRAY &&
                       type_eq(&cast_type, &STRING_BUILTIN_TYPE);
@@ -421,7 +421,7 @@ static Type check_expr(TypeChecker *checker, Expression *expr) {
     return STRING_BUILTIN_TYPE;
   }
   case EXPR_INTEGER_LIT: {
-    return INT_BUILTIN_TYPE;
+    return I32_BUILTIN_TYPE;
   }
   case EXPR_BOOLEAN_LIT: {
     return BOOL_BUILTIN_TYPE;
@@ -462,7 +462,7 @@ static Type check_expr(TypeChecker *checker, Expression *expr) {
   }
   case EXPR_BIN_OP: {
     // TODO: Implement proper type checking
-    return INT_BUILTIN_TYPE;
+    return I32_BUILTIN_TYPE;
   }
   case EXPR_STRUCT_INIT: {
     ExprStructInit *expr_struct_init = &expr->var.expr_struct_init;
@@ -599,7 +599,7 @@ static Type check_stmt(TypeChecker *checker, Statement *stmt, CheckerContext con
         for (size_t i = 0; i < array_len(ty_expr_struct->fields); i++) {
           TypedIdent *field = &ty_expr_struct->fields[i];
           if (field->type.type == TYPE_IDENT &&
-              !type_eq(&field->type, &INT_BUILTIN_TYPE) &&
+              !type_eq(&field->type, &I32_BUILTIN_TYPE) &&
               !type_eq(&field->type, &STRING_BUILTIN_TYPE)) {
             Ident *ty_ident = &field->type.var.type_ident;
             TypeTableValue *actual_type = type_table_get(

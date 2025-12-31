@@ -65,7 +65,7 @@ static void parser_test_functions(void) {
   program_begin(&ast);
   {
     Expression func_foo0;
-    FUNCTION(&func_foo0, ARGS(ARG("slay", INT_BUILTIN_TYPE), ARG("ballz", STRING_BUILTIN_TYPE)), INT_BUILTIN_TYPE, BLOCK({
+    FUNCTION(&func_foo0, ARGS(ARG("slay", I32_BUILTIN_TYPE), ARG("ballz", STRING_BUILTIN_TYPE)), I32_BUILTIN_TYPE, BLOCK({
       decl_const("ballz", INT(0));
     }));
     decl_const("foo0", func_foo0);

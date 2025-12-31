@@ -70,7 +70,16 @@ typedef struct _generic {
 
 extern const Type UNIT_BUILTIN_TYPE;
 extern const Type STRING_BUILTIN_TYPE;
-extern Type INT_BUILTIN_TYPE;
+/* Integers */
+extern Type I8_BUILTIN_TYPE;
+extern Type I16_BUILTIN_TYPE;
+extern Type I32_BUILTIN_TYPE;
+extern Type I64_BUILTIN_TYPE;
+/* Unsigned Integers */
+extern Type U8_BUILTIN_TYPE;
+extern Type U16_BUILTIN_TYPE;
+extern Type U32_BUILTIN_TYPE;
+extern Type U64_BUILTIN_TYPE;
 extern const Type BOOL_BUILTIN_TYPE;
 
 typedef struct _typed_ident {
