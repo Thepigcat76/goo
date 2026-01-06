@@ -150,7 +150,8 @@ typedef struct {
 
 static const Instruction INS_RET = MAKE_INS_OPCODE_ONLY(OPCODE1(0xc3));
 static const Instruction INS_NOP = MAKE_INS_OPCODE_ONLY(OPCODE1(0x90));
-static const Instruction INS_CALL = (Instruction){.opcode = OPCODE1(0xe8), .imm = IMM32_PACK(0), .flags = {.has_imm = true}};
+static const Instruction INS_CALL = (Instruction){
+    .opcode = OPCODE1(0xe8), .imm = IMM32_PACK(0), .flags = {.has_imm = true}};
 
 #define INS_JMP_DISP8(...) MAKE_INS_OPCODE_DISP(OPCODE1(0xeb), __VA_ARGS__)
 
@@ -190,17 +191,27 @@ static const Instruction INS_CALL = (Instruction){.opcode = OPCODE1(0xe8), .imm 
   (Instruction) {                                                              \
     .opcode = OPCODE1(0x8D),                                                   \
     .mod_rm = {.mod = MOD_MEM_32BIT_DISP, .reg = r_dest, .rm = r_src},         \
-    .disp = _disp, .imm = IMM32_PACK(0), .flags = {                                                  \
+    .disp = _disp, .imm = IMM32_PACK(0), .flags = {                            \
       .has_mod_rm = true,                                                      \
       .has_disp = true                                                         \
     }                                                                          \
   }
 
-#define INS_LEA_R32_R32_ABS_ADDR32(r_dest, _disp)                           \
+#define INS_LEA_ABS_ADDR32_R32(_disp, r_dest)                                  \
   (Instruction) {                                                              \
     .opcode = OPCODE1(0x8D),                                                   \
-    .mod_rm = {.mod = MOD_MEM_NO_DISP, .reg = r_dest, .rm = 101},         \
-    .disp = _disp, .imm = IMM32_PACK(0), .flags = {                                                  \
+    .mod_rm = {.mod = MOD_MEM_NO_DISP, .reg = r_dest, .rm = 101},              \
+    .disp = _disp, .imm = IMM32_PACK(0), .flags = {                            \
+      .has_mod_rm = true,                                                      \
+      .has_disp = true                                                         \
+    }                                                                          \
+  }
+
+#define INS_LEA_ABS_ADDR32_R64(_disp, r_dest)                                  \
+  (Instruction) {                                                              \
+    .opcode = OPCODE2(0x48, 0x8D),                                                   \
+    .mod_rm = {.mod = MOD_MEM_NO_DISP, .reg = r_dest, .rm = 101},              \
+    .disp = _disp, .imm = IMM32_PACK(0), .flags = {                            \
       .has_mod_rm = true,                                                      \
       .has_disp = true                                                         \
     }                                                                          \
@@ -216,10 +227,10 @@ static const Instruction INS_CALL = (Instruction){.opcode = OPCODE1(0xe8), .imm 
     }                                                                          \
   }
 
-#define INS_MOV_R32_DISP8_R32(r_src, _disp, r_dest)                           \
+#define INS_MOV_R32_DISP8_R32(r_src, _disp, r_dest)                            \
   (Instruction) {                                                              \
-    .opcode = OPCODE1(0x8b),                                                   \
-    .mod_rm = {.mod = MOD_MEM_8BIT_DISP, .reg = r_dest, .rm = r_src},         \
+    .opcode = OPCODE2(0x48, 0x8b),                                             \
+    .mod_rm = {.mod = MOD_MEM_8BIT_DISP, .reg = r_dest, .rm = r_src},          \
     .disp = _disp, .flags = {                                                  \
       .has_mod_rm = true,                                                      \
       .has_disp = true                                                         \
@@ -236,20 +247,20 @@ static const Instruction INS_CALL = (Instruction){.opcode = OPCODE1(0xe8), .imm 
     }                                                                          \
   }
 
-#define INS_MOV_R32_ABS_ADDR32_R32(_disp, r_dest)                           \
+#define INS_MOV_ABS_ADDR32_R32(_disp, r_dest)                                  \
   (Instruction) {                                                              \
     .opcode = OPCODE1(0x8b),                                                   \
-    .mod_rm = {.mod = MOD_MEM_NO_DISP, .reg = r_dest, .rm = 101},         \
+    .mod_rm = {.mod = MOD_MEM_NO_DISP, .reg = r_dest, .rm = 101},              \
     .disp = _disp, .flags = {                                                  \
       .has_mod_rm = true,                                                      \
       .has_disp = true                                                         \
     }                                                                          \
   }
 
-#define INS_MOV_R32_R32_DISP8(r_src, r_dest, _disp)                           \
+#define INS_MOV_R32_R32_DISP8(r_src, r_dest, _disp)                            \
   (Instruction) {                                                              \
-    .opcode = OPCODE1(0x89),                                                    \
-    .mod_rm = {.mod = MOD_MEM_8BIT_DISP, .reg = r_src, .rm = r_dest},         \
+    .opcode = OPCODE1(0x89),                                                   \
+    .mod_rm = {.mod = MOD_MEM_8BIT_DISP, .reg = r_src, .rm = r_dest},          \
     .disp = _disp, .flags = {                                                  \
       .has_mod_rm = true,                                                      \
       .has_disp = true                                                         \
@@ -266,7 +277,15 @@ static const Instruction INS_CALL = (Instruction){.opcode = OPCODE1(0xe8), .imm 
     }                                                                          \
   }
 
-#define INS_LEA_R32_R32(r_src, r_dest)                                  \
+#define INS_MOV_R32_R32(r_src, r_dest)                                         \
+  (Instruction) {                                                              \
+    .opcode = OPCODE2(0x48, 0x89),                                                   \
+    .mod_rm = {.mod = MOD_REG_DIRECT, .reg = r_src, .rm = r_dest}, .flags = {  \
+      .has_mod_rm = true,                                                      \
+    }                                                                          \
+  }
+
+#define INS_LEA_R32_R32(r_src, r_dest)                                         \
   (Instruction) {                                                              \
     .opcode = OPCODE1(0x8D),                                                   \
     .mod_rm = {.mod = MOD_MEM_NO_DISP, .reg = r_dest, .rm = r_src}, .flags = { \
@@ -286,19 +305,19 @@ static const Instruction INS_CALL = (Instruction){.opcode = OPCODE1(0xe8), .imm 
 // return length
 size_t ins_gen(const Instruction *ins, uint8_t *ins_bytes);
 
-//int _main(void) {
-//  uint8_t ins_bytes[32] = {0};
-//  size_t offset = 0;
-//  // offset += ins_gen(&INS_RET, ins_bytes + offset);
-//  // offset += ins_gen(&INS_CALL, ins_bytes + offset);
-//  // offset += ins_gen(&INS_NOP, ins_bytes + offset);
-//  // offset += ins_gen(&INS_POP_R32(REG_EBP), ins_bytes + offset);
-//  offset += ins_gen(&INS_JMP_DISP32(IMM32_PACK(512000)), ins_bytes + offset);
-//  offset += ins_gen(&INS_MOV_I32_R32(REG_EBX, IMM32_PACK(512000)),
-//                    ins_bytes + offset);
-//  printf("Bytes:\n");
-//  for (size_t i = 0; i < 32; i++) {
-//    printf("%02x ", ins_bytes[i]);
-//  }
-//  printf("\n");
-//}
+// int _main(void) {
+//   uint8_t ins_bytes[32] = {0};
+//   size_t offset = 0;
+//   // offset += ins_gen(&INS_RET, ins_bytes + offset);
+//   // offset += ins_gen(&INS_CALL, ins_bytes + offset);
+//   // offset += ins_gen(&INS_NOP, ins_bytes + offset);
+//   // offset += ins_gen(&INS_POP_R32(REG_EBP), ins_bytes + offset);
+//   offset += ins_gen(&INS_JMP_DISP32(IMM32_PACK(512000)), ins_bytes + offset);
+//   offset += ins_gen(&INS_MOV_I32_R32(REG_EBX, IMM32_PACK(512000)),
+//                     ins_bytes + offset);
+//   printf("Bytes:\n");
+//   for (size_t i = 0; i < 32; i++) {
+//     printf("%02x ", ins_bytes[i]);
+//   }
+//   printf("\n");
+// }

@@ -1,5 +1,15 @@
 BALLZ := "Hello"
+TEST :: "Slaaay"
+
+test :: () -> string {
+  x := 200
+  print_int(x)
+  println(BALLZ)
+  return TEST
+}
 
 main :: () {
-  print_int(BALLZ)
+  test := test()
+  println(test)
+  exit(23)
 }

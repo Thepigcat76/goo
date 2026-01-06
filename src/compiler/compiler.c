@@ -37,7 +37,7 @@ Compiler compiler_new(const Statement *statements) {
       .stmts = statements,
       .relocations = array_new(Relocation, &HEAP_ALLOCATOR),
       .insns = array_new_capacity(Instruction, 32, &HEAP_ALLOCATOR),
-      .labels = hashmap_new(Ident *, size_t, &HEAP_ALLOCATOR, str_ptrv_hash,
+      .symbols = hashmap_new(Ident *, size_t, &HEAP_ALLOCATOR, str_ptrv_hash,
                             str_ptrv_eq, NULL),
       .globals = hashmap_new(Ident *, GlobalDataLocation, &HEAP_ALLOCATOR,
                              str_ptrv_hash, str_ptrv_eq, NULL),
@@ -147,8 +147,8 @@ static inline void stack_frame_push(Compiler *compiler) {
 }
 
 static inline void stack_frame_reset(Compiler *compiler) {
-  // Instruction ins = INS_MOV_R32_R32(REG_EBP, REG_ESP);
-  // array_add(insns, ins);
+  Instruction ins = INS_MOV_R32_R32(REG_ESP, REG_EBP);
+  insns_add(compiler, ins);
 }
 
 static inline void stack_frame_pop(Compiler *compiler) {
@@ -201,8 +201,6 @@ typedef struct {
     uint32_t imm32;
   } var;
 } ExprCallResult;
-
-static char *PRINTF_FUNCTION_NAME = "puts";
 
 #define EXPR_COMPILE_RES(_type, ...)                                           \
   (ExprCompileResult) {                                                        \
@@ -451,7 +449,7 @@ static ExprCompileResult expr_bin_op_compile(Compiler *compiler,
         printf("REG_IMM32 target register during bin op: %d\n", res_reg);
         insns_add(compiler, INS_MOV_I32_R32(res_reg, {0}));
         RELOCATIONS_ADD(compiler,
-                        {.r_offset = 3,
+                        {.r_offset = 1,
                          .sec = SECTION_FROM_EXPR_RES(res_right.type),
                          .data_offset = res_right.var.data_offset.offset});
         Opcode opcode;
@@ -567,12 +565,10 @@ static void compiler_arg_push(Compiler *compiler, size_t arg_idx,
     if (res->var.data_offset.data_type == DATA_POINTER) {
       // TODO: Relocation info
       RELOCATIONS_ADD(compiler, {.sec = SECTION_FROM_EXPR_RES(res->type),
-                                 .r_offset = 2,
+                                 .r_offset = 3,
                                  .data_offset = res->var.data_offset.offset});
       log_debug("Pushed Arg offset: %zu", res->var.data_offset.offset);
-      insns_add(compiler,
-                INS_LEA_R32_R32_ABS_ADDR32(
-                    arg_reg, IMM32_PACK(0)));
+      insns_add(compiler, INS_LEA_ABS_ADDR32_R64(IMM32_PACK(0), arg_reg));
       // insns_add(compiler,
       //           INSN(INS_LEA_RIP_REG, .op0 = {.reg = REG_BASE_05(arg_reg)},
       //                .op0_size = sizeof(uint64_t),
@@ -582,9 +578,9 @@ static void compiler_arg_push(Compiler *compiler, size_t arg_idx,
       //                               .r_offset = 3}));
     } else {
       RELOCATIONS_ADD(compiler, {.sec = SECTION_FROM_EXPR_RES(res->type),
-                                 .r_offset = 2,
+                                 .r_offset = 3,
                                  .data_offset = res->var.data_offset.offset});
-      insns_add(compiler, INS_MOV_R32_ABS_ADDR32_R32(IMM32_PACK(0), arg_reg));
+      insns_add(compiler, INS_LEA_ABS_ADDR32_R64(IMM32_PACK(0), arg_reg));
       // insns_add(compiler,
       //           INSN(INS_MOV_RIP_REG_DISP32,
       //                .op0 = {.reg = REG_BASE_05(arg_reg)},
@@ -631,8 +627,7 @@ static void stmt_compile(Compiler *compiler, const Statement *stmt,
         DataSection *data_section =
             stmt_decl.mut ? &compiler->data_section : &compiler->rodata_section;
         if (expr.type == EXPR_FUNCTION) {
-          size_t len = array_len(compiler->insns);
-          hashmap_insert(&compiler->labels, &stmt_decl.name, &len);
+          hashmap_insert(&compiler->symbols, &stmt_decl.name, &compiler->program_size);
           expr_func_compile(compiler, &expr.var.expr_function,
                             (CompileContext){.level = COMPILE_LEVEL_GLOBAL,
                                              .function_name = stmt_decl.name});
@@ -715,10 +710,9 @@ static void stmt_compile(Compiler *compiler, const Statement *stmt,
       case EXPR_COMPILE_RES_DATA_OFFSET:
       case EXPR_COMPILE_RES_RODATA_OFFSET: {
         RELOCATIONS_ADD(compiler, {.sec = SECTION_FROM_EXPR_RES(res.type),
-                                   .r_offset = 2,
+                                   .r_offset = 3,
                                    .data_offset = res.var.data_offset.offset});
-        insns_add(compiler,
-                  INS_LEA_R32_R32_ABS_ADDR32(REG_EAX, IMM32_PACK(0)));
+        insns_add(compiler, INS_LEA_ABS_ADDR32_R64(IMM32_PACK(0), REG_EAX));
         //          INSN(INS_LEA_RIP_RAX, .op0 = {.imm = res.var.data_idx.idx},
         //               .op0_size = sizeof(uint64_t),
         //               .reloc_info = {
@@ -750,44 +744,6 @@ void compiler_compile(Compiler *compiler) {
                  GLOBAL_COMPILE_CONTEXT);
     compiler->stmt_index++;
   }
-  //
-  //  log_debug("Labels:");
-  //  hashmap_foreach(&compiler->labels, Ident * key, size_t *val, {
-  //    log_debug("Key: %s", *key);
-  //    log_debug("Value: %zu", *val);
-  //  });
-  //  log_debug("Labels amount: %zu", compiler->labels.len);
-  //
-  //  char buf[2048];
-  //  data_section_print(buf, &compiler->rodata_section);
-  //  printf("Data Section:\n%s\n", buf);
-  // insns_add(compiler,
-  //          INSN(INS_MOV_IMM16_REG, .op0 = {.imm = 0x64},
-  //               .op0_size = sizeof(uint16_t), .op1 = {.reg = REG_R8},
-  //               .op1_size = sizeof(uint16_t)));
-  // insns_add(compiler, INSN(INS_JMP_IMM32, .op0 = {.imm = -0x05},
-  //                                .op0_size = sizeof(uint32_t)));
-  // insns_add(compiler, INSN(INS_XOR_REG8, .op0 = {.reg = REG_RDI},
-  //                                .op0_size = sizeof(uint8_t)));
-  // insns_add(compiler,
-  //          INSN(INS_MOV_IMM8_REG_DISP8, .op0 = {.imm = 0x64},
-  //               .op0_size = sizeof(uint8_t), .op1 = {.reg = REG_RAX},
-  //               .op1_size = sizeof(uint8_t), .disp = 0x0a,
-  //               .near_disp = true, ));
-  // insns_add(compiler, INSN(INS_RET));
-  // insns_add(compiler, INS_RET);
-}
-
-/* Generate the opcode of the instruction. Return the size. Size is always <= 3
- */
-static size_t insn_opcode(Opcode opcode, uint8_t *opcode_bytes) {
-  //  uint8_t len = (opcode >> 16) & 0xff;
-  //  if (opcode_bytes != NULL) {
-  //    for (size_t i = 0; i < len; i++) {
-  //      opcode_bytes[i] = (opcode >> ((i + 3) * 8)) & 0xff;
-  //    }
-  //  }
-  //  return len;
 }
 
 typedef struct {
@@ -811,181 +767,16 @@ static void relocations_add_data(Elf64_Relocation *relocations,
   }
 }
 
-// #define htole(imm, size) \
-//   size == 2 ? htole16(imm) \
-//             : (size == 2 ? htole32(imm) : (size == 3 ? htole64(imm) : imm))
-//
-// static void imm_write(uint64_t imm, size_t size, uint8_t *imm_bytes) {
-//   uint64_t le_imm = htole(imm, size);
-//   for (size_t i = 0; i < size; i++) {
-//     imm_bytes[i] = (le_imm >> (i * 8)) & 0xff;
-//   }
-// }
-//
-///* Return the size of the imm, if it was written and 0 otherwise */
-// static size_t imm_write_handle_foreign(uint64_t imm, size_t size, bool
-// foreign,
-//                                        SectionType sec, uint8_t r_offset,
-//                                        Relocation *relocs, uint8_t
-//                                        *imm_bytes, GenerationContext context)
-//                                        {
-//   if (foreign) {
-//     relocations_add_data(relocs, sec, imm, r_offset, context);
-//     return 0;
-//   }
-//   imm_write(imm, size, imm_bytes);
-//   return size;
-// }
+#define htole(imm, size) \
+  size == 2 ? htole16(imm) \
+            : (size == 2 ? htole32(imm) : (size == 3 ? htole64(imm) : imm))
 
-// static size_t insn_generate(Instruction *ins, Relocation *relocations,
-//                             uint8_t *insn_bytes, GenerationContext context) {
-//   uint8_t flag_arg = (ins->opcode >> 0) & 0xff;
-//   uint8_t flag_ins = (ins->opcode >> 8) & 0xff;
-//   size_t opcode_len = insn_opcode(ins->opcode, insn_bytes);
-//
-//   size_t ins_len = opcode_len;
-//
-//   if (flag_ins == IF_INS_MOV) {
-//     if (flag_arg == IF_ARG_REG_IMM64) {
-//       insn_bytes[1] += ins->args.op1.reg;
-//       if (ins->args.op1.reg >= REG_R8) {
-//         insn_bytes[0] = 0x49;
-//         insn_bytes[1] -= REG_R8;
-//       }
-//     } else if (flag_arg == IF_ARG_REG_IMM32) {
-//       if (ins->args.op1.reg >= REG_R8) {
-//         insn_bytes[1] = insn_bytes[0] + ins->args.op1.reg - REG_R8;
-//         insn_bytes[0] = 0x41;
-//         ins_len++;
-//       } else {
-//         insn_bytes[0] += ins->args.op1.reg;
-//       }
-//     } else if (flag_arg == IF_ARG_REG_IMM16) {
-//       if (ins->args.op1.reg >= REG_R8) {
-//         insn_bytes[2] = insn_bytes[1] + ins->args.op1.reg - REG_R8;
-//         insn_bytes[1] = 0x41;
-//         ins_len++;
-//       } else {
-//         insn_bytes[1] += ins->args.op1.reg;
-//       }
-//     } else if (flag_arg == IF_ARG_REG_IMM8) {
-//       Register reg = ins->args.op1.reg;
-//       if (reg >= REG_R8) {
-//         insn_bytes[1] = insn_bytes[0] + ins->args.op1.reg - REG_R8;
-//         insn_bytes[0] = 0x41;
-//         ins_len++;
-//       } else {
-//         insn_bytes[0] += ins->args.op1.reg;
-//       }
-//     }
-//   }
-//
-//   switch (flag_arg) {
-//   case IF_ARG_NONE | IF_ARG_SPECIAL: {
-//     break;
-//   }
-//   case IF_ARG_IMM8_DISP8:
-//   case IF_ARG_IMM16_DISP8:
-//   case IF_ARG_IMM32_DISP8:
-//   case IF_ARG_IMM64_DISP8:
-//   case IF_ARG_IMM8_DISP32:
-//   case IF_ARG_IMM16_DISP32:
-//   case IF_ARG_IMM32_DISP32:
-//   case IF_ARG_IMM64_DISP32: {
-//     size_t disp_size = ins->args.near_disp ? sizeof(uint8_t) :
-//     sizeof(uint32_t); imm_write(ins->args.disp, disp_size, insn_bytes +
-//     ins_len); ins_len += disp_size; ins_len += imm_write_handle_foreign(
-//         ins->args.op0.imm, ins->args.op0_size, ins->args.reloc_info.foreign,
-//         ins->args.reloc_info.sec, ins->args.reloc_info.r_offset, relocations,
-//         insn_bytes + ins_len, context);
-//     break;
-//   }
-//   case IF_ARG_IMM8:
-//   case IF_ARG_IMM16:
-//   case IF_ARG_IMM32:
-//   case IF_ARG_IMM64:
-//   case IF_ARG_REG_IMM8:
-//   case IF_ARG_REG_IMM16:
-//   case IF_ARG_REG_IMM32:
-//   case IF_ARG_REG_IMM64: {
-//     ins_len += imm_write_handle_foreign(
-//         ins->args.op0.imm, ins->args.op0_size, ins->args.reloc_info.foreign,
-//         ins->args.reloc_info.sec, ins->args.reloc_info.r_offset, relocations,
-//         insn_bytes + ins_len, context);
-//     break;
-//   }
-//   }
-//
-//   switch (ins->opcode) {
-//   case INS_CALL: {
-//     if (!ins->args.reloc_info.foreign) {
-//       // Ident function_name = ins->args.call_ins.function_name;
-//       //
-//       // uint32_t *offset = hashmap_value(context.labels, &function_name);
-//       // if (offset != NULL) {
-//       //  uint32_t encoded =
-//       //      htole32((*offset) - (context.program_data_offset + opcode_len +
-//       //      4));
-//       //  memcpy(insn_bytes + 1, &encoded, sizeof(uint32_t));
-//       //  ins_len += 4;
-//       //} else {
-//       //  fprintf(stderr,
-//       //          "Tried to call function that doesn't have an offset: %s\n",
-//       //          function_name);
-//       //  exit(1);
-//       //}
-//       if (relocations != NULL) {
-//         Relocation reloc = {
-//             .rel_type = RELOCATION_FUNCTION,
-//             .symbol = ins->args.special.function_name,
-//             .program_offset = context.program_data_offset,
-//         };
-//         array_add(relocations, reloc);
-//       }
-//       ins_len += 4;
-//     } else {
-//       if (relocations != NULL) {
-//         Relocation reloc = {
-//             .rel_type = RELOCATION_FUNCTION,
-//             .symbol = ins->args.special.function_name,
-//             .program_offset = context.program_data_offset,
-//         };
-//         array_add(relocations, reloc);
-//       }
-//       /* Leave the rest of the instruction bytes 0, relocation will fix it */
-//       ins_len += 4;
-//     }
-//     break;
-//   }
-//   case INS_IMUL_RDX_RAX: {
-//     insn_bytes[ins_len++] = 0xc2;
-//     break;
-//   }
-//   default: {
-//     break;
-//   }
-//   }
-//
-//   log_debug("Ins len: %zu, opcode len: %zu for ins: %02X %02X %02X", ins_len,
-//             opcode_len, insn_bytes[0], insn_bytes[1], insn_bytes[2]);
-//
-//   return ins_len;
-// }
 
 int32_t cmp_size_t(const void *a, const void *b) {
   size_t x = *(const size_t *)a;
   size_t y = *(const size_t *)b;
   return (x > y) - (x < y); // returns positive, zero, or negative
 }
-
-// static void data_section_calc_offsets(const DataSection *data_section,
-//                                       size_t *offsets) {
-//   size_t offset = 0;
-//   for (size_t i = 0; i < array_len(data_section->values); i++) {
-//     array_add(offsets, offset);
-//     offset += data_section->values[i].bytes_len;
-//   }
-// }
 
 void compiler_generate(Compiler *compiler) {
   if (compiler->step != COMPILE_STEP_COMPILE_SRC)
@@ -995,73 +786,10 @@ void compiler_generate(Compiler *compiler) {
   compiler->program_data = malloc(512);
   size_t program_data_offset = 0;
 
-  /* Data section indices and their corresponding offsets */
-  // size_t *data_offsets = array_new(size_t, &HEAP_ALLOCATOR);
-  // data_section_calc_offsets(&compiler->data_section, data_offsets);
-  // size_t *rodata_offsets = array_new(size_t, &HEAP_ALLOCATOR);
-  // data_section_calc_offsets(&compiler->rodata_section, rodata_offsets);
-
-  size_t sizes[compiler->labels.len];
-  hashmap_foreach(&compiler->labels, Ident * key, size_t *val,
-                  { sizes[_internal_keys_iter_index] = *val; });
-  qsort(sizes, compiler->labels.len, sizeof(size_t), cmp_size_t);
-  size_t label_idx = 0;
-
-  size_t for_loop_block_len = 0;
   for (size_t i = 0; i < array_len(compiler->insns); i++) {
     Instruction ins = compiler->insns[i];
     uint8_t insn_bytes[16] = {0};
 
-    GenerationContext context = {.labels = &compiler->labels,
-                                 .rodata_section = &compiler->rodata_section,
-                                 //.rodata_offsets = rodata_offsets,
-                                 .data_section = &compiler->data_section,
-                                 //.data_offsets = data_offsets,
-                                 .program_data_offset = program_data_offset};
-    size_t ins_len = ins_gen(&ins, insn_bytes);
-
-    if (sizes[label_idx] == i) {
-      Ident *label_key;
-      hashmap_foreach(&compiler->labels, Ident * key, size_t *val, {
-        if ((*val) == i) {
-          label_key = key;
-          break;
-        }
-      });
-
-      log_debug("Key for index adjustment: %s", *label_key);
-
-      hashmap_insert(&compiler->labels, label_key, &program_data_offset);
-
-      if (label_idx < array_len(compiler->insns)) {
-        label_idx++;
-      }
-    }
-
-    program_data_offset += ins_len;
-  }
-
-  program_data_offset = 0;
-
-  for (size_t i = 0; i < array_len(compiler->insns); i++) {
-    Instruction ins = compiler->insns[i];
-    uint8_t insn_bytes[16] = {0};
-
-    GenerationContext context = {.labels = &compiler->labels,
-                                 .rodata_section = &compiler->rodata_section,
-                                 //.rodata_offsets = rodata_offsets,
-                                 .data_section = &compiler->data_section,
-                                 //.data_offsets = data_offsets,
-                                 .program_data_offset = program_data_offset};
-
-    // if (for_loop_idx == i) {
-    //   printf("For loop idx: %zu, program data offset: %zu\n", i,
-    //          program_data_offset);
-    //   for_loop_block_len = program_data_offset;
-    // } else if (ins.opcode == INS_JMP_IMM8) {
-    //   printf("!for loop offset: %zu\n", for_loop_block_len);
-    //   ins.args.op0.imm = -(program_data_offset - for_loop_block_len + 2);
-    // }
     size_t ins_len = ins_gen(&ins, insn_bytes);
 
     memcpy(compiler->program_data + program_data_offset, insn_bytes, ins_len);
@@ -1097,11 +825,11 @@ void compiler_generate(Compiler *compiler) {
   compiler->program_data_size = program_data_offset;
 
   log_debug("Labels (fixed)");
-  hashmap_foreach(&compiler->labels, Ident * key, size_t *val, {
+  hashmap_foreach(&compiler->symbols, Ident * key, size_t *val, {
     log_debug("Key: %s", *key);
     log_debug("Value: %zu", *val);
   });
-  log_debug("Labels amount: %zu", compiler->labels.len);
+  log_debug("Labels amount: %zu", compiler->symbols.len);
 }
 
 #define WRITE(fp, ptr) fwrite(ptr, 1, sizeof(*ptr), fp)
@@ -1178,15 +906,6 @@ static void obj_write(const Object *obj, FILE *file) {
   WRITE(file, &obj->sh_rela_text);
   WRITE(file, &obj->sh_shstrtab);
 }
-
-// static size_t data_section_calc_size(const DataSection *section) {
-//   size_t values_amount = array_len(section->values);
-//   size_t data_section_size = 0;
-//   for (size_t i = 0; i < values_amount; i++) {
-//     data_section_size += section->values[i].bytes_len;
-//   }
-//   return data_section_size;
-// }
 
 static void data_section_write_bytes(const DataSection *section,
                                      size_t section_size, uint8_t *bytes) {
@@ -1272,7 +991,7 @@ void compiler_write(Compiler *compiler, FILE *file) {
   array_add(obj.symbols, sym_data);
 
   /* Symbols */
-  hashmap_foreach(&compiler->labels, Ident * key, size_t *val, {
+  hashmap_foreach(&compiler->symbols, Ident * key, size_t *val, {
     size_t name_idx = obj_string_table_add(&obj, *key);
 
     Elf64_Sym sym = {0};

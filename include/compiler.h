@@ -86,7 +86,7 @@ typedef struct {
   Relocation *relocations;
   CompilerStep step;
   Hashmap(Ident *, GlobalDataLocation) globals;
-  Hashmap(Ident *, size_t) labels;
+  Hashmap(Ident *, size_t) symbols;
   //Hashmap(Ident *, size_t) extern_functions;
   Frame cur_frame;
   size_t program_size;
