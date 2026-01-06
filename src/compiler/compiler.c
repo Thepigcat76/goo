@@ -38,7 +38,7 @@ Compiler compiler_new(const Statement *statements) {
       .relocations = array_new(Relocation, &HEAP_ALLOCATOR),
       .insns = array_new_capacity(Instruction, 32, &HEAP_ALLOCATOR),
       .symbols = hashmap_new(Ident *, size_t, &HEAP_ALLOCATOR, str_ptrv_hash,
-                            str_ptrv_eq, NULL),
+                             str_ptrv_eq, NULL),
       .globals = hashmap_new(Ident *, GlobalDataLocation, &HEAP_ALLOCATOR,
                              str_ptrv_hash, str_ptrv_eq, NULL),
       .data_section = data_section_new(),
@@ -627,7 +627,8 @@ static void stmt_compile(Compiler *compiler, const Statement *stmt,
         DataSection *data_section =
             stmt_decl.mut ? &compiler->data_section : &compiler->rodata_section;
         if (expr.type == EXPR_FUNCTION) {
-          hashmap_insert(&compiler->symbols, &stmt_decl.name, &compiler->program_size);
+          hashmap_insert(&compiler->symbols, &stmt_decl.name,
+                         &compiler->program_size);
           expr_func_compile(compiler, &expr.var.expr_function,
                             (CompileContext){.level = COMPILE_LEVEL_GLOBAL,
                                              .function_name = stmt_decl.name});
@@ -670,6 +671,7 @@ static void stmt_compile(Compiler *compiler, const Statement *stmt,
           compiler->cur_frame.sp_offset += sizeof(char *);
           hashmap_insert(&compiler->cur_frame.symbol_table, &stmt_decl.name,
                          &compiler->cur_frame.sp_offset);
+          RELOCATIONS_ADD(compiler, {.sec = SECTION_FROM_EXPR_RES(res.type), .data_offset = res.var.data_offset.offset, .r_offset = 2});
           insns_add(compiler, INS_LEA_R32_R32(REG_EIP, REG_EAX));
           //          INSN(INS_LEA_RIP_RAX, .op0 = {.imm =
           //          res.var.data_idx.idx},
@@ -713,13 +715,6 @@ static void stmt_compile(Compiler *compiler, const Statement *stmt,
                                    .r_offset = 3,
                                    .data_offset = res.var.data_offset.offset});
         insns_add(compiler, INS_LEA_ABS_ADDR32_R64(IMM32_PACK(0), REG_EAX));
-        //          INSN(INS_LEA_RIP_RAX, .op0 = {.imm = res.var.data_idx.idx},
-        //               .op0_size = sizeof(uint64_t),
-        //               .reloc_info = {
-        //                   .r_offset = 3,
-        //                   .foreign = true,
-        //                   .sec = SECTION_FROM_EXPR_RES(res.type),
-        //               }));
         break;
       }
       default: {
@@ -746,31 +741,9 @@ void compiler_compile(Compiler *compiler) {
   }
 }
 
-typedef struct {
-  Hashmap(Ident *, size_t) * labels;
-  const DataSection *rodata_section;
-  const DataSection *data_section;
-  size_t program_data_offset;
-} GenerationContext;
-
-static void relocations_add_data(Elf64_Relocation *relocations,
-                                 Relocation reloc, GenerationContext context) {
-  if (relocations != NULL) {
-    Elf64_Relocation elf64_reloc = {
-        .rel_type = reloc.sec == SECTION_TYPE_DATA ? RELOCATION_DATA
-                                                   : RELOCATION_RODATA,
-        .data_offset = reloc.data_offset,
-        .r_offset = reloc.r_offset,
-        .program_offset = context.program_data_offset,
-    };
-    array_add(relocations, elf64_reloc);
-  }
-}
-
-#define htole(imm, size) \
-  size == 2 ? htole16(imm) \
+#define htole(imm, size)                                                       \
+  size == 2 ? htole16(imm)                                                     \
             : (size == 2 ? htole32(imm) : (size == 3 ? htole64(imm) : imm))
-
 
 int32_t cmp_size_t(const void *a, const void *b) {
   size_t x = *(const size_t *)a;
@@ -907,8 +880,8 @@ static void obj_write(const Object *obj, FILE *file) {
   WRITE(file, &obj->sh_shstrtab);
 }
 
-static void data_section_write_bytes(const DataSection *section,
-                                     size_t section_size, uint8_t *bytes) {
+static inline void data_section_write_bytes(const DataSection *section,
+                                            uint8_t *bytes) {
   memcpy(bytes, section->data_bytes, section->data_len);
 }
 
@@ -918,13 +891,11 @@ static void obj_add_data(Object *obj, const Compiler *compiler) {
 
   obj->data_section_data = malloc(compiler->data_section.data_len);
   obj->data_section_size = compiler->data_section.data_len;
-  data_section_write_bytes(&compiler->data_section, obj->data_section_size,
-                           obj->data_section_data);
+  data_section_write_bytes(&compiler->data_section, obj->data_section_data);
 
   obj->rodata_section_data = malloc(compiler->rodata_section.data_len);
   obj->rodata_section_size = compiler->rodata_section.data_len;
-  data_section_write_bytes(&compiler->rodata_section, obj->rodata_section_size,
-                           obj->rodata_section_data);
+  data_section_write_bytes(&compiler->rodata_section, obj->rodata_section_data);
 }
 
 static size_t obj_string_table_add(Object *obj, char *symbol) {

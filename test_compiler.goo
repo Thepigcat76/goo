@@ -1,15 +1,35 @@
-BALLZ := "Hello"
-TEST :: "Slaaay"
-
-test :: () -> string {
-  x := 200
-  print_int(x)
-  println(BALLZ)
-  return TEST
-}
+TEST0 :: "Hello1"
+TEST1 :: "Hello1"
+TEST2 :: "Hello1"
+TEST3 :: "Hello1"
+TEST4 :: "Hello1"
+TEST5 :: "Hello1"
+TEST6 :: "Hello1"
+TEST7 :: "Hello1"
+TEST8 :: "Hello1"
+TEST9 :: "Hello1"
 
 main :: () {
-  test := test()
-  println(test)
-  exit(23)
+  println("Hello")
+  println("Hello")
+  println("Hello")
+  println("Hello")
+  println("Hello")
+  println("Hello")
+  println("Hello")
+  println("Hello")
+  println("Hello")
+  println("Hello")
+  println("Hello")
+  println("Hello")
+  println(TEST0)
+  println(TEST1)
+  println(TEST2)
+  println(TEST3)
+  println(TEST4)
+  println(TEST5)
+  println(TEST6)
+  println(TEST7)
+  println(TEST8)
+  println(TEST9)
 }
