@@ -1,2 +1,5 @@
+BALLZ := "Hello"
+
 main :: () {
+  print_int(BALLZ)
 }

@@ -78,23 +78,23 @@ void run_program(char *buf, const char *filename) {
 
   puts("---");
 
-  TypeChecker checker = checker_new(parser.statements);
+  //TypeChecker checker = checker_new(parser.statements);
 #ifdef TARGET_WEB
   function_println_use_buffer();
 #endif
-  builtin_functions_init(checker.global_type_table);
+  //builtin_functions_init(checker.global_type_table);
 
-  checker_check(&checker);
+  //checker_check(&checker);
 
-  checker_gen_functions(&checker);
+  //checker_gen_functions(&checker);
 
   puts("-- AST --");
 
-  for (size_t i = 0; i < array_len(checker.stmts); i++) {
-    char print_buf[1024];
-    parser_stmt_print(print_buf, &checker.stmts[i]);
-    printf("%s\n", print_buf);
-  }
+  //for (size_t i = 0; i < array_len(checker.stmts); i++) {
+  //  char print_buf[1024];
+  //  parser_stmt_print(print_buf, &checker.stmts[i]);
+  //  printf("%s\n", print_buf);
+  //}
 
 #ifdef INTERPRETER
   Evaluator evaluator = evaluator_new(checker.stmts);
