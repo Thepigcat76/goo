@@ -1,7 +1,8 @@
 foreign puts(msg: string)
 
 main :: () {
-  y := 100 + 20 * 3
-  printfn("Integer: %", y)
-  puts("Hello")
+  x := 100
+  printfn("X: %", x)
+  x = 300
+  printfn("X: %", x)
 }

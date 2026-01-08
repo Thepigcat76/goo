@@ -62,9 +62,15 @@ size_t ins_gen(const Instruction *ins, uint8_t *ins_bytes) {
   }
 
   if (flags.has_imm) {
+    size_t imm_len;
+    if (ins->flags.imm8) {
+      imm_len = 1;
+    } else {
+      imm_len = 4;
+    }
     if (ins_bytes != NULL)
-      emit_bytes(ins->imm, 4, ins_bytes + ins_len);
-    ins_len += 4;
+      emit_bytes(ins->imm, imm_len, ins_bytes + ins_len);
+    ins_len += imm_len;
   }
 
   return ins_len;

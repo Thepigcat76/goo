@@ -271,18 +271,41 @@ typedef struct {
   FuncDescriptor desc;
 } StmtForeign;
 
+typedef enum {
+  ASSIGN_REGULAR,
+  ASSIGN_ADD,
+  ASSIGN_SUB,
+  ASSIGN_MUL,
+  ASSIGN_DIV,
+} AssignType;
+
+typedef struct {
+  enum {
+    ACCESS_TYPE_IDENT,
+    ACCESS_TYPE_STRUCT_ACCESS,
+  } left_ident_type;
+  union {
+    Ident ident;
+    ExprStructAccess struct_access;
+  } left_ident;
+  Expression right_expr;
+  AssignType assign_type;
+} StmtAssign;
+
 typedef struct _stmt {
   enum {
     STMT_DECL,
     STMT_EXPR,
     STMT_RETURN,
     STMT_FOREIGN,
+    STMT_ASSIGN,
   } type;
   union {
     StmtDecl stmt_decl;
     StmtExpr stmt_expr;
     StmtReturn stmt_return;
     StmtForeign stmt_foreign;
+    StmtAssign stmt_assign;
   } var;
 } Statement;
 

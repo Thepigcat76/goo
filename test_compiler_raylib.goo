@@ -1,20 +1,39 @@
 foreign puts(msg: string)
 foreign InitWindow(width: i32, height: i32, title: string)
+foreign SetTargetFPS(target: i32)
 foreign CloseWindow()
 foreign BeginDrawing()
 foreign EndDrawing()
 foreign HideCursor()
-foreign ClearBackground(r: u8, g: u8, b: u8, a: u8)
+foreign ClearBackground(r: u8)
 foreign draw_rect(x: i32, y: i32, width: i32, height: i32)
+foreign sleep(time: i32)
+foreign IsMouseButtonPressed(button: i32)
+
+get_integer :: () -> i32 {
+  return 69
+}
 
 main :: () {
   InitWindow(400, 400, "Hello")
-  HideCursor()
+  SetTargetFPS(60)
+
+  x := 0
+  y := 0
 
   for {
     BeginDrawing()
-    ClearBackground(4294967295, 255, 255, 255)
-    draw_rect(20, 30, 60, 10)
+    ClearBackground(0)
+
+    if IsMouseButtonPressed(0) {
+      y = y + 1
+    }
+
+    if IsMouseButtonPressed(1) {
+      x = x + 1
+    }
+
+    draw_rect(x, y, 20, 20)
     EndDrawing()
   }
 

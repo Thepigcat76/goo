@@ -24,8 +24,15 @@ typedef enum {
 } CompilerStep;
 
 typedef struct {
-  Hashmap(Ident *, size_t) symbol_table;
+  size_t offset;
+  size_t size;
+} StackObject;
+
+typedef struct {
+  Hashmap(Ident *, StackObject) symbol_table;
   size_t sp_offset;
+
+  size_t sub_stack_size_ins_idx;
 } Frame;
 
 typedef enum {

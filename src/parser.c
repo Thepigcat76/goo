@@ -4,6 +4,7 @@
 #include "lilc/eq.h"
 #include "lilc/hash.h"
 #include "lilc/panic.h"
+#include <lilc/hashmap.h>
 #include <lilc/log.h>
 #include <stdarg.h>
 #include <stdbool.h>
@@ -912,6 +913,9 @@ static OptionalExpr parse_expr(Parser *parser) {
              .var = {.expr_call = {.function = ident, .args = exprs}}});
       } else {
         fprintf(stderr, "Attempted to call unknown function %s\n", ident);
+        hashmap_foreach(&parser->custom_functions, Ident * key,
+                        ExprFunction * val,
+                        { printf("Function Name: %s\n", *key); });
         exit(1);
       }
     } else if (parser->peek_tok->type == TOKEN_LCURLY) {
@@ -1427,10 +1431,10 @@ static OptionalExpr parse_expr1(Parser *parser, Precedence prec) {
     next_token(parser);
     left_expr = parse_array_access(parser, left_expr);
   }
-  
-  //char left_expr_buf[512];
-  //expr_print(left_expr_buf, &left_expr);
-  //log_debug("Left expr: %s", left_expr_buf);
+
+  // char left_expr_buf[512];
+  // expr_print(left_expr_buf, &left_expr);
+  // log_debug("Left expr: %s", left_expr_buf);
 
   while (tok_is_op(parser->peek_tok) &&
          prec < op_to_prec(tok_to_bin_op(parser->peek_tok))) {
@@ -1589,6 +1593,7 @@ static Statement parse_stmt(Parser *parser) {
       StmtDecl stmt_decl = parse_decl_stmt(parser, typed);
       return (Statement){.type = STMT_DECL, .var = {.stmt_decl = stmt_decl}};
     } else {
+      log_debug("Nvm, its an expr");
       goto parse_expr;
     }
     exit(1);
@@ -1620,11 +1625,37 @@ static Statement parse_stmt(Parser *parser) {
   case TOKEN_BOOL:
   parse_expr: {
     OptionalExpr expr = parse_expr1(parser, PREC_LOWEST);
+    log_debug("Expr type: %i", expr.present ? expr.expr.type : -1);
     if (expr.present) {
+      if ((expr.expr.type == EXPR_IDENT ||
+           expr.expr.type == EXPR_STRUCT_ACCESS) &&
+          parser->peek_tok->type == TOKEN_ASSIGN) {
+        // cur_tok is TOKEN_ASSIGN
+        next_token(parser);
+        // cur_tok is right expr
+        next_token(parser);
+        OptionalExpr right_expr = parse_expr1(parser, PREC_LOWEST);
+        if (!right_expr.present) {
+          log_error("Failed to parse right-hand expression of StmtAssign, "
+                    "error: %s",
+                    right_expr.error_msg);
+          exit(1);
+        }
+        return (Statement){
+            .type = STMT_ASSIGN,
+            .var = {.stmt_assign = {
+                        .left_ident_type = expr.expr.type == EXPR_IDENT
+                                               ? ACCESS_TYPE_IDENT
+                                               : ACCESS_TYPE_STRUCT_ACCESS,
+                        .left_ident = {.ident = expr.expr.var.expr_ident.ident},
+                        .right_expr = right_expr.expr,
+                        .assign_type = ASSIGN_REGULAR}}};
+      }
       return (Statement){.type = STMT_EXPR,
                          .var = {.stmt_expr = {.expr = expr.expr}}};
     }
-    fprintf(stderr, "Failed to parse expression statement\n");
+    fprintf(stderr, "Failed to parse expression statement, error msg: %s\n",
+            expr.error_msg);
     exit(1);
   }
   case TOKEN_DECL_CONST: {

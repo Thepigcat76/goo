@@ -10,7 +10,8 @@ static char *obj_to_string(Object *val_ptr) {
   return obj_cast_string(&obj);
 }
 
-#define OBJ_TO_STRING(val_ptr) obj_cast_string(obj_cast(&STRING_BUILTIN_TYPE, val_ptr))
+#define OBJ_TO_STRING(val_ptr)                                                 \
+  obj_cast_string(obj_cast(&STRING_BUILTIN_TYPE, val_ptr))
 
 const Object UNIT_OBJ = {.type = OBJECT_UNIT};
 
@@ -441,10 +442,12 @@ Object evaluator_eval_expr(Evaluator *evaluator, Expression *expr) {
     Object right_obj =
         evaluator_eval_expr(evaluator, expr->var.expr_bin_op.right);
 
-    int left = obj_try_cast_int(&left_obj,
-                                "Left object (%s) of bin expr is not an integer\n", obj_to_string(&left_obj));
-    int right = obj_try_cast_int(&right_obj,
-                                 "Right object (%s) of bin expr is not an integer\n", obj_to_string(&right_obj));
+    int left = obj_try_cast_int(
+        &left_obj, "Left object (%s) of bin expr is not an integer\n",
+        obj_to_string(&left_obj));
+    int right = obj_try_cast_int(
+        &right_obj, "Right object (%s) of bin expr is not an integer\n",
+        obj_to_string(&right_obj));
 
     switch (op) {
     case BIN_OP_ADD: {
@@ -532,6 +535,41 @@ OptionalObject evaluator_eval_stmt(Evaluator *evaluator, Statement *stmt) {
       Object ret_val =
           evaluator_eval_expr(evaluator, &stmt->var.stmt_return.ret_val);
       return (OptionalObject){.obj = ret_val, .present = true};
+    }
+    return EMPTY_OBJECT;
+  }
+  case STMT_ASSIGN: {
+    StmtAssign stmt_assign = stmt->var.stmt_assign;
+
+    Object right_obj = evaluator_eval_expr(evaluator, &stmt_assign.right_expr);
+
+    switch (stmt_assign.assign_type) {
+    case ASSIGN_ADD: {
+      break;
+    }
+    case ASSIGN_SUB: {
+      break;
+    }
+    case ASSIGN_MUL: {
+      break;
+    }
+    case ASSIGN_DIV: {
+      break;
+    }
+    default: {
+      break;
+    }
+    }
+
+    switch (stmt_assign.left_ident_type) {
+    case ACCESS_TYPE_IDENT: {
+      environment_add(evaluator->cur_env, &stmt_assign.left_ident.ident,
+                      right_obj);
+      break;
+    }
+    case ACCESS_TYPE_STRUCT_ACCESS: {
+      break;
+    }
     }
     return EMPTY_OBJECT;
   }
