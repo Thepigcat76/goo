@@ -1,0 +1,1 @@
+foreign puts(s: string) -> i32

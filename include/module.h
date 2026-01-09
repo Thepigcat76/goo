@@ -1,5 +1,7 @@
 #pragma once
 
+/* Every file is its own module. Relevant for importing and compilation */
+
 #include "ast.h"
 #include <lilc/alloc.h>
 

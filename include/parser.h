@@ -2,6 +2,7 @@
 
 #include "lexer.h"
 #include "lilc/hashmap.h"
+#include "preprocess.h"
 #include "types.h"
 #include "ast.h"
 #include <stdbool.h>
@@ -28,6 +29,8 @@ typedef struct {
   Hashmap(Ident *, TypeExpr) custom_types;
   Hashmap(Ident *, ExprFunction) custom_functions;
   Ident *foreign_functions;
+  PpDirective *pp_dirs;
+  size_t *pp_dir_conditionals;
   const char *source;
   const char *filename;
 } Parser;

@@ -44,30 +44,6 @@ static Object *environment_get(Environment *environment, const Ident *symbol,
   return res;
 }
 
-static int strv_hash(const void *a) {
-  const char *str = (char *)a;
-  int hash = 5381;
-  int c;
-
-  while ((c = (unsigned char)*str++)) {
-    hash = ((hash << 5) + hash) + c;
-  }
-
-  if (hash < 0) {
-    hash = -hash;
-  }
-
-  return hash;
-}
-
-static bool strv_eq(const void *a, const void *b) { return strcmp(a, b) == 0; }
-
-static int str_ptrv_hash(const void *a) { return strv_hash(*(char **)a); }
-
-static bool str_ptrv_eq(const void *a, const void *b) {
-  return strv_eq(*(char **)a, *(char **)b);
-}
-
 static void evaluator_envs_push_copy(Evaluator *evaluator,
                                      Environment *env_to_copy) {
   Environment new_env = {.env = hashmap_new(Ident, Object, &HEAP_ALLOCATOR,

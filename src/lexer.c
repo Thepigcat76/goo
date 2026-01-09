@@ -161,7 +161,7 @@ void lexer_tok_print(char *buf, const Token *tok) {
   }
 }
 
-static bool next_char(Lexer *lexer) {
+static bool next_char_count_newline(Lexer *lexer) {
   lexer->cur_char++;
   if (*lexer->cur_char == '\n') {
     lexer->pos = 0;
@@ -170,6 +170,10 @@ static bool next_char(Lexer *lexer) {
     lexer->pos++;
   }
   return *lexer->cur_char != '\0';
+}
+
+static bool next_char(Lexer *lexer) {
+  return next_char_count_newline(lexer);
 }
 
 void lexer_tokenize(Lexer *lexer, const char *src, const char *filename) {
@@ -188,11 +192,9 @@ void lexer_tokenize(Lexer *lexer, const char *src, const char *filename) {
         next_char(lexer);
       } while (*lexer->cur_char == ' ' || *lexer->cur_char == '\n');
       continue;
-    } else if (*lexer->cur_char == '#') {
-      size_t len = 0;
+    } else if (*lexer->cur_char == '/' && *(lexer->cur_char + 1) == '/') {
       while (*(lexer->cur_char + 1) != '\n' && *(lexer->cur_char + 1) != '\0') {
         next_char(lexer);
-        len++;
       }
       next_char(lexer);
       continue;
@@ -275,7 +277,6 @@ void lexer_tokenize(Lexer *lexer, const char *src, const char *filename) {
         int_lit[i++] = *lexer->cur_char;
         next_char(lexer);
       } while (*lexer->cur_char >= '0' && *lexer->cur_char <= '9');
-      lexer->cur_char--;
       int_lit[i] = '\0';
       tok = (Token){.type = TOKEN_INT,
                     .var = {.integer = atoi(int_lit)},
@@ -371,8 +372,8 @@ void lexer_tokenize(Lexer *lexer, const char *src, const char *filename) {
                     .line = lexer->line,
                     .begin = lexer->cur_char,
                     .len = 1};
-    } else if (*lexer->cur_char == '+') {
-      tok = (Token){.type = TOKEN_PLUS,
+    } else if (*lexer->cur_char == '#') {
+      tok = (Token){.type = TOKEN_HASH,
                     .begin_pos = lexer->pos,
                     .line = lexer->line,
                     .begin = lexer->cur_char,
@@ -408,11 +409,20 @@ void lexer_tokenize(Lexer *lexer, const char *src, const char *filename) {
                       .len = 1};
       }
     } else if (*lexer->cur_char == '=') {
-      tok = (Token){.type = TOKEN_ASSIGN,
-                    .begin_pos = lexer->pos,
-                    .line = lexer->line,
-                    .begin = lexer->cur_char,
-                    .len = 1};
+      if (*(lexer->cur_char + 1) == '=') {
+        tok = (Token){.type = TOKEN_EQUALS,
+                      .begin_pos = lexer->pos,
+                      .line = lexer->line,
+                      .begin = lexer->cur_char,
+                      .len = 2};
+        next_char(lexer);
+      } else {
+        tok = (Token){.type = TOKEN_ASSIGN,
+                      .begin_pos = lexer->pos,
+                      .line = lexer->line,
+                      .begin = lexer->cur_char,
+                      .len = 1};
+      }
     } else if (*lexer->cur_char == '[') {
       tok = (Token){.type = TOKEN_LSQUARE,
                     .begin_pos = lexer->pos,
@@ -461,4 +471,5 @@ void lexer_tokenize(Lexer *lexer, const char *src, const char *filename) {
     array_add(lexer->tokens, tok);
     next_char(lexer);
   }
+  log_debug("[LEXER] Lines in file: %d", lexer->line);
 }

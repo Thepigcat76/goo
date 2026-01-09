@@ -1,9 +1,12 @@
 foreign puts(msg: string)
 
-comptime TEST :: 2100
-comptime TEXT :: "A comptime text lol"
+#comptime PRINT_TEST :: 400
+#comptime TEST :: 2100
+#comptime TEXT :: "A comptime text lol"
 
 main :: () {
+#if 400 == 400 {
   print_int(TEST)
+#}
   println(TEXT)
 }

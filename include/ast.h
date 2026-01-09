@@ -6,6 +6,7 @@
 typedef enum {
   PREC_LOWEST,
   PREC_SUM,
+  PREC_CMP,
   PREC_PRODUCT,
 } Precedence;
 
@@ -103,6 +104,7 @@ typedef enum {
   BIN_OP_MUL,
   BIN_OP_DIV,
 
+  BIN_OP_EQ,
   BIN_OP_LT,
   BIN_OP_GT,
   BIN_OP_LTE,

@@ -1,21 +1,21 @@
 main :: () -> i32 {
-  #my_array := []i32{0, 1, 2, 3, 69}
-  #last_num := my_array[4]
-  #println(cast<string>(last_num))
+  //my_array := []i32{0, 1, 2, 3, 69}
+  //last_num := my_array[4]
+  //println(cast<string>(last_num))
   
-  #print_hello := true
+  //print_hello := true
 
-  #if print_hello {
-  #  println("Hello")
-  #}
+  //if print_hello {
+  //  println("Hello")
+  //}
 
-  #for 0..100 {
-  #  println(cast<string>(it))
-  #}
+  //for 0..100 {
+  //  println(cast<string>(it))
+  //}
 
-  #for i in 0..100 {
-  #  println(cast<string>(i))
-  #}
+  //for i in 0..100 {
+  //  println(cast<string>(i))
+  //}
 
   msg: string = format("Hello %, how are you %?", "Alexander", "Slay")
 

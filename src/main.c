@@ -79,7 +79,7 @@ void run_program(char *buf, const char *filename) {
 
   puts("---");
 
-  PreProcessor preprocessor = preprocessor_new(parser.statements);
+  PreProcessor preprocessor = preprocessor_new(parser.statements, parser.pp_dirs);
 
   preprocessor_process(&preprocessor);
 

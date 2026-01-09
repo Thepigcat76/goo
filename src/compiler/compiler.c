@@ -5,7 +5,7 @@
 #include <complex.h>
 #include <elf.h>
 #include <endian.h>
-#include <iostream>
+#include <stdio.h>
 #include <lilc/alloc.h>
 #include <lilc/hashmap.h>
 #include <lilc/log.h>
@@ -383,6 +383,8 @@ static uint32_t apply_lit_bin_op(uint32_t a, uint32_t b, BinOperator op) {
     return a * b;
   case BIN_OP_DIV:
     return a / b;
+  case BIN_OP_EQ:
+    return a == b;
   case BIN_OP_LT:
     return a < b;
   case BIN_OP_GT:
