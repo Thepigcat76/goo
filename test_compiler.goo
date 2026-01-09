@@ -1,13 +1,9 @@
 foreign puts(msg: string)
 
-main :: () {
-  #x := 100
-  #print_int(x)
-  #y := 500
-  #x = y + 10
- #print_int(x)
+comptime TEST :: 2100
+comptime TEXT :: "A comptime text lol"
 
-  for {
-    println("Hello")
-  }
+main :: () {
+  print_int(TEST)
+  println(TEXT)
 }

@@ -2,6 +2,7 @@
 #include "lilc/alloc.h"
 #include "lilc/array.h"
 #include "lilc/panic.h"
+#include <lilc/log.h>
 #include <stdio.h>
 #include <string.h>
 

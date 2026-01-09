@@ -13,6 +13,7 @@
 
 #include "../include/builtins.h"
 #include "../include/checker.h"
+#include "../include/preprocess.h"
 #include "../include/compiler.h"
 #include "../include/evaluator.h"
 #include "../include/lexer.h"
@@ -77,6 +78,10 @@ void run_program(char *buf, const char *filename) {
                   { puts(**key); });
 
   puts("---");
+
+  PreProcessor preprocessor = preprocessor_new(parser.statements);
+
+  preprocessor_process(&preprocessor);
 
   TypeChecker checker = checker_new(parser.statements);
 #ifdef TARGET_WEB
@@ -146,7 +151,7 @@ void function_println_buffer_clear(void) { println_buf[0] = '\0'; }
 int main(void) {
   char file_buf[4096];
   #ifdef COMPILER
-  FILE *file = fopen("test_compiler_raylib.goo", "r");
+  FILE *file = fopen("test_compiler.goo", "r");
   #elif defined (INTERPRETER)
   FILE *file = fopen("test_interpreter.goo", "r");
   #endif

@@ -910,7 +910,8 @@ static OptionalExpr parse_expr(Parser *parser) {
 
         return OPTIONAL_EXPR(
             {.type = EXPR_CALL,
-             .var = {.expr_call = {.function = ident, .args = exprs}}});
+             .var = {.expr_call = {.function = ident,
+                                   .args = exprs,}}});
       } else {
         fprintf(stderr, "Attempted to call unknown function %s\n", ident);
         hashmap_foreach(&parser->custom_functions, Ident * key,
@@ -1598,6 +1599,17 @@ static Statement parse_stmt(Parser *parser) {
     }
     exit(1);
   }
+  case TOKEN_COMPTIME: {
+    // Cur tok is name of variable
+    next_token(parser);
+
+    TokenType peek_type = parser->peek_tok->type;
+    bool typed = peek_type == TOKEN_COLON;
+
+    StmtDecl stmt_decl = parse_decl_stmt(parser, typed);
+    stmt_decl.comptime = true;
+    return (Statement){.type = STMT_DECL, .var = {.stmt_decl = stmt_decl}};
+  }
   case TOKEN_FOREIGN: {
     if (parser->peek_tok->type != TOKEN_IDENT) {
       log_error("Expected function name after TOKEN_FOREIGN");
@@ -1739,6 +1751,8 @@ static Statement parse_stmt(Parser *parser) {
 void parser_parse(Parser *parser) {
   parser->cur_tok = parser->tokens;
   parser->peek_tok = parser->tokens + 1;
+
+  log_info("[Parser] Start parsing");
 
   while (parser->cur_tok->type != TOKEN_EOF) {
     Statement stmt = parse_stmt(parser);

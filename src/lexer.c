@@ -2,6 +2,7 @@
 #include "lilc/alloc.h"
 #include "lilc/array.h"
 #include <ctype.h>
+#include <lilc/log.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
@@ -176,6 +177,8 @@ void lexer_tokenize(Lexer *lexer, const char *src, const char *filename) {
     filename = "<inline>";
   }
 
+  log_info("[LEXER] Start tokenization");
+
   lexer->cur_char = src;
 
   while (*lexer->cur_char != '\0') {
@@ -219,6 +222,8 @@ void lexer_tokenize(Lexer *lexer, const char *src, const char *filename) {
         tok.type = TOKEN_STRUCT;
       } else if (strcmp(ident, "if") == 0) {
         tok.type = TOKEN_IF;
+      } else if (strcmp(ident, "comptime") == 0) {
+        tok.type = TOKEN_COMPTIME;
       } else if (strcmp(ident, "in") == 0) {
         tok.type = TOKEN_IN;
       } else if (strcmp(ident, "it") == 0) {

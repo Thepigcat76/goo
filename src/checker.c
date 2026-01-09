@@ -5,6 +5,7 @@
 #include "lilc/array.h"
 #include "lilc/eq.h"
 #include "lilc/hash.h"
+#include <lilc/log.h>
 #include <stdio.h>
 
 static const CheckerContext EMPTY_CONTEXT = {0};
@@ -638,6 +639,8 @@ static Type check_stmt(TypeChecker *checker, Statement *stmt, CheckerContext con
 }
 
 void checker_check(TypeChecker *checker) {
+  log_info("[TYPECHECKER] Start type checking");
+  
   for (size_t i = 0; i < array_len(checker->stmts); i++) {
     check_stmt(checker, &checker->stmts[i], EMPTY_CONTEXT);
   }

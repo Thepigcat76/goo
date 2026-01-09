@@ -5,6 +5,7 @@
 #include <complex.h>
 #include <elf.h>
 #include <endian.h>
+#include <iostream>
 #include <lilc/alloc.h>
 #include <lilc/hashmap.h>
 #include <lilc/log.h>
@@ -309,7 +310,7 @@ static void stack_fix_sub_stack_size(Instruction *insns, size_t index,
 
 static void expr_func_compile(Compiler *compiler, const ExprFunction *expr_func,
                               CompileContext context) {
-  log_info("New stack frame");
+  log_info("[COMPILER] Pushed new stack frame");
   compiler->cur_frame =
       (Frame){.sp_offset = 0,
               .symbol_table = hashmap_new(Ident *, StackObject, &HEAP_ALLOCATOR,
@@ -365,6 +366,11 @@ static void expr_func_compile(Compiler *compiler, const ExprFunction *expr_func,
   }
 
   insns_add_return(compiler);
+
+  Frame *cur_frame = &compiler->cur_frame;
+  hashmap_free(&cur_frame->symbol_table);
+
+  memset(&compiler->cur_frame, 0, sizeof(Frame));
 }
 
 static uint32_t apply_lit_bin_op(uint32_t a, uint32_t b, BinOperator op) {
@@ -869,6 +875,8 @@ static const CompileContext GLOBAL_COMPILE_CONTEXT = {
 void compiler_compile(Compiler *compiler) {
   compiler->step = COMPILE_STEP_COMPILE_SRC;
 
+  log_info("[COMPILER] Start compiling");
+
   size_t stmts_len = array_len(compiler->stmts);
   while (compiler->stmt_index < stmts_len) {
     stmt_compile(compiler, &compiler->stmts[compiler->stmt_index],
@@ -891,6 +899,8 @@ void compiler_generate(Compiler *compiler) {
   if (compiler->step != COMPILE_STEP_COMPILE_SRC)
     return;
   compiler->step = COMPILE_STEP_GENERATE_MACHINE;
+
+  log_info("[COMPILER] Start generating machine code");
 
   compiler->program_data = malloc(512);
   size_t program_data_offset = 0;
@@ -1064,6 +1074,8 @@ void compiler_write(Compiler *compiler, FILE *file) {
   if (compiler->step != COMPILE_STEP_GENERATE_MACHINE)
     return;
   compiler->step = COMPILE_STEP_OUTPUT_OBJECT;
+
+  log_info("[COMPILER] Start writing object file");
 
   Object obj = {0};
 
