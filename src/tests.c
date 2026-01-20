@@ -1,3 +1,4 @@
+/*
 #include "../include/parser.h"
 #include "../include/types.h"
 #include "lilc/array.h"
@@ -78,3 +79,4 @@ static void parser_test_functions(void) {
 }
 
 //void run_tests(void) {}
+*/

@@ -1,0 +1,87 @@
+foreign puts(msg: string)
+foreign InitWindow(width: i32, height: i32, title: string)
+foreign SetTargetFPS(target: i32)
+foreign CloseWindow()
+foreign BeginDrawing()
+foreign EndDrawing()
+foreign HideCursor()
+foreign ClearBackground(r: u8)
+foreign draw_rect(x: i32, y: i32, width: i32, height: i32)
+foreign sleep(time: i32)
+foreign IsMouseButtonPressed(button: i32) -> i32
+foreign WindowShouldClose() -> i32
+foreign printf(fmt: string, i: i32)
+foreign IsKeyDown(button: i32) -> i32
+foreign draw_circle(x: i32, y: i32, radius: i32)
+
+#comptime KEY_W :: 87
+#comptime KEY_S :: 83
+
+#comptime KEY_UP :: 265
+#comptime KEY_DOWN :: 264
+
+#comptime WINDOW_WIDTH :: 800
+#comptime WINDOW_HEIGHT :: 800
+
+main :: () {
+  InitWindow(WINDOW_WIDTH, WINDOW_HEIGHT, "Hello")
+  SetTargetFPS(60)
+
+  platform_y := 0
+  platform_y1 := 0
+
+  circle_x := 0
+  circle_y := 0
+
+  left_to_right := 1
+
+  for {
+    BeginDrawing()
+    ClearBackground(0)
+
+    if WindowShouldClose() {
+      CloseWindow()
+      exit(0)
+    }
+
+    if IsKeyDown(KEY_S) {
+      platform_y = platform_y + 5
+    }
+
+    if IsKeyDown(KEY_W) {
+     platform_y = platform_y - 5
+    }
+
+    if IsKeyDown(KEY_DOWN) {
+      platform_y1 = platform_y1 + 5
+    }
+
+    if IsKeyDown(KEY_UP) {
+     platform_y1 = platform_y1 - 5
+    }
+
+    draw_rect(0, platform_y, 200, 40)
+
+    draw_rect(600, platform_y1, 200, 40)
+
+    draw_circle(circle_x, circle_y, 10)
+
+    if left_to_right > 0 {
+      circle_x = circle_x + 4
+      circle_y = circle_y + 4
+    }
+
+    if left_to_right > 1 {
+      circle_x = circle_x - 8
+      circle_y = circle_y - 8
+    }
+
+    if circle_x > 400 {
+      left_to_right = 2
+    }
+
+    EndDrawing()
+  }
+
+  CloseWindow()
+}

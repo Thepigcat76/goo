@@ -5,7 +5,6 @@
 #include <complex.h>
 #include <elf.h>
 #include <endian.h>
-#include <stdio.h>
 #include <lilc/alloc.h>
 #include <lilc/hashmap.h>
 #include <lilc/log.h>
@@ -36,9 +35,10 @@ static inline DataSection data_section_new(void) {
                                        str_ptrv_hash, str_ptrv_eq, NULL)};
 }
 
-Compiler compiler_new(const Statement *statements) {
+Compiler compiler_new(const Statement *statements, TypeTable *type_tables) {
   return (Compiler){
       .stmts = statements,
+      .type_tables = type_tables,
       .relocations = array_new(Relocation, &HEAP_ALLOCATOR),
       .insns = array_new_capacity(Instruction, 32, &HEAP_ALLOCATOR),
       .symbols = hashmap_new(Ident *, size_t, &HEAP_ALLOCATOR, str_ptrv_hash,
@@ -48,6 +48,10 @@ Compiler compiler_new(const Statement *statements) {
       .data_section = data_section_new(),
       .rodata_section = data_section_new(),
       .elf64_relocations = array_new(Elf64_Relocation, &HEAP_ALLOCATOR)};
+}
+
+static TypeTable *global_type_table(const Compiler *compiler) {
+  return &compiler->type_tables[0];
 }
 
 static void data_section_print(char *buf, const DataSection *ds) {
@@ -151,7 +155,7 @@ static inline void stack_frame_push(Compiler *compiler) {
 }
 
 static inline void stack_frame_reset(Compiler *compiler) {
-  Instruction ins = INS_MOV_R32_R32(REG_ESP, REG_EBP);
+  Instruction ins = INS_MOV_R64_R64(REG_ESP, REG_EBP);
   insns_add(compiler, ins);
 }
 
@@ -178,6 +182,14 @@ expr_string_lit_compile(Compiler *compiler,
   return offset;
 }
 
+typedef enum {
+  COMPARISON_EQ,
+  COMPARISON_LT,
+  COMPARISON_GT,
+  COMPARISON_LTE,
+  COMPARISON_GTE,
+} ComparisonType;
+
 typedef struct {
   enum {
     EXPR_COMPILE_RES_RODATA_OFFSET,
@@ -185,6 +197,7 @@ typedef struct {
     EXPR_COMPILE_RES_IMM32,
     EXPR_COMPILE_RES_STACK_OBJ,
     EXPR_COMPILE_RES_REG,
+    EXPR_COMPILE_RES_COMPARISON,
   } type;
   union {
     struct {
@@ -194,18 +207,10 @@ typedef struct {
     uint32_t imm32;
     StackObject stack_obj;
     Register reg;
+    ComparisonType comparison;
   } var;
   size_t size;
 } ExprCompileResult;
-
-typedef struct {
-  enum {
-    EXPR_CALL_RES_IMM32,
-  } type;
-  union {
-    uint32_t imm32;
-  } var;
-} ExprCallResult;
 
 #define EXPR_COMPILE_RES(_type, _size, ...)                                    \
   (ExprCompileResult) { .type = _type, .var = {__VA_ARGS__}, .size = _size }
@@ -250,6 +255,10 @@ static ExprCompileResult expr_call_compile(Compiler *compiler,
   // } else {
   insns_add(compiler, INS_CALL);
   //}
+
+  if (strv_eq(expr_call->function, "IsKeyDown")) {
+    insns_add(compiler, INS_MOV_R8_R32(REG_EAX, REG_EAX));
+  }
 
   return EXPR_COMPILE_RES(EXPR_COMPILE_RES_REG, sizeof(uint64_t),
                           .reg = REG_EAX);
@@ -502,7 +511,9 @@ static ExprCompileResult expr_bin_op_compile(Compiler *compiler,
       break;
     }
     case EXPR_COMPILE_RES_RODATA_OFFSET:
-    case EXPR_COMPILE_RES_DATA_OFFSET:
+    case EXPR_COMPILE_RES_DATA_OFFSET: {
+      break;
+    }
     case EXPR_COMPILE_RES_STACK_OBJ: {
       StackObject stack_obj = res_left.var.stack_obj;
       insns_add(compiler, INS_MOV_R64_DISP32_R64(
@@ -515,8 +526,13 @@ static ExprCompileResult expr_bin_op_compile(Compiler *compiler,
         break;
       }
       case EXPR_COMPILE_RES_IMM32: {
-        insns_add(compiler,
-                  INS_ADD_I32_R64(IMM32_PACK(res_right.var.imm32), res_reg));
+        if (expr_bin_op->op == BIN_OP_ADD) {
+          insns_add(compiler,
+                    INS_ADD_I32_R64(IMM32_PACK(res_right.var.imm32), res_reg));
+        } else if (expr_bin_op->op == BIN_OP_SUB) {
+          insns_add(compiler,
+                    INS_SUB_I32_R64(IMM32_PACK(res_right.var.imm32), res_reg));
+        }
         return EXPR_COMPILE_RES(EXPR_COMPILE_RES_REG, sizeof(uint64_t),
                                 .reg = res_reg);
       }
@@ -532,6 +548,19 @@ static ExprCompileResult expr_bin_op_compile(Compiler *compiler,
     case EXPR_COMPILE_RES_REG:
       break;
     }
+  } else if (expr_bin_op->op == BIN_OP_EQ || expr_bin_op->op == BIN_OP_GT ||
+             expr_bin_op->op == BIN_OP_LT || expr_bin_op->op == BIN_OP_GTE ||
+             expr_bin_op->op == BIN_OP_LTE) {
+    if (res_left.type == EXPR_COMPILE_RES_STACK_OBJ) {
+      StackObject stack_obj = res_left.var.stack_obj;
+      insns_add(compiler, INS_MOV_R64_DISP32_R64(
+                              REG_EBP, IMM32_PACK(-stack_obj.offset), res_reg));
+      if (res_right.type == EXPR_COMPILE_RES_IMM32) {
+        insns_add(compiler,
+                  INS_CMP_I32_R64(res_reg, IMM32_PACK(res_right.var.imm32)));
+      }
+    }
+    return EXPR_COMPILE_RES(EXPR_COMPILE_RES_COMPARISON, sizeof(bool), .comparison = COMPARISON_GT);
   }
 }
 
@@ -603,14 +632,16 @@ static ExprCompileResult expr_compile_with_res(Compiler *compiler,
                      (CompileContext){.level = COMPILE_LEVEL_LOCAL,
                                       .function_name = NULL});
       }
-      insns_add(compiler,
-                INS_JMP_DISP8(
-                    {for_loop_begin - compiler->program_size - 2, 0, 0, 0}));
+      insns_add(compiler, INS_JMP_DISP32(IMM32_PACK(
+                              for_loop_begin - compiler->program_size - 5)));
+      log_debug("Jmp offset: %ld",
+                (int64_t)for_loop_begin - compiler->program_size - 5);
     }
     return (ExprCompileResult){0};
   }
   case EXPR_BOOLEAN_LIT: {
-    return EXPR_COMPILE_RES(EXPR_COMPILE_RES_IMM32, 4, .imm32 = expr->var.expr_boolean_literal.boolean);
+    return EXPR_COMPILE_RES(EXPR_COMPILE_RES_IMM32, 4,
+                            .imm32 = expr->var.expr_boolean_literal.boolean);
   }
   case EXPR_IF: {
     log_debug("Compiling if expression");
@@ -619,18 +650,32 @@ static ExprCompileResult expr_compile_with_res(Compiler *compiler,
     if (expr_res.type == EXPR_COMPILE_RES_REG) {
       insns_add(compiler, INS_CMP_I8_R64(expr_res.var.reg, IMM32_PACK(0)));
     }
-    size_t jne_ins_idx = array_len(compiler->insns);
+    
+    size_t jump_ins_idx = array_len(compiler->insns);
+
+    if (expr_res.type == EXPR_COMPILE_RES_COMPARISON) {
+      if (expr_res.var.comparison == COMPARISON_GT) {
+        insns_add(compiler, INS_JLE_DISP32(IMM32_PACK(0)));
+      } else {
+        log_error("This comparison type is not implemented yet");
+        exit(1);
+      }
+    } else {
     insns_add(compiler, INS_JE_DISP8(IMM32_PACK(0)));
-    size_t jne_program_size = compiler->program_size;
+    }
+    size_t jump_program_size = compiler->program_size;
     for (size_t i = 0; i < array_len(expr_if.block.statements); i++) {
       Statement *stmt = &expr_if.block.statements[i];
       stmt_compile(compiler, stmt, (CompileContext){});
     }
-    compiler->insns[jne_ins_idx].disp[0] = compiler->program_size - jne_program_size;
+    compiler->insns[jump_ins_idx].disp[0] =
+        compiler->program_size - jump_program_size;
+    log_debug("IF block size: %zu", compiler->program_size - jump_program_size);
     return (ExprCompileResult){0};
   }
   default: {
-    fprintf(stderr, "Failed to compile expr %d, not yet implemented\n", expr->type);
+    fprintf(stderr, "Failed to compile expr %d, not yet implemented\n",
+            expr->type);
     exit(1);
   }
   }
@@ -687,8 +732,17 @@ static void compiler_arg_push(Compiler *compiler, size_t arg_idx,
     if (valid) {
       insns_add(
           compiler,
-          INS_MOV_R32_DISP8_R32(
+          INS_MOV_R32_DISP8_R32_HACKY(
               REG_EBP, IMM32_PACK(256 - res->var.stack_obj.offset), arg_reg));
+    }
+    break;
+  }
+  case EXPR_COMPILE_RES_REG: {
+    Register arg_reg;
+    bool valid = reg_for_arg(&arg_reg, arg_idx);
+    log_debug("[COMPILER] reg to reg for call arg");
+    if (valid) {
+      insns_add(compiler, INS_MOV_R32_R32(res->var.reg, arg_reg));
     }
     break;
   }
@@ -866,6 +920,10 @@ static void stmt_compile(Compiler *compiler, const Statement *stmt,
       }
       }
     }
+    break;
+  }
+  // We ignore dis
+  case STMT_FOREIGN: {
     break;
   }
   }

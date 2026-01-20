@@ -9,6 +9,7 @@ foreign ClearBackground(r: u8)
 foreign draw_rect(x: i32, y: i32, width: i32, height: i32)
 foreign sleep(time: i32)
 foreign IsMouseButtonPressed(button: i32)
+foreign WindowShouldClose() -> i32
 
 get_integer :: () -> i32 {
   return 69

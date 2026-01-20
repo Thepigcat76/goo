@@ -49,6 +49,8 @@ typedef struct {
   Statement *stmts;
   Hashmap(Ident *, Expression) comptime_constants;
   PpDirective *pp_dirs;
+  Hashmap(size_t, size_t) valid_lines;
+  ssize_t pp_dir_cond_line;
 } PreProcessor;
 
 PreProcessor preprocessor_new(Statement *stmts, PpDirective *pp_dirs);

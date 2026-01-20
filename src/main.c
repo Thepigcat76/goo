@@ -1,3 +1,4 @@
+#include <lilc/log.h>
 #ifdef TARGET_WEB
 #include <emscripten.h>
 #include <emscripten/emscripten.h>
@@ -7,17 +8,17 @@
 #define KEEPALIVE
 #endif
 
-//#define INTERPRETER
+// #define INTERPRETER
 
 #define COMPILER
 
 #include "../include/builtins.h"
 #include "../include/checker.h"
-#include "../include/preprocess.h"
 #include "../include/compiler.h"
 #include "../include/evaluator.h"
 #include "../include/lexer.h"
 #include "../include/parser.h"
+#include "../include/preprocess.h"
 #include "lilc/alloc.h"
 #include "lilc/array.h"
 #include "tests.c"
@@ -79,7 +80,8 @@ void run_program(char *buf, const char *filename) {
 
   puts("---");
 
-  PreProcessor preprocessor = preprocessor_new(parser.statements, parser.pp_dirs);
+  PreProcessor preprocessor =
+      preprocessor_new(parser.statements, parser.pp_dirs);
 
   preprocessor_process(&preprocessor);
 
@@ -112,7 +114,7 @@ void run_program(char *buf, const char *filename) {
                      .var = {.expr_call = {.function = "main", .args = NULL}}};
   evaluator_eval_expr(&evaluator, &expr);
 #elif defined(COMPILER)
-  Compiler compiler = compiler_new(parser.statements);
+  Compiler compiler = compiler_new(parser.statements, checker.type_tables);
   compiler_compile(&compiler);
 
   compiler_generate(&compiler);
@@ -148,17 +150,23 @@ char *function_println_buffer(void) { return println_buf; }
 KEEPALIVE
 void function_println_buffer_clear(void) { println_buf[0] = '\0'; }
 
-int main(void) {
+int main(int argc, char **argv) {
+  char *filename;
+  if (argc >= 2) {
+    filename = argv[1];
+  } else {
+#ifdef COMPILER
+    filename = "pong.goo";
+#elif defined(INTERPRETER)
+    filename = "test_interpreter.goo";
+#endif
+  }
+  FILE *file = fopen(filename, "r");
   char file_buf[4096];
-  #ifdef COMPILER
-  FILE *file = fopen("test_compiler.goo", "r");
-  #elif defined (INTERPRETER)
-  FILE *file = fopen("test_interpreter.goo", "r");
-  #endif
   size_t n = fread(file_buf, 1, sizeof(file_buf) - 1, file);
   file_buf[n] = '\0';
 
-  run_program(file_buf, "test1.goo");
+  run_program(file_buf, filename);
 
   fclose(file);
 

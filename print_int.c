@@ -10,13 +10,16 @@ void draw_white_rect() {
   DrawRectangle(0, 0, 100, 100, WHITE);
 }
 
+void draw_circle(int x, int y, int radius) {
+  DrawCircle(x, y, radius, WHITE);
+}
+
 void print_int(int i) {
-  INT_MAX
   printf("%d\n", i);
 }
 
-int is_mouse_button_released(int button) {
-  return IsMouseButtonReleased(button) ? 1 : 0;
+int is_key_down(int key) {
+  return IsKeyDown(key);
 }
 
 void print_int_ptr(int *ip) {

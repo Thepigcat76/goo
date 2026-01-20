@@ -451,6 +451,9 @@ Object evaluator_eval_expr(Evaluator *evaluator, Expression *expr) {
     case BIN_OP_GTE: {
       return OBJ_INT(left >= right);
     }
+    case BIN_OP_EQ: {
+      return OBJ_INT(left == right);
+    }
     }
   }
   case EXPR_STRUCT_INIT: {

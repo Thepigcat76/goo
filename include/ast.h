@@ -294,4 +294,7 @@ typedef struct _stmt {
     StmtForeign stmt_foreign;
     StmtAssign stmt_assign;
   } var;
+  size_t line;
+  size_t pos;
+  size_t len;
 } Statement;

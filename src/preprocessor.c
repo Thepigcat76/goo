@@ -1,11 +1,18 @@
 #include "../include/preprocess.h"
 #include "lilc/log.h"
+#include <lilc/alloc.h>
+#include <lilc/array.h>
+#include <lilc/eq.h>
+#include <lilc/hash.h>
 
 PreProcessor preprocessor_new(Statement *stmts, PpDirective *pp_dirs) {
-  return (PreProcessor){.stmts = stmts,
-                        .pp_dirs = pp_dirs,
-                        .comptime_constants =
-                            hashmap_new(Ident *, Expression, &HEAP_ALLOCATOR,
+  return (PreProcessor){
+      .stmts = stmts,
+      .pp_dirs = pp_dirs,
+      .pp_dir_cond_line = -1,
+      .valid_lines = hashmap_new(size_t, size_t, &HEAP_ALLOCATOR, size_tv_hash,
+                                 size_tv_eq, NULL),
+      .comptime_constants = hashmap_new(Ident *, Expression, &HEAP_ALLOCATOR,
                                         str_ptrv_hash, str_ptrv_eq, NULL)};
 }
 
@@ -118,6 +125,11 @@ static void pp_dir_process(PreProcessor *preprocessor, PpDirective *pp_dir) {
     log_debug("[PREPROCESSOR] Evaluated conditional preprocessor directive, "
               "result: %s",
               evaluated_cond_expr ? "true" : "false");
+
+    if (evaluated_cond_expr) {
+      size_t last_line = pp_dir->line + pp_dir_if.lines_amount;
+      hashmap_insert(&preprocessor->valid_lines, &pp_dir->line, &last_line);
+    }
     break;
   }
   default: {
@@ -126,7 +138,8 @@ static void pp_dir_process(PreProcessor *preprocessor, PpDirective *pp_dir) {
   }
 }
 
-static void stmt_process(PreProcessor *preprocessor, Statement *stmt);
+static bool stmt_process(PreProcessor *preprocessor, Statement *stmt,
+                         Statement *new_stmt);
 
 static void expr_process(PreProcessor *preprocessor, Expression *expr) {
   switch (expr->type) {
@@ -142,7 +155,7 @@ static void expr_process(PreProcessor *preprocessor, Expression *expr) {
   case EXPR_FUNCTION: {
     ExprFunction *expr_function = &expr->var.expr_function;
     for (size_t i = 0; i < array_len(expr_function->block->statements); i++) {
-      stmt_process(preprocessor, &expr_function->block->statements[i]);
+      stmt_process(preprocessor, &expr_function->block->statements[i], NULL);
     }
     break;
   }
@@ -172,7 +185,9 @@ static void expr_process(PreProcessor *preprocessor, Expression *expr) {
   case EXPR_IDENT: {
     Expression *val = hashmap_value(&preprocessor->comptime_constants,
                                     &expr->var.expr_ident.ident);
-    *expr = *val;
+    if (val != NULL) {
+      *expr = *val;
+    }
     log_debug("Preprocessor - process expression");
     break;
   }
@@ -195,9 +210,19 @@ static void expr_process(PreProcessor *preprocessor, Expression *expr) {
     break;
   }
   case EXPR_IF: {
+    log_debug("[PREPROCESSOR] - Processing if expression");
+    ExprIf *expr_if = &expr->var.expr_if;
+    expr_process(preprocessor, expr_if->condition);
+    for (size_t i = 0; i < array_len(expr_if->block.statements); i++) {
+      stmt_process(preprocessor, &expr_if->block.statements[i], NULL);
+    }
     break;
   }
   case EXPR_FOR: {
+    ExprFor *expr_for = &expr->var.expr_for;
+    for (size_t i = 0; i < array_len(expr_for->block.statements); i++) {
+      stmt_process(preprocessor, &expr_for->block.statements[i], NULL);
+    }
     break;
   }
   case EXPR_IT: {
@@ -206,7 +231,9 @@ static void expr_process(PreProcessor *preprocessor, Expression *expr) {
   }
 }
 
-static void stmt_process(PreProcessor *preprocessor, Statement *stmt) {
+static bool stmt_process(PreProcessor *preprocessor, Statement *stmt,
+                         Statement *new_stmt) {
+  // if (stmt.)
   switch (stmt->type) {
   case STMT_DECL: {
     StmtDecl *stmt_decl = &stmt->var.stmt_decl;
@@ -214,7 +241,8 @@ static void stmt_process(PreProcessor *preprocessor, Statement *stmt) {
     expr_process(preprocessor, expr_value);
 
     if (stmt_decl->comptime) {
-      log_debug("Preprocessor - processing comptime constant");
+      log_debug("[PREPROCESSOR] - processing comptime constant %s",
+                stmt_decl->name);
       hashmap_insert(&preprocessor->comptime_constants, &stmt_decl->name,
                      expr_value);
     }
@@ -236,16 +264,18 @@ static void stmt_process(PreProcessor *preprocessor, Statement *stmt) {
     break;
   }
   }
+  //*new_stmt = *stmt;
+  return true;
 }
 
 void preprocessor_process(PreProcessor *preprocessor) {
   log_info("[PREPROCESSOR] Start preprocessing");
 
-  for (size_t i = 0; i < array_len(preprocessor->stmts); i++) {
-    stmt_process(preprocessor, &preprocessor->stmts[i]);
-  }
-
   for (size_t i = 0; i < array_len(preprocessor->pp_dirs); i++) {
     pp_dir_process(preprocessor, &preprocessor->pp_dirs[i]);
+  }
+
+  for (size_t i = 0; i < array_len(preprocessor->stmts); i++) {
+    stmt_process(preprocessor, &preprocessor->stmts[i], NULL);
   }
 }

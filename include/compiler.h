@@ -1,5 +1,6 @@
 #pragma once
 
+#include "ast.h"
 #include "parser.h"
 #include <stdio.h>
 #include "ins.h"
@@ -88,6 +89,8 @@ typedef struct {
 
 typedef struct {
   const Statement *stmts;
+  TypeTable *type_tables;
+
   size_t stmt_index;
   Instruction *insns;
   Relocation *relocations;
@@ -107,7 +110,7 @@ typedef struct {
   size_t program_data_size;
 } Compiler;
 
-Compiler compiler_new(const Statement *stmts);
+Compiler compiler_new(const Statement *stmts, TypeTable *type_tables);
 
 void compiler_compile(Compiler *compiler);
 

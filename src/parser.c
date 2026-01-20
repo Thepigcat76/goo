@@ -894,9 +894,9 @@ static OptionalExpr parse_expr(Parser *parser) {
         ParseResult result = parse_expr_list(parser, exprs, TOKEN_RPAREN);
         if (!result.success) {
           DEBUG_TOK(parser->cur_tok, "Function call");
-          fprintf(
-              stderr,
-              "%s:%d:%d Encountered error parsing call args, error msg: %s\n",
+          log_debug("Function: %s", ident);
+          log_error(
+              "%s:%d:%d Encountered error parsing call args, error msg: %s",
               parser->filename, result.line, result.pos, result.error_msg);
           exit(1);
         }
@@ -917,7 +917,9 @@ static OptionalExpr parse_expr(Parser *parser) {
                                           .args = exprs,
                                       }}});
       } else {
-        fprintf(stderr, "Attempted to call unknown function %s\n", ident);
+        fprintf(stderr, "%s:%d:%d Attempted to call unknown function %s\n",
+                parser->filename, parser->cur_tok->line,
+                parser->cur_tok->begin_pos, ident);
         hashmap_foreach(&parser->custom_functions, Ident * key,
                         ExprFunction * val,
                         { printf("Function Name: %s\n", *key); });
@@ -1273,7 +1275,8 @@ static OptionalExpr parse_expr(Parser *parser) {
 
 static bool tok_is_op(const Token *tok) {
   return tok->type == TOKEN_PLUS || tok->type == TOKEN_MINUS ||
-         tok->type == TOKEN_ASTERISK || tok->type == TOKEN_SLASH || tok->type == TOKEN_EQUALS;
+         tok->type == TOKEN_ASTERISK || tok->type == TOKEN_SLASH ||
+         tok->type == TOKEN_EQUALS || tok->type == TOKEN_RANGLE;
 }
 
 static BinOperator tok_to_bin_op(const Token *tok) {
@@ -1292,6 +1295,9 @@ static BinOperator tok_to_bin_op(const Token *tok) {
   }
   case TOKEN_EQUALS: {
     return BIN_OP_EQ;
+  }
+  case TOKEN_RANGLE: {
+    return BIN_OP_GT;
   }
   default: {
     char print_buf[128];
@@ -1339,6 +1345,7 @@ static Expression parse_infix_expr(Parser *parser, Expression *left) {
   case TOKEN_MINUS:
   case TOKEN_ASTERISK:
   case TOKEN_SLASH:
+  case TOKEN_RANGLE:
   case TOKEN_EQUALS: {
     BinOperator op = tok_to_bin_op(parser->cur_tok);
     Precedence prec = op_to_prec(op);
@@ -1612,7 +1619,8 @@ static PpDirective parse_pp_dir(Parser *parser) {
   if (parser->cur_tok->type == TOKEN_COMPTIME) {
     return (PpDirective){.type = PP_DIR_COMPTIME};
   } else if (parser->cur_tok->type == TOKEN_IF) {
-    log_debug("[PARSER] Found conditional preprocessor directive in line %d.", parser->cur_tok->line);
+    log_debug("[PARSER] Found conditional preprocessor directive in line %d.",
+              parser->cur_tok->line);
 
     // cur_tok is first token of condition expr
     next_token(parser);
@@ -1631,7 +1639,7 @@ static PpDirective parse_pp_dir(Parser *parser) {
           "[PARSER] Condition expression for #if is not comptime compatible");
       exit(1);
     }
-  
+
     if (parser->peek_tok->type == TOKEN_LCURLY) {
       next_token(parser);
     } else {
@@ -1639,7 +1647,8 @@ static PpDirective parse_pp_dir(Parser *parser) {
       exit(1);
     }
 
-    array_add(parser->pp_dir_conditionals, array_len(parser->pp_dir_conditionals));
+    array_add(parser->pp_dir_conditionals,
+              array_len(parser->pp_dir_conditionals));
     return (PpDirective){.type = PP_DIR_IF,
                          .var = {.pp_dir_if = {.condition = expr.expr}}};
   }
@@ -1738,6 +1747,7 @@ static Statement parse_stmt(Parser *parser) {
     exit(1);
   }
   case TOKEN_HASH: {
+    log_debug("Found pp dir");
     size_t line = parser->cur_tok->line;
     if (parser->peek_tok->type == TOKEN_COMPTIME) {
       // cur_tok is 'comptime'
@@ -1750,13 +1760,18 @@ static Statement parse_stmt(Parser *parser) {
 
       StmtDecl stmt_decl = parse_decl_stmt(parser, typed);
       stmt_decl.comptime = true;
+      log_debug("Found comptime decl stmt");
       return (Statement){.type = STMT_DECL, .var = {.stmt_decl = stmt_decl}};
     } else if (parser->peek_tok->type == TOKEN_RCURLY) {
-      size_t last_pp_cond_idx = parser->pp_dir_conditionals[array_len(parser->pp_dir_conditionals) - 1];
+      size_t last_pp_cond_idx =
+          parser
+              ->pp_dir_conditionals[array_len(parser->pp_dir_conditionals) - 1];
       PpDirective *pp_dir = &parser->pp_dirs[last_pp_cond_idx];
       pp_dir->var.pp_dir_if.lines_amount = line - pp_dir->line;
 
-      log_debug("[PARSER] Found end of conditional pre processor directive in line %zu. Spans %zu lines.", line, pp_dir->var.pp_dir_if.lines_amount);
+      log_debug("[PARSER] Found end of conditional pre processor directive in "
+                "line %zu. Spans %zu lines.",
+                line, pp_dir->var.pp_dir_if.lines_amount);
 
       // cur_tok is 'right curly'
       next_token(parser);

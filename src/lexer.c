@@ -172,16 +172,14 @@ static bool next_char_count_newline(Lexer *lexer) {
   return *lexer->cur_char != '\0';
 }
 
-static bool next_char(Lexer *lexer) {
-  return next_char_count_newline(lexer);
-}
+static bool next_char(Lexer *lexer) { return next_char_count_newline(lexer); }
 
 void lexer_tokenize(Lexer *lexer, const char *src, const char *filename) {
   if (filename == NULL) {
     filename = "<inline>";
   }
 
-  log_info("[LEXER] Start tokenization");
+  log_info("[LEXER] Start tokenization of file: %s", filename);
 
   lexer->cur_char = src;
 
@@ -204,18 +202,21 @@ void lexer_tokenize(Lexer *lexer, const char *src, const char *filename) {
       const char *begin = lexer->cur_char;
       size_t cap = 256;
       char ident[cap];
-
       size_t i = 0;
-      do {
+
+      while (isalnum(*lexer->cur_char) || *lexer->cur_char == '_') {
         if (i >= cap - 1) {
           fprintf(stderr, "Ident too long\n");
           exit(1);
         }
         ident[i++] = *lexer->cur_char;
-        next_char(lexer);
-      } while (isalnum(*lexer->cur_char) || *lexer->cur_char == '_');
-
-      lexer->cur_char--;
+        
+        if (*(lexer->cur_char + 1) != '\0' && (isalnum(*(lexer->cur_char + 1)) || *(lexer->cur_char + 1) == '_')) {
+          next_char(lexer);
+        } else {
+          break;
+        }
+      }
       ident[i] = '\0';
 
       if (strcmp(ident, "cast") == 0) {
@@ -269,14 +270,20 @@ void lexer_tokenize(Lexer *lexer, const char *src, const char *filename) {
       size_t cap = 32;
       char int_lit[cap];
       size_t i = 0;
-      do {
+
+      while (isdigit(*lexer->cur_char)) {
         if (i >= cap - 1) {
           fprintf(stderr, "int too long\n");
           exit(1);
         }
         int_lit[i++] = *lexer->cur_char;
-        next_char(lexer);
-      } while (*lexer->cur_char >= '0' && *lexer->cur_char <= '9');
+
+        if (isdigit(*(lexer->cur_char + 1))) {
+          next_char(lexer);
+        } else {
+          break;
+        }
+      }
       int_lit[i] = '\0';
       tok = (Token){.type = TOKEN_INT,
                     .var = {.integer = atoi(int_lit)},
@@ -284,6 +291,7 @@ void lexer_tokenize(Lexer *lexer, const char *src, const char *filename) {
                     .begin_pos = lexer->pos,
                     .line = lexer->line,
                     .len = i};
+
     } else if (*lexer->cur_char == ':') {
       if (*(lexer->cur_char + 1) == ':') {
         tok = (Token){.type = TOKEN_DECL_CONST,
