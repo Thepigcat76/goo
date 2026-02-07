@@ -1,3 +1,6 @@
+#include <assert.h>
+#include <lilc/eq.h>
+#include <lilc/hashmap.h>
 #include <lilc/log.h>
 #ifdef TARGET_WEB
 #include <emscripten.h>
@@ -41,7 +44,7 @@ void function_println_use_buffer(void) {
 }
 
 KEEPALIVE
-void run_program(char *buf, const char *filename) {
+void run_program(char *buf, const char *filename, const char *output) {
   alloc_init();
 
   //  parser_test_functions();
@@ -62,6 +65,8 @@ void run_program(char *buf, const char *filename) {
   Parser parser = parser_new(lexer.tokens, buf, filename);
 
   parser_parse(&parser);
+
+  printf("AST:\n%s", ast_format(parser.statements).string);
 
   puts("---");
 
@@ -91,6 +96,16 @@ void run_program(char *buf, const char *filename) {
 #endif
   builtin_functions_init(checker.global_type_table);
 
+  hashmap_foreach(
+      &parser.imported_functions, Ident * key, FuncDescriptor * val, {
+        Expression expr = {.type = EXPR_FUNCTION,
+                           .var = {.expr_function = {.desc = *val,
+                                                     .block = NULL,
+                                                     .native_function = NULL}}};
+        type_table_add(checker.global_type_table, key, EXPR_VAR_EXPR(expr),
+                       (OptionalType){.present = false});
+      });
+
   checker_check(&checker);
 
   checker_gen_functions(&checker);
@@ -119,7 +134,7 @@ void run_program(char *buf, const char *filename) {
 
   compiler_generate(&compiler);
 
-  FILE *out_file = fopen("output/out.o", "w");
+  FILE *out_file = fopen(output, "w");
 
   compiler_write(&compiler, out_file);
 
@@ -150,23 +165,66 @@ char *function_println_buffer(void) { return println_buf; }
 KEEPALIVE
 void function_println_buffer_clear(void) { println_buf[0] = '\0'; }
 
+#define STR_CMP_OR(str, ...)                                                   \
+  _internal_str_cmp_or(str, (char *[128]){__VA_ARGS__})
+
+static bool _internal_str_cmp_or(char *base_str, char **strs) {
+  for (int i = 0; strs[i] != NULL; i++) {
+    char *str = strs[i];
+    if (strcmp(base_str, str) == 0) {
+      return true;
+    }
+  }
+  return false;
+}
+
+#define NEXT_ARG(i, argc)                                                      \
+  if (i < argc)                                                                \
+    i++;                                                                       \
+  else                                                                         \
+    break
+
+typedef struct {
+  char *output_path;
+  char *input_path;
+} CliArgs;
+
 int main(int argc, char **argv) {
-  char *filename;
-  if (argc >= 2) {
-    filename = argv[1];
-  } else {
+  CliArgs args = {0};
+
+  int i = 1;
+  while (i < argc) {
+    if (i == 1) {
+      args.input_path = argv[i];
+      NEXT_ARG(i, argc);
+    }
+
+    if (STR_CMP_OR(argv[i], "-o", "--output")) {
+      NEXT_ARG(i, argc);
+      args.output_path = argv[i];
+    }
+    NEXT_ARG(i, argc);
+  }
+
+  if (args.input_path == NULL) {
 #ifdef COMPILER
-    filename = "pong.goo";
+    args.input_path = "tests/modules.goo";
 #elif defined(INTERPRETER)
-    filename = "test_interpreter.goo";
+    args.input_path = "tests/test_interpreter.goo";
 #endif
   }
-  FILE *file = fopen(filename, "r");
+
+  if (args.output_path == NULL) {
+    args.output_path = "output/out.o";
+  }
+
+  FILE *file = fopen(args.input_path, "r");
   char file_buf[4096];
   size_t n = fread(file_buf, 1, sizeof(file_buf) - 1, file);
   file_buf[n] = '\0';
 
-  run_program(file_buf, filename);
+  run_program(file_buf, args.input_path, args.output_path);
+  log_debug("compiling: %s", args.input_path);
 
   fclose(file);
 

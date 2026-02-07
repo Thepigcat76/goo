@@ -108,6 +108,7 @@ typedef struct {
   /* Program */
   uint8_t *program_data;
   size_t program_data_size;
+  size_t program_data_capacity;
 } Compiler;
 
 Compiler compiler_new(const Statement *stmts, TypeTable *type_tables);

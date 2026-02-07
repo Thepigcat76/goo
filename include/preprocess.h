@@ -4,6 +4,7 @@
 #include <lilc/alloc.h>
 #include <lilc/eq.h>
 #include <lilc/hash.h>
+#include <lilc/hashmap.h>
 
 typedef struct {
   Expression condition;
@@ -27,6 +28,11 @@ typedef struct {
 } PpDirIncludeBytes;
 
 typedef struct {
+  char *function_name;
+  Statement stmt;
+} PpDirComptime;
+
+typedef struct {
   enum {
     PP_DIR_COMPTIME,
     PP_DIR_IF,
@@ -41,9 +47,16 @@ typedef struct {
     PpDirInclude pp_dir_include;
     PpDirIncludeStr pp_dir_include_str;
     PpDirIncludeBytes pp_dir_include_bytes;
+    PpDirComptime pp_dir_comptime;
   } var;
   size_t line;
 } PpDirective;
+
+typedef struct {
+  bool builtin;
+  Expression (*execute)(Expression *objects);
+  ExprFunction expr_function;
+} ComptimeBuiltinFunction;
 
 typedef struct {
   Statement *stmts;
@@ -51,6 +64,7 @@ typedef struct {
   PpDirective *pp_dirs;
   Hashmap(size_t, size_t) valid_lines;
   ssize_t pp_dir_cond_line;
+  Hashmap(char *, ComptimeBuiltinFunction) comptime_functions;
 } PreProcessor;
 
 PreProcessor preprocessor_new(Statement *stmts, PpDirective *pp_dirs);

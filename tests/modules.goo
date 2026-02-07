@@ -1,0 +1,5 @@
+#import "files"
+
+main :: () {
+  file_open("Hello")
+}

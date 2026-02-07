@@ -1,4 +1,6 @@
-#include "../../include/ins.h"
+#include "../include/ins.h"
+#include <lilc/log.h>
+#include <stdint.h>
 
 static inline void emit_bytes(const uint8_t *bytes, size_t amount,
                               uint8_t *out_bytes) {
@@ -25,6 +27,32 @@ uint8_t mod_rm_gen(ModRM mod_rm) {
   return mod_rm_byte;
 }
 
+static size_t imm_gen(const Instruction *ins, uint8_t *ins_bytes,
+                      size_t ins_len) {
+  size_t imm_len;
+  if (ins->flags.imm8) {
+    imm_len = 1;
+  } else {
+    imm_len = 4;
+  }
+  if (ins_bytes != NULL)
+    emit_bytes(ins->imm, imm_len, ins_bytes + ins_len);
+  return imm_len;
+}
+
+static size_t disp_gen(const Instruction *ins, uint8_t *ins_bytes,
+                       size_t ins_len) {
+  size_t disp_len;
+  if (ins->mod_rm.mod == MOD_MEM_8BIT_DISP) {
+    disp_len = 1;
+  } else {
+    disp_len = 4;
+  }
+  if (ins_bytes != NULL)
+    emit_bytes(ins->disp, disp_len, ins_bytes + ins_len);
+  return disp_len;
+}
+
 size_t ins_gen(const Instruction *ins, uint8_t *ins_bytes) {
   size_t ins_len = 0;
 
@@ -49,28 +77,24 @@ size_t ins_gen(const Instruction *ins, uint8_t *ins_bytes) {
     ins_len++;
   }
 
-  if (flags.has_disp) {
-    size_t disp_len;
-    if (ins->mod_rm.mod == MOD_MEM_8BIT_DISP) {
-      disp_len = 1;
-    } else {
-      disp_len = 4;
+  if (!flags.switch_imm_disp) {
+    if (flags.has_disp) {
+      ins_len += disp_gen(ins, ins_bytes, ins_len);
     }
-    if (ins_bytes != NULL)
-      emit_bytes(ins->disp, disp_len, ins_bytes + ins_len);
-    ins_len += disp_len;
-  }
 
-  if (flags.has_imm) {
-    size_t imm_len;
-    if (ins->flags.imm8) {
-      imm_len = 1;
-    } else {
-      imm_len = 4;
+    if (flags.has_imm) {
+      ins_len += imm_gen(ins, ins_bytes, ins_len);
     }
-    if (ins_bytes != NULL)
-      emit_bytes(ins->imm, imm_len, ins_bytes + ins_len);
-    ins_len += imm_len;
+  } else {
+    log_debug("Switched imm and disp");
+
+    if (flags.has_imm) {
+      ins_len += imm_gen(ins, ins_bytes, ins_len);
+    }
+
+    if (flags.has_disp) {
+      ins_len += disp_gen(ins, ins_bytes, ins_len);
+    }
   }
 
   return ins_len;

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "module.h"
 #include "lexer.h"
 #include "lilc/hashmap.h"
 #include "preprocess.h"
@@ -29,10 +30,17 @@ typedef struct {
   Hashmap(Ident *, TypeExpr) custom_types;
   Hashmap(Ident *, ExprFunction) custom_functions;
   Ident *foreign_functions;
+  // Imports
+  Hashmap(Ident *, FuncDescriptor) imported_functions;
+  Ident *imported_modules;
+  // Preprocessor
   PpDirective *pp_dirs;
   size_t *pp_dir_conditionals;
+  // Debugging info
   const char *source;
   const char *filename;
+  // Module
+  Module module;
 } Parser;
 
 Parser parser_new(Token *tokens, const char *source, const char *filename);
@@ -48,3 +56,9 @@ TypeTableValue *type_table_get(TypeTable *table, Ident *ident,
 
 void type_table_add(TypeTable *table, Ident *ident, ExpressionVariant expr_var,
                     OptionalType opt_type);
+
+// Uses the default parser
+Module parser_parse_module(const char *source, const char *filename);
+
+// Takes in a custom parser
+Module parser_parse_module_ex(Parser *parser, const char *source, const char *filename);

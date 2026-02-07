@@ -4,16 +4,48 @@
 #include <lilc/array.h>
 #include <lilc/eq.h>
 #include <lilc/hash.h>
+#include <lilc/hashmap.h>
+#include <stdio.h>
+
+typedef struct {
+  char *variable_name;
+} PreprocessorExprContext;
+
+static Expression println_execute(Expression *args) {
+  if (array_len(args) != 1) {
+    log_error("Expected only a single arg for println, received: %zu",
+              array_len(args));
+    exit(1);
+  }
+
+  if (args[0].type != EXPR_STRING_LIT) {
+    log_error("Expected a string as the arg for println, received expression "
+              "of type %d",
+              args[0].type);
+    exit(1);
+  }
+
+  puts(args[0].var.expr_string_literal.string);
+  return (Expression){.type = EXPR_UNIT};
+}
 
 PreProcessor preprocessor_new(Statement *stmts, PpDirective *pp_dirs) {
-  return (PreProcessor){
+  PreProcessor pp = {
       .stmts = stmts,
       .pp_dirs = pp_dirs,
       .pp_dir_cond_line = -1,
+      .comptime_functions =
+          hashmap_new(Ident *, ComptimeBuiltinFunction, &HEAP_ALLOCATOR,
+                      str_ptrv_hash, str_ptrv_eq, NULL),
       .valid_lines = hashmap_new(size_t, size_t, &HEAP_ALLOCATOR, size_tv_hash,
                                  size_tv_eq, NULL),
       .comptime_constants = hashmap_new(Ident *, Expression, &HEAP_ALLOCATOR,
                                         str_ptrv_hash, str_ptrv_eq, NULL)};
+  char *println_name = "println";
+  hashmap_insert(
+      &pp.comptime_functions, &println_name,
+      &(ComptimeBuiltinFunction){.execute = println_execute, .builtin = true});
+  return pp;
 }
 
 static uint32_t apply_lit_bin_op(uint32_t a, uint32_t b, BinOperator op) {
@@ -39,14 +71,29 @@ static uint32_t apply_lit_bin_op(uint32_t a, uint32_t b, BinOperator op) {
   }
 }
 
-static Expression expr_eval_comptime(const Expression *expr) {
+static Expression expr_eval_comptime(PreProcessor *preprocessor,
+                                     const Expression *expr,
+                                     PreprocessorExprContext context);
+
+static void expr_block_eval_comptime(PreProcessor *preprocessor,
+                                     const ExprBlock *expr) {
+  for (size_t i = 0; i < array_len(expr->statements); i++) {
+    if (expr->statements[i].type == STMT_EXPR) {
+      expr_eval_comptime(preprocessor, &expr->statements[i].var.stmt_expr.expr, (PreprocessorExprContext){});
+    }
+  }
+}
+
+static Expression expr_eval_comptime(PreProcessor *preprocessor,
+                                     const Expression *expr,
+                                     PreprocessorExprContext context) {
   switch (expr->type) {
   case EXPR_BIN_OP: {
     ExprBinOp expr_bin_op = expr->var.expr_bin_op;
-    uint32_t a =
-        expr_eval_comptime(expr_bin_op.left).var.expr_integer_literal.integer;
-    uint32_t b =
-        expr_eval_comptime(expr_bin_op.right).var.expr_integer_literal.integer;
+    uint32_t a = expr_eval_comptime(preprocessor, expr_bin_op.left, (PreprocessorExprContext){})
+                     .var.expr_integer_literal.integer;
+    uint32_t b = expr_eval_comptime(preprocessor, expr_bin_op.right, (PreprocessorExprContext){})
+                     .var.expr_integer_literal.integer;
 
     return (Expression){
         .type = EXPR_INTEGER_LIT,
@@ -68,13 +115,21 @@ static Expression expr_eval_comptime(const Expression *expr) {
     break;
   }
   case EXPR_FUNCTION: {
+    ExprFunction expr_function = expr->var.expr_function;
+    hashmap_insert(&preprocessor->comptime_functions, context.variable_name, &(ComptimeBuiltinFunction){.builtin = false, .expr_function = expr_function});
     break;
   }
   case EXPR_BLOCK: {
     break;
   }
   case EXPR_CALL: {
-    break;
+    ExprCall expr_call = expr->var.expr_call;
+    ComptimeBuiltinFunction *func =
+        hashmap_value(&preprocessor->comptime_functions, &expr_call.function);
+    if (func != NULL && func->builtin) {
+      func->execute(expr_call.args);
+    }
+    return *expr;
   }
   case EXPR_GENERIC_CALL: {
     break;
@@ -101,13 +156,28 @@ static Expression expr_eval_comptime(const Expression *expr) {
     break;
   }
   case EXPR_FOR: {
-    break;
+    ExprFor expr_for = expr->var.expr_for;
+    if (!expr_for.has_range) {
+      for (;;) {
+        expr_block_eval_comptime(preprocessor, &expr_for.block);
+      }
+    } else {
+      ExprRange range = expr_for.range;
+      int min = expr_eval_comptime(preprocessor, range.min, (PreprocessorExprContext){})
+                    .var.expr_integer_literal.integer;
+      int max = expr_eval_comptime(preprocessor, range.max, (PreprocessorExprContext){})
+                    .var.expr_integer_literal.integer;
+      for (int i = min; i < max; i++) {
+        expr_block_eval_comptime(preprocessor, &expr_for.block);
+      }
+    }
+    return *expr;
   }
   case EXPR_IT: {
     break;
   }
   }
-  log_error("Failed to evaluate comptime expression, nyi");
+  log_error("Failed to evaluate comptime expression %d, nyi", expr->type);
   exit(1);
 }
 
@@ -115,7 +185,8 @@ static void pp_dir_process(PreProcessor *preprocessor, PpDirective *pp_dir) {
   switch (pp_dir->type) {
   case PP_DIR_IF: {
     PpDirIf pp_dir_if = pp_dir->var.pp_dir_if;
-    Expression cond_expr = expr_eval_comptime(&pp_dir_if.condition);
+    Expression cond_expr =
+        expr_eval_comptime(preprocessor, &pp_dir_if.condition, (PreprocessorExprContext){});
     bool evaluated_cond_expr = false;
     if (cond_expr.type == EXPR_INTEGER_LIT) {
       evaluated_cond_expr = cond_expr.var.expr_integer_literal.integer;
@@ -131,6 +202,13 @@ static void pp_dir_process(PreProcessor *preprocessor, PpDirective *pp_dir) {
       hashmap_insert(&preprocessor->valid_lines, &pp_dir->line, &last_line);
     }
     break;
+  }
+  case PP_DIR_COMPTIME: {
+    PpDirComptime pp_dir_comptime = pp_dir->var.pp_dir_comptime;
+    if (pp_dir_comptime.stmt.type == STMT_EXPR) {
+      expr_eval_comptime(preprocessor,
+                         &pp_dir_comptime.stmt.var.stmt_expr.expr, (PreprocessorExprContext){});
+    }
   }
   default: {
     break;

@@ -1,1 +1,2 @@
-gurd r && objdump -d output/out.o && gcc output/out.o -lraylib print_int.a -o output/bin && objdump -d output/bin && ./output/bin
+gurd r && objdump -d output/out.o && gcc output/out.o -lraylib print_int.a -o output/bin && objdump -d output/bin &&#
+./output/bin

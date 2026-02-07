@@ -33,8 +33,6 @@ main :: () {
   circle_x := 0
   circle_y := 0
 
-  left_to_right := 1
-
   for {
     BeginDrawing()
     ClearBackground(0)
@@ -66,20 +64,9 @@ main :: () {
 
     draw_circle(circle_x, circle_y, 10)
 
-    if left_to_right > 0 {
-      circle_x = circle_x + 4
-      circle_y = circle_y + 4
-    }
-
-    if left_to_right > 1 {
-      circle_x = circle_x - 8
-      circle_y = circle_y - 8
-    }
-
-    if circle_x > 400 {
-      left_to_right = 2
-    }
-
+    circle_x = circle_x + 4
+    circle_y = circle_y + 4
+    
     EndDrawing()
   }
 

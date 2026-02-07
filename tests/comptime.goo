@@ -1,0 +1,9 @@
+test :: () {
+
+}
+
+main :: () {
+  #comptime for 0..10 {
+    println("Hello World")
+  }
+}

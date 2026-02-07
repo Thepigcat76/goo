@@ -81,6 +81,7 @@ typedef struct {
   bool has_disp;
   bool has_imm;
   bool imm8;
+  bool switch_imm_disp;
 } InsFlags;
 
 typedef struct {
@@ -157,27 +158,24 @@ static const Instruction INS_CALL = (Instruction){
 #define INS_JMP_DISP8(...)                                                     \
   MAKE_INS_OPCODE_DISP(OPCODE1(0xeb), MOD_MEM_8BIT_DISP, __VA_ARGS__)
 
-#define INS_JNE_DISP32(...)                                                     \
+#define INS_JNE_DISP32(...)                                                    \
   MAKE_INS_OPCODE_DISP(OPCODE2(0x0f, 0x85), MOD_MEM_32BIT_DISP, __VA_ARGS__)
 
-#define INS_JE_DISP8(...)                                                     \
+#define INS_JE_DISP8(...)                                                      \
   MAKE_INS_OPCODE_DISP(OPCODE1(0x74), MOD_MEM_8BIT_DISP, __VA_ARGS__)
 
 #define INS_JMP_DISP32(...)                                                    \
   (Instruction) {                                                              \
-    .opcode = OPCODE1(0xe9),                                             \
-    .mod_rm = {.mod = MOD_MEM_32BIT_DISP}, .disp = __VA_ARGS__,          \
-    .flags = {                                                                 \
-      .has_disp = true,                                                         \
+    .opcode = OPCODE1(0xe9), .mod_rm = {.mod = MOD_MEM_32BIT_DISP},            \
+    .disp = __VA_ARGS__, .flags = {                                            \
+      .has_disp = true,                                                        \
     }                                                                          \
   }
 
 #define INS_JLE_DISP32(...)                                                    \
   (Instruction) {                                                              \
-    .opcode = OPCODE2(0x0f, 0x8e),                                             \
-    .disp = __VA_ARGS__,          \
-    .flags = {                                                                 \
-      .has_disp = true,                                                         \
+    .opcode = OPCODE2(0x0f, 0x8e), .disp = __VA_ARGS__, .flags = {             \
+      .has_disp = true,                                                        \
     }                                                                          \
   }
 
@@ -212,11 +210,11 @@ static const Instruction INS_CALL = (Instruction){
     }                                                                          \
   }
 
-#define INS_CMP_I32_R64(_reg, ...)                                              \
+#define INS_CMP_I32_R64(_reg, ...)                                             \
   (Instruction) {                                                              \
     .opcode = OPCODE2(0x48, 0x81),                                             \
-    .mod_rm = {.mod = MOD_REG_DIRECT, .reg = 111, .rm = _reg}, .imm = __VA_ARGS__,          \
-    .flags = {                                                                 \
+    .mod_rm = {.mod = MOD_REG_DIRECT, .reg = 111, .rm = _reg},                 \
+    .imm = __VA_ARGS__, .flags = {                                             \
       .has_imm = true,                                                         \
       .has_mod_rm = true                                                       \
     }                                                                          \
@@ -224,11 +222,12 @@ static const Instruction INS_CALL = (Instruction){
 
 #define INS_CMP_I8_R64(_reg, ...)                                              \
   (Instruction) {                                                              \
-    .opcode = OPCODE1(0x83),                                             \
-    .mod_rm = {.mod = MOD_REG_DIRECT, .reg = 111, .rm = _reg}, .imm = __VA_ARGS__,          \
-    .flags = {                                                                 \
+    .opcode = OPCODE1(0x83),                                                   \
+    .mod_rm = {.mod = MOD_REG_DIRECT, .reg = 111, .rm = _reg},                 \
+    .imm = __VA_ARGS__, .flags = {                                             \
       .has_imm = true,                                                         \
-      .has_mod_rm = true, .imm8 = true                                                       \
+      .has_mod_rm = true,                                                      \
+      .imm8 = true                                                             \
     }                                                                          \
   }
 
@@ -281,9 +280,19 @@ static const Instruction INS_CALL = (Instruction){
     }                                                                          \
   }
 
-#define INS_MOV_R32_DISP8_R32_HACKY(r_src, _disp, r_dest)                            \
+#define INS_MOV_R32_DISP8_R32_HACKY(r_src, _disp, r_dest)                      \
   (Instruction) {                                                              \
-    .opcode = OPCODE1(0x8b),                                             \
+    .opcode = OPCODE1(0x8b),                                                   \
+    .mod_rm = {.mod = MOD_MEM_8BIT_DISP, .reg = r_dest, .rm = r_src},          \
+    .disp = _disp, .flags = {                                                  \
+      .has_mod_rm = true,                                                      \
+      .has_disp = true                                                         \
+    }                                                                          \
+  }
+
+#define INS_MOV_R64_DISP8_R64_HACKY(r_src, _disp, r_dest)                      \
+  (Instruction) {                                                              \
+    .opcode = OPCODE2(0x48, 0x8b),                                                   \
     .mod_rm = {.mod = MOD_MEM_8BIT_DISP, .reg = r_dest, .rm = r_src},          \
     .disp = _disp, .flags = {                                                  \
       .has_mod_rm = true,                                                      \
@@ -324,6 +333,16 @@ static const Instruction INS_CALL = (Instruction){
 #define INS_MOV_ABS_ADDR32_R32(_disp, r_dest)                                  \
   (Instruction) {                                                              \
     .opcode = OPCODE1(0x8b),                                                   \
+    .mod_rm = {.mod = MOD_MEM_NO_DISP, .reg = r_dest, .rm = 101},              \
+    .disp = _disp, .flags = {                                                  \
+      .has_mod_rm = true,                                                      \
+      .has_disp = true                                                         \
+    }                                                                          \
+  }
+
+#define INS_MOV_ABS_ADDR32_R64(_disp, r_dest)                                  \
+  (Instruction) {                                                              \
+    .opcode = OPCODE2(0x48, 0x8b),                                             \
     .mod_rm = {.mod = MOD_MEM_NO_DISP, .reg = r_dest, .rm = 101},              \
     .disp = _disp, .flags = {                                                  \
       .has_mod_rm = true,                                                      \
@@ -389,15 +408,15 @@ static const Instruction INS_CALL = (Instruction){
 
 #define INS_MOV_R32_R32(r_src, r_dest)                                         \
   (Instruction) {                                                              \
-    .opcode = OPCODE1(0x89),                                             \
+    .opcode = OPCODE1(0x89),                                                   \
     .mod_rm = {.mod = MOD_REG_DIRECT, .reg = r_src, .rm = r_dest}, .flags = {  \
       .has_mod_rm = true,                                                      \
     }                                                                          \
   }
 
-#define INS_MOV_R8_R32(r_src, r_dest)                                         \
+#define INS_MOV_R8_R32(r_src, r_dest)                                          \
   (Instruction) {                                                              \
-    .opcode = OPCODE2(0x0f, 0x0b6),                                             \
+    .opcode = OPCODE2(0x0f, 0x0b6),                                            \
     .mod_rm = {.mod = MOD_REG_DIRECT, .reg = r_src, .rm = r_dest}, .flags = {  \
       .has_mod_rm = true,                                                      \
     }                                                                          \
@@ -421,12 +440,62 @@ static const Instruction INS_CALL = (Instruction){
     }                                                                          \
   }
 
+#define INS_ADD_R64_R64(r_src, r_dest)                                         \
+  (Instruction) {                                                              \
+    .opcode = OPCODE2(0x48, 0x01),                                             \
+    .mod_rm = {.mod = MOD_REG_DIRECT, .rm = r_dest, .reg = r_src}, .flags = {  \
+      .has_mod_rm = true                                                       \
+    }                                                                          \
+  }
+
 #define INS_SUB_I32_R64(_imm, r_dest)                                          \
   (Instruction) {                                                              \
     .opcode = OPCODE2(0x48, 0x81),                                             \
-    .mod_rm = {.mod = MOD_REG_DIRECT, .rm = r_dest, .reg = 0b101}, .imm = _imm, .flags = {   \
+    .mod_rm = {.mod = MOD_REG_DIRECT, .rm = r_dest, .reg = 0b101},             \
+    .imm = _imm, .flags = {                                                    \
       .has_mod_rm = true,                                                      \
       .has_imm = true                                                          \
+    }                                                                          \
+  }
+
+#define INS_SUB_R64_R64(r_src, r_dest)                                          \
+  (Instruction) {                                                              \
+    .opcode = OPCODE2(0x48, 0x29),                                             \
+    .mod_rm = {.mod = MOD_REG_DIRECT, .rm = r_dest, .reg = r_src},             \
+    .flags = {                                                    \
+      .has_mod_rm = true,                                                      \
+    }                                                                          \
+  }
+
+#define INS_SUB_ABS_ADDR_R64(r_dest)                                           \
+  (Instruction) {                                                              \
+    .opcode = OPCODE2(0x48, 0x2b),                                             \
+    .mod_rm = {.mod = MOD_MEM_NO_DISP, .reg = r_dest, .rm = 0b101},            \
+    .disp = {0}, .flags = {                                                    \
+      .has_mod_rm = true,                                                      \
+      .has_disp = true                                                         \
+    }                                                                          \
+  }
+
+#define INS_MUL_I32_R64(_imm, r_src, r_dest)                                           \
+  (Instruction) {                                                              \
+    .opcode = OPCODE2(0x48, 0x69),                                             \
+    .mod_rm = {.mod = MOD_REG_DIRECT, .reg = r_dest, .rm = r_src},            \
+    .imm = _imm, .flags = {                                                    \
+      .has_mod_rm = true,                                                      \
+      .has_imm = true                                                         \
+    }                                                                          \
+  }
+
+#define INS_MUL_I32_ABS_ADDR_R64(_imm, r_dest)                                 \
+  (Instruction) {                                                              \
+    .opcode = OPCODE2(0x48, 0x69),                                             \
+    .mod_rm = {.mod = MOD_MEM_NO_DISP, .reg = r_dest, .rm = 0b101},            \
+    .disp = {0}, .imm = _imm, .flags = {                                       \
+      .has_mod_rm = true,                                                      \
+      .has_disp = true,                                                        \
+      .has_imm = true,                                                        \
+      .switch_imm_disp = false,                                                 \
     }                                                                          \
   }
 
@@ -443,9 +512,8 @@ static const Instruction INS_CALL = (Instruction){
 
 #define INS_ADD_I8_R64(_imm, r_dest)                                           \
   (Instruction) {                                                              \
-    .opcode = OPCODE2(0x48, 0x83),                                             \
-    .mod_rm = {.mod = 0b11, .rm = r_dest}, .imm = _imm,          \
-    .flags = {                                                                 \
+    .opcode = OPCODE2(0x48, 0x83), .mod_rm = {.mod = 0b11, .rm = r_dest},      \
+    .imm = _imm, .flags = {                                                    \
       .has_mod_rm = true,                                                      \
       .has_imm = true,                                                         \
       .imm8 = true                                                             \

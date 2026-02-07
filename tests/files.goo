@@ -1,0 +1,3 @@
+file_open :: (path: string) {
+  println(path)
+}

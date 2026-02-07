@@ -67,7 +67,7 @@ int main(int argc, char **argv) {
 
   if (argc >= 2) {
     if (STR_CMP_OR(argv[1], "r", "run")) {
-      return run(OPTS.out_dir, out_name, argc, argv);
+      run(OPTS.out_dir, out_name, argc, argv);
     } else if (STR_CMP_OR(argv[1], "d", "dbg")) {
       dbg(OPTS.out_dir, out_name, OPTS.debug);
       return 0;

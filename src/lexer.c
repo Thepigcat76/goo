@@ -146,6 +146,10 @@ void lexer_tok_print(char *buf, const Token *tok) {
     sprintf(buf, "TOKEN_RANGE ('..')");
     break;
   }
+  case TOKEN_HASH: {
+    sprintf(buf, "TOKEN_HASH ('#')");
+    break;
+  }
   case TOKEN_FOREIGN: {
     sprintf(buf, "TOKEN_FOREIGN ('foreign')");
     break;
@@ -201,9 +205,9 @@ void lexer_tokenize(Lexer *lexer, const char *src, const char *filename) {
     } else if (isalpha(*lexer->cur_char) || *lexer->cur_char == '_') {
       const char *begin = lexer->cur_char;
       size_t cap = 256;
-      char ident[cap];
+      char *ident = malloc(cap);
+      
       size_t i = 0;
-
       while (isalnum(*lexer->cur_char) || *lexer->cur_char == '_') {
         if (i >= cap - 1) {
           fprintf(stderr, "Ident too long\n");
@@ -242,8 +246,7 @@ void lexer_tokenize(Lexer *lexer, const char *src, const char *filename) {
         tok.var.boolean = strcmp(ident, "true") == 0;
       } else {
         tok.type = TOKEN_IDENT;
-        tok.var.ident = malloc(strlen(ident) + 1);
-        strcpy(tok.var.ident, ident);
+        tok.var.ident = ident;
       }
       tok.begin_pos = lexer->pos;
       tok.line = lexer->line;

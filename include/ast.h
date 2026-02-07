@@ -1,6 +1,7 @@
 #pragma once
 
 #include "lilc/hashmap.h"
+#include "lilc/str.h"
 #include "types.h"
 
 typedef enum {
@@ -298,3 +299,5 @@ typedef struct _stmt {
   size_t pos;
   size_t len;
 } Statement;
+
+dyn_string_t ast_format(const Statement *stmts);

@@ -1,1 +1,0 @@
-foreign puts(msg: string)\n\n#comptime PRINT_TEST :: 400\n#comptime TEST :: 2100\n#comptime TEXT :: \"A comptime text lol\"\n\nmain :: () {\n#if 400 == 400 {\n  print_int(TEST)\n#}\n  println(TEXT)\n}
