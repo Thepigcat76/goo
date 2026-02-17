@@ -1,32 +1,56 @@
 #include "../include/types.h"
 #include "lilc/array.h"
 #include "lilc/eq.h"
+#include <lilc/alloc.h>
 #include <stdio.h>
 #include <string.h>
 
+static ModulePath module_path_primitive(char *ident) {
+  ModulePath path = {.path = array_new(Ident, &HEAP_ALLOCATOR)};
+  array_add(path.path, ident);
+  return path;
+}
+
 #define BUILTIN_TYPE_IDENT(_ident)                                             \
   (Type) {                                                                     \
-    .type = TYPE_IDENT, .var = {.type_ident = _ident }                         \
+    .type = TYPE_IDENT, .var = {.type_ident = module_path_primitive(_ident) }  \
   }
 
-#define BUILTIN_TYPE_ARRAY(_ident, _variant, _type)                                             \
+#define BUILTIN_TYPE_ARRAY(_ident, _variant, _type)                            \
   (Type) {                                                                     \
-    .type = TYPE_ARRAY, .var = {.type_array = {.variant = _variant, .type = _type} }                         \
+    .type = TYPE_ARRAY, .var = {                                               \
+      .type_array = {.variant = _variant, .type = _type}                       \
+    }                                                                          \
   }
 
 const Type UNIT_BUILTIN_TYPE = {.type = TYPE_UNIT};
 /* Integers */
-Type I8_BUILTIN_TYPE = BUILTIN_TYPE_IDENT("i8");
-Type I16_BUILTIN_TYPE = BUILTIN_TYPE_IDENT("i16");
-Type I32_BUILTIN_TYPE = BUILTIN_TYPE_IDENT("i32");
-Type I64_BUILTIN_TYPE = BUILTIN_TYPE_IDENT("i64");
+Type I8_BUILTIN_TYPE;
+Type I16_BUILTIN_TYPE;
+Type I32_BUILTIN_TYPE;
+Type I64_BUILTIN_TYPE;
 /* Unsigned Integers */
-Type U8_BUILTIN_TYPE = BUILTIN_TYPE_IDENT("u8");
-Type U16_BUILTIN_TYPE = BUILTIN_TYPE_IDENT("u16");
-Type U32_BUILTIN_TYPE = BUILTIN_TYPE_IDENT("u32");
-Type U64_BUILTIN_TYPE = BUILTIN_TYPE_IDENT("u64");
-const Type STRING_BUILTIN_TYPE = BUILTIN_TYPE_ARRAY("string", TYPE_ARRAY_VARIANT_SIZE_UNKNOWN, &U8_BUILTIN_TYPE);
-const Type BOOL_BUILTIN_TYPE = BUILTIN_TYPE_IDENT("bool");
+Type U8_BUILTIN_TYPE;
+Type U16_BUILTIN_TYPE;
+Type U32_BUILTIN_TYPE;
+Type U64_BUILTIN_TYPE;
+Type STRING_BUILTIN_TYPE;
+Type BOOL_BUILTIN_TYPE;
+
+void builtin_types_init() {
+  I8_BUILTIN_TYPE = BUILTIN_TYPE_IDENT("i8");
+  I16_BUILTIN_TYPE = BUILTIN_TYPE_IDENT("i16");
+  I32_BUILTIN_TYPE = BUILTIN_TYPE_IDENT("i32");
+  I64_BUILTIN_TYPE = BUILTIN_TYPE_IDENT("i64");
+  /* Unsigned Integers */
+  U8_BUILTIN_TYPE = BUILTIN_TYPE_IDENT("u8");
+  U16_BUILTIN_TYPE = BUILTIN_TYPE_IDENT("u16");
+  U32_BUILTIN_TYPE = BUILTIN_TYPE_IDENT("u32");
+  U64_BUILTIN_TYPE = BUILTIN_TYPE_IDENT("u64");
+  STRING_BUILTIN_TYPE = BUILTIN_TYPE_ARRAY(
+    "string", TYPE_ARRAY_VARIANT_SIZE_UNKNOWN, &U8_BUILTIN_TYPE);
+    BOOL_BUILTIN_TYPE = BUILTIN_TYPE_IDENT("bool");;
+}
 
 bool type_eq(const Type *a, const Type *b) {
   if (a->type != b->type)
@@ -34,7 +58,14 @@ bool type_eq(const Type *a, const Type *b) {
 
   switch (a->type) {
   case TYPE_IDENT: {
-    return strcmp(a->var.type_ident, b->var.type_ident) == 0;
+    if (array_len(a->var.type_ident.path) != array_len(b->var.type_ident.path))
+      return false;
+
+    for (size_t i = 0; i < array_len(a->var.type_ident.path); i++) {
+      if (strcmp(a->var.type_ident.path[i], b->var.type_ident.path[i]) != 0)
+        return false;
+    }
+    return true;
   }
   case TYPE_ARRAY: {
     bool sizes_match = false;
@@ -138,7 +169,8 @@ void type_print(char *buf, const Type *type) {
       char type_buf[64];
       type_print(type_buf, &type_struct.fields[i].type);
       char ti_buf[128];
-      sprintf(ti_buf, "TypedIdent={ident=%s, type=%s}", type_struct.fields[i].ident, type_buf);
+      sprintf(ti_buf, "TypedIdent={ident=%s, type=%s}",
+              type_struct.fields[i].ident, type_buf);
       strcat(fields_buf, ti_buf);
       if (i < array_len(type_struct.fields) - 1) {
         strcat(fields_buf, ", ");

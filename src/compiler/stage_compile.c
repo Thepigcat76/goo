@@ -136,9 +136,9 @@ static ExprCompileResult expr_call_compile(Compiler *compiler,
 
   RELOCATIONS_ADD(compiler, {.sec = SECTION_TYPE_TEXT,
                              .r_offset = 1,
-                             .symbol = strv_eq(expr_call->function, "println")
+                             .symbol = strv_eq(expr_call->function.path[0], "println")
                                            ? "puts"
-                                           : expr_call->function});
+                                           : expr_call->function.path[0]});
 
   // size_t placeholder_0 = 0;
   //// FIXME: do we need reloc info for these calls?
@@ -155,7 +155,7 @@ static ExprCompileResult expr_call_compile(Compiler *compiler,
   insns_add(compiler, INS_CALL);
   //}
 
-  if (strv_eq(expr_call->function, "IsKeyDown")) {
+  if (strv_eq(expr_call->function.path[0], "IsKeyDown")) {
     insns_add(compiler, INS_MOV_R8_R32(REG_EAX, REG_EAX));
   }
 
@@ -599,7 +599,7 @@ static ExprCompileResult expr_compile_with_res(Compiler *compiler,
     return expr_call_compile(compiler, &expr->var.expr_call);
   }
   case EXPR_IDENT: {
-    Ident ident = expr->var.expr_ident.ident;
+    Ident ident = expr->var.expr_ident.ident.path[0];
     Hashmap(Ident *, GlobalDataLocation) globals = compiler->globals;
     GlobalDataLocation *data_loc = hashmap_value(&globals, &ident);
     if (data_loc != NULL) {

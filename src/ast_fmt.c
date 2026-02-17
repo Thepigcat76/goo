@@ -1,5 +1,6 @@
 #include "../include/ast.h"
 #include "lilc/str.h"
+#include <lilc/array.h>
 #include <string.h>
 #include <lilc/log.h>
 
@@ -35,6 +36,19 @@ static dyn_string_t expr_block_format(Formatter *fmt, const ExprBlock *block) {
   return wrapped_string;
 }
 
+static dyn_string_t module_path_format(Formatter *fmt, const ModulePath *path) {
+  dyn_string_t str = {0};
+  dyn_string_init(&str);
+
+  for (size_t i = 0; i < array_len(path->path); i++) {
+    dyn_string_add_str(&str, path->path[i]);
+    if (i < array_len(path->path) - 1) {
+      dyn_string_add_char(&str, '.');
+    }
+  }
+  return str;
+}
+
 static dyn_string_t expr_format(Formatter *fmt, const Expression *expr) {
   dyn_string_t str = {0};
   dyn_string_init(&str);
@@ -63,7 +77,7 @@ static dyn_string_t expr_format(Formatter *fmt, const Expression *expr) {
   }
   case EXPR_CALL: {
     ExprCall expr_call = expr->var.expr_call;
-    dyn_string_printf(&str, "ExprCall{function=%s, args=}", expr_call.function);
+    dyn_string_printf(&str, "ExprCall{function=%s, args=}", module_path_format(fmt, &expr_call.function).string);
     break;
   }
   case EXPR_GENERIC_CALL: {
@@ -83,7 +97,7 @@ static dyn_string_t expr_format(Formatter *fmt, const Expression *expr) {
     break;
   }
   case EXPR_IDENT: {
-    dyn_string_printf(&str, "%s", expr->var.expr_ident.ident);
+    dyn_string_printf(&str, "%s", module_path_format(fmt, &expr->var.expr_ident.ident).string);
     break;
   }
   case EXPR_UNIT: {

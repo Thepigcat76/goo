@@ -1,0 +1,4 @@
+open :: (path: string) {
+  println("Opened file")
+  println(path)
+}

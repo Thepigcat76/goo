@@ -2,8 +2,7 @@
 
 #include <stdbool.h>
 #include <stdlib.h>
-
-typedef char *Ident;
+#include "shared.h"
 
 typedef enum {
   TYPE_ARRAY_VARIANT_DYNAMIC,
@@ -47,7 +46,7 @@ typedef struct _type {
     TYPE_POINTER,
   } type;
   union {
-    Ident type_ident;
+    ModulePath type_ident;
     TypeArray type_array;
     TypeFunc type_func;
     TypeTuple type_tuple;
@@ -69,7 +68,7 @@ typedef struct _generic {
 } Generic;
 
 extern const Type UNIT_BUILTIN_TYPE;
-extern const Type STRING_BUILTIN_TYPE;
+extern Type STRING_BUILTIN_TYPE;
 /* Integers */
 extern Type I8_BUILTIN_TYPE;
 extern Type I16_BUILTIN_TYPE;
@@ -80,12 +79,14 @@ extern Type U8_BUILTIN_TYPE;
 extern Type U16_BUILTIN_TYPE;
 extern Type U32_BUILTIN_TYPE;
 extern Type U64_BUILTIN_TYPE;
-extern const Type BOOL_BUILTIN_TYPE;
+extern Type BOOL_BUILTIN_TYPE;
 
 typedef struct _typed_ident {
   Ident ident;
   Type type;
 } TypedIdent;
+
+void builtin_types_init();
 
 bool type_eq(const Type *a, const Type *b);
 

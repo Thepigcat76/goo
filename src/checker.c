@@ -169,7 +169,7 @@ static Type check_call_expr(TypeChecker *checker, ExprCall *expr_call) {
     if (val->expr_variant.type != EXPR_VAR_REG_EXPR) {
       Ident resolved_overload_function =
           resolve_overloaded_function(checker, expr_call);
-      expr_call->function = resolved_overload_function;
+      expr_call->function.path[0] = resolved_overload_function;
       expr_function =
           type_table_get(checker->cur_type_table, &resolved_overload_function,
                          checker->global_type_table)
@@ -215,7 +215,7 @@ static Type check_call_expr(TypeChecker *checker, ExprCall *expr_call) {
     if (expr_function.desc.args[i].var.typed_arg.type.type == TYPE_IDENT &&
         expr_function.desc.generics != NULL) {
       for (size_t j = 0; j < array_len(expr_function.desc.generics); j++) {
-        if (strcmp(expr_function.desc.args[i].var.typed_arg.type.var.type_ident,
+        if (strcmp(expr_function.desc.args[i].var.typed_arg.type.var.type_ident.path[0],
                    expr_function.desc.generics[j].name) == 0) {
           generic_type = true;
           break;

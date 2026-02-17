@@ -2,6 +2,7 @@
 #include <lilc/eq.h>
 #include <lilc/hashmap.h>
 #include <lilc/log.h>
+#include <stdlib.h>
 #ifdef TARGET_WEB
 #include <emscripten.h>
 #include <emscripten/emscripten.h>
@@ -47,6 +48,8 @@ KEEPALIVE
 void run_program(char *buf, const char *filename, const char *output) {
   alloc_init();
 
+  builtin_types_init();
+
   //  parser_test_functions();
 
   //  return;
@@ -62,28 +65,24 @@ void run_program(char *buf, const char *filename, const char *output) {
     puts(print_buf);
   }
 
-  Parser parser = parser_new(lexer.tokens, buf, filename);
+  Parser parser = parser_new(lexer.tokens, buf, filename, MODULE_PATH_ROOT);
 
   parser_parse(&parser);
 
-  printf("AST:\n%s", ast_format(parser.statements).string);
+  log_debug("AST:\n%s", ast_format(parser.statements).string);
 
-  puts("---");
-
-  puts("-- FUNCTIONS --");
+  log_debug("-- FUNCTIONS --");
 
   hashmap_foreach(&parser.custom_functions, Ident * key, ExprFunction * val,
-                  { puts(*key); });
-  printf("Custom functions: %zu\n", parser.custom_functions.len);
+                  { log_debug("%s", *key); });
+  log_debug("Custom functions: %zu", parser.custom_functions.len);
 
-  puts("---");
+  log_debug("-- TYPES --");
 
-  puts("-- TYPES --");
+  hashmap_foreach(&parser.custom_types, Ident *key, TypeExpr * val,
+                  { log_debug("%s", *key); });
 
-  hashmap_foreach(&parser.custom_types, Ident * *key, TypeExpr * val,
-                  { puts(**key); });
-
-  puts("---");
+  log_debug("---");
 
   PreProcessor preprocessor =
       preprocessor_new(parser.statements, parser.pp_dirs);
@@ -107,6 +106,8 @@ void run_program(char *buf, const char *filename, const char *output) {
       });
 
   checker_check(&checker);
+
+  return;
 
   checker_gen_functions(&checker);
 
@@ -189,6 +190,8 @@ typedef struct {
   char *input_path;
 } CliArgs;
 
+static char *_corelib_path = NULL;
+
 int main(int argc, char **argv) {
   CliArgs args = {0};
 
@@ -217,6 +220,14 @@ int main(int argc, char **argv) {
   if (args.output_path == NULL) {
     args.output_path = "output/out.o";
   }
+
+  char *core_lib_path = getenv(CORE_LIB_PATH);
+  if (core_lib_path == NULL) {
+    setenv(CORE_LIB_PATH, DEFAULT_CORE_LIB_PATH, 0);
+    core_lib_path = DEFAULT_CORE_LIB_PATH;
+  }
+
+  _corelib_path = core_lib_path;
 
   FILE *file = fopen(args.input_path, "r");
   char file_buf[4096];

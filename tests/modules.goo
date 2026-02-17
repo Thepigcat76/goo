@@ -1,5 +1,6 @@
-#import "files"
+#import "core/io/files"
 
 main :: () {
-  file_open("Hello")
+  files.open("tests/modules.goo")
+  files.open("tests/modules.goo")
 }

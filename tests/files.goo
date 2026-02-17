@@ -1,3 +1,9 @@
+foreign fopen(path: string, mode: string) -> string
+foreign printf(fmt: string, thisshitiswaytoofuckinghackylol: string)
+foreign puts(msg: string)
+
 file_open :: (path: string) {
-  println(path)
+  f := fopen(path, "r")
+  printf("%p", f)
+  puts("")
 }

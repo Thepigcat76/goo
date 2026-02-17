@@ -9,10 +9,12 @@
 #include <lilc/log.h>
 #include <lilc/str.h>
 #include <stdarg.h>
+#include <stdatomic.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <ctype.h>
 
 static Hashmap(Ident, Module) modules_cache;
 
@@ -46,33 +48,75 @@ static Statement PREV_STMT = {0};
 const Expression UNIT_EXPR = {.type = EXPR_UNIT};
 const OptionalType OPT_TYPE_EMPTY = {.present = false};
 
-Parser parser_new(Token *tokens, const char *source, const char *filename) {
+Parser parser_new(Token *tokens, const char *source, const char *filename,
+                  ModulePath path) {
   return (Parser){
       .tokens = tokens,
       .statements = array_new(Statement, &HEAP_ALLOCATOR),
       .custom_types = hashmap_new(Ident *, TypeExpr, &HEAP_ALLOCATOR,
                                   str_ptrv_hash, str_ptrv_eq, NULL),
-      .custom_functions = hashmap_new(Ident *, TypeExpr, &HEAP_ALLOCATOR,
+      .custom_functions = hashmap_new(Ident *, ExprFunction, &HEAP_ALLOCATOR,
                                       str_ptrv_hash, str_ptrv_eq, NULL),
       .pp_dirs = array_new(PpDirective, &HEAP_ALLOCATOR),
       .pp_dir_conditionals = array_new(size_t, &HEAP_ALLOCATOR),
-      .source = source,
       .filename = filename,
+      .source = source,
       .module = {.filename = filename,
                  .source = source,
-                 .functions = hashmap_new(Ident *, FuncDescriptor, &HEAP_ALLOCATOR,
-                                      str_ptrv_hash, str_ptrv_eq, NULL),
+                 .functions = hashmap_new(
+                     ModulePath, FuncDescriptor, &HEAP_ALLOCATOR,
+                     module_path_ptrv_hash, module_path_ptrv_eq, NULL),
                  .decls = array_new(Ident, &HEAP_ALLOCATOR)},
+      .path = path,
       .foreign_functions = array_new(Ident, &HEAP_ALLOCATOR),
       .imported_modules = array_new(Ident, &HEAP_ALLOCATOR),
-      .imported_functions = hashmap_new(Ident *, FuncDescriptor, &HEAP_ALLOCATOR,
-                                      str_ptrv_hash, str_ptrv_eq, NULL),
+      .imported_functions =
+          hashmap_new(ModulePath, FuncDescriptor, &HEAP_ALLOCATOR,
+                      module_path_ptrv_hash, module_path_ptrv_eq, NULL),
   };
 }
 
 static void next_token(Parser *parser) {
   parser->cur_tok = parser->peek_tok;
   parser->peek_tok++;
+}
+
+// first: first ident of module path
+// end: last ident of the module path
+static ModulePath parse_module_path(Parser *parser) {
+  ModulePath path = {.path = array_new(Ident, &HEAP_ALLOCATOR)};
+  while (parser->cur_tok->type != TOKEN_EOF) {
+    if (parser->cur_tok->type == TOKEN_IDENT) {
+      array_add(path.path, parser->cur_tok->var.ident);
+    } else {
+      log_error("[PARSER] Non ident found in module path");
+      exit(1);
+    }
+
+    if (parser->peek_tok->type == TOKEN_DOT) {
+      next_token(parser);
+      if (parser->peek_tok->type == TOKEN_IDENT) {
+        next_token(parser);
+      } else {
+        log_error("[PARSER] Parsing module path, encountered dot at the end of "
+                  "the path");
+        exit(1);
+      }
+      continue;
+    } else {
+      break;
+    }
+  }
+  return path;
+}
+
+static void print_module_path(const ModulePath *path) {
+  for (size_t i = 0; i < array_len(path->path); i++) {
+    puts(path->path[i]);
+    if (i < array_len(path->path) - 1) {
+      puts(".");
+    }
+  }
 }
 
 static void type_print_as_ident(char *buf, const Type *type) {
@@ -497,8 +541,8 @@ static Statement parse_stmt(Parser *parser);
 static Type parse_type(Parser *parser) {
   switch (parser->cur_tok->type) {
   case TOKEN_IDENT: {
-    Ident ident = parser->cur_tok->var.ident;
-    if (strv_eq(ident, "string")) {
+    ModulePath ident = parse_module_path(parser);
+    if (strv_eq(ident.path[0], "string")) {
       return STRING_BUILTIN_TYPE;
     }
     return (Type){.type = TYPE_IDENT, .var = {.type_ident = ident}};
@@ -817,29 +861,29 @@ static bool ident_is_struct(Parser *parser, Ident *struct_name) {
   return type_expr != NULL && type_expr->type == TYPE_EXPR_STRUCT;
 }
 
-static bool ident_is_imported_function(const Parser *parser,
-                                       Ident function_name) {
-  hashmap_foreach(&parser->imported_functions, Ident * key,
-                  FuncDescriptor * val, {
-                    if (strv_eq(*key, function_name)) {
-                      return true;
-                    }
-                  });
-  return false;
-}
+// static bool ident_is_imported_function(const Parser *parser,
+//                                        Ident function_name) {
+//   hashmap_foreach(&parser->imported_functions, Ident * key,
+//                   FuncDescriptor * val, {
+//                     if (strv_eq(*key, function_name)) {
+//                       return true;
+//                     }
+//                   });
+//   return false;
+// }
 
-static bool ident_is_builtin_function(const Parser *parser,
-                                      Ident *function_name) {
-  for (size_t i = 0; i < array_len(parser->foreign_functions); i++) {
-    if (strv_eq(parser->foreign_functions[i], *function_name))
-      return true;
-  }
-  return strv_eq(*function_name, "println") ||
-         strv_eq(*function_name, "printfn") ||
-         strv_eq(*function_name, "format") || strv_eq(*function_name, "exit") ||
-         strv_eq(*function_name, "print_int") ||
-         strv_eq(*function_name, "print_int_ptr");
-}
+// static bool ident_is_builtin_function(const Parser *parser,
+//                                       Ident *function_name) {
+//   for (size_t i = 0; i < array_len(parser->foreign_functions); i++) {
+//     if (strv_eq(parser->foreign_functions[i], *function_name))
+//       return true;
+//   }
+//   return strv_eq(*function_name, "println") ||
+//          strv_eq(*function_name, "printfn") ||
+//          strv_eq(*function_name, "format") || strv_eq(*function_name, "exit")
+//          || strv_eq(*function_name, "print_int") || strv_eq(*function_name,
+//          "print_int_ptr");
+// }
 
 #define OPTIONAL_EXPR(...)                                                     \
   (OptionalExpr) { .expr = (Expression)__VA_ARGS__, .present = true }
@@ -929,43 +973,43 @@ static OptionalExpr parse_expr(Parser *parser) {
   }
   case TOKEN_IDENT: {
     Ident ident = parser->cur_tok->var.ident;
-    printf("Starting ident parsing: %s\n", ident);
+    ModulePath path = parse_module_path(parser);
     if (parser->peek_tok->type == TOKEN_LPAREN) {
-      if (hashmap_contains(&parser->custom_functions, &ident) ||
-          ident_is_imported_function(parser, ident) ||
-          ident_is_builtin_function(parser,
-                                    &ident)) { // cur_tok is left parenthesis
-        next_token(parser);
-        // cur_tok is first expr
-        next_token(parser);
+      // if (hashmap_contains(&parser->custom_functions, &ident)||
+      //     ident_is_imported_function(parser, ident) ||
+      //     ident_is_builtin_function(parser, &ident)) {
+      // if (true) {
+      //  cur_tok is left parenthesis
+      next_token(parser);
+      // cur_tok is first expr
+      next_token(parser);
 
-        Expression *exprs = array_new_capacity(Expression, 8, &HEAP_ALLOCATOR);
-        ParseResult result = parse_expr_list(parser, exprs, TOKEN_RPAREN);
-        if (!result.success) {
-          DEBUG_TOK(parser->cur_tok, "Function call");
-          log_debug("Function: %s", ident);
-          log_error(
-              "%s:%d:%d Encountered error parsing call args, error msg: %s",
-              parser->filename, result.line, result.pos, result.error_msg);
-          exit(1);
-        }
-        // end: right parenthesis
+      Expression *exprs = array_new_capacity(Expression, 8, &HEAP_ALLOCATOR);
+      ParseResult result = parse_expr_list(parser, exprs, TOKEN_RPAREN);
+      if (!result.success) {
+        DEBUG_TOK(parser->cur_tok, "Function call");
+        log_debug("Function: %s", ident);
+        log_error("%s:%d:%d Encountered error parsing call args, error msg: %s",
+                  parser->filename, result.line, result.pos, result.error_msg);
+        exit(1);
+      }
+      // end: right parenthesis
 
-        if (parser->cur_tok->type != TOKEN_RPAREN) {
-          fprintf(stderr, "No TOKEN_RPAREN at end of call");
-          exit(1);
-        } else {
-          char tok_buf[128];
-          lexer_tok_print(tok_buf, parser->cur_tok);
-          printf("Cur tok: %s\n", tok_buf);
-        }
-
-        return OPTIONAL_EXPR({.type = EXPR_CALL,
-                              .var = {.expr_call = {
-                                          .function = ident,
-                                          .args = exprs,
-                                      }}});
+      if (parser->cur_tok->type != TOKEN_RPAREN) {
+        fprintf(stderr, "No TOKEN_RPAREN at end of call");
+        exit(1);
       } else {
+        char tok_buf[128];
+        lexer_tok_print(tok_buf, parser->cur_tok);
+        printf("Cur tok: %s\n", tok_buf);
+      }
+
+      return OPTIONAL_EXPR({.type = EXPR_CALL,
+                            .var = {.expr_call = {
+                                        .function = path,
+                                        .args = exprs,
+                                    }}});
+      /*} else {
         fprintf(stderr, "%s:%d:%d Attempted to call unknown function %s\n",
                 parser->filename, parser->cur_tok->line,
                 parser->cur_tok->begin_pos, ident);
@@ -973,7 +1017,7 @@ static OptionalExpr parse_expr(Parser *parser) {
                         ExprFunction * val,
                         { printf("Function Name: %s\n", *key); });
         exit(1);
-      }
+      }*/
     } else if (parser->peek_tok->type == TOKEN_LCURLY) {
       if (ident_is_struct(parser, &ident)) {
         // cur_tok is lcurly
@@ -992,18 +1036,17 @@ static OptionalExpr parse_expr(Parser *parser) {
              .var = {.expr_struct_init = {.struct_name = ident,
                                           .field_inits = field_inits}}});
       } else {
-        printf("parsed ident expr\n");
         return OPTIONAL_EXPR(
-            {.type = EXPR_IDENT, .var = {.expr_ident = {.ident = ident}}});
+            {.type = EXPR_IDENT, .var = {.expr_ident = {.ident = path}}});
       }
-    } else if (parser->peek_tok->type == TOKEN_DOT &&
+    } /*else if (parser->peek_tok->type == TOKEN_DOT &&
                (parser->peek_tok + 2)->type == TOKEN_LPAREN) {
       // cur_tok is dot
       next_token(parser);
       // cur_tok is call name
       next_token(parser);
 
-      Ident call_name = parser->cur_tok->var.ident;
+      ModulePath call_name = parse_module_path(parser);
 
       { // cur_tok is left parenthesis
         next_token(parser);
@@ -1019,10 +1062,10 @@ static OptionalExpr parse_expr(Parser *parser) {
                                            .expr_call = {.function = call_name,
                                                          .args = exprs}}}});
       }
-    }
+    }*/
     printf("parsed ident expr\n");
     return OPTIONAL_EXPR(
-        {.type = EXPR_IDENT, .var = {.expr_ident = {.ident = ident}}});
+        {.type = EXPR_IDENT, .var = {.expr_ident = {.ident = path}}});
   }
   case TOKEN_INT: {
     return OPTIONAL_EXPR(
@@ -1495,11 +1538,11 @@ static OptionalExpr parse_expr1(Parser *parser, Precedence prec) {
 
   Expression left_expr = expr.expr;
 
-  if (parser->peek_tok->type == TOKEN_DOT) {
-    // cur_tok is TOKEN_DOT
-    next_token(parser);
-    left_expr = parse_struct_access(parser, left_expr);
-  } else if (parser->peek_tok->type == TOKEN_LSQUARE) {
+  // if (parser->peek_tok->type == TOKEN_DOT) {
+  //  cur_tok is TOKEN_DOT
+  // next_token(parser);
+  // left_expr = parse_struct_access(parser, left_expr);
+  /*} else*/ if (parser->peek_tok->type == TOKEN_LSQUARE) {
     // cur_tok is TOKEN_LSQUARE
     next_token(parser);
     left_expr = parse_array_access(parser, left_expr);
@@ -1632,9 +1675,11 @@ static StmtDecl parse_decl_stmt(Parser *parser, bool typed) {
     }
     case EXPR_VAR_REG_EXPR: {
       if (expr_var.var.expr_var_reg_expr.type == EXPR_FUNCTION) {
+        ModulePath module_path = module_path_copy(&parser->path);
+        array_add(module_path.path, stmt_decl.name);
         hashmap_insert(&parser->custom_functions, &stmt_decl.name,
                        &expr_var.var.expr_var_reg_expr.var.expr_function);
-        hashmap_insert(&parser->module.functions, &stmt_decl.name,
+        hashmap_insert(&parser->module.functions, &module_path,
                        &expr_var.var.expr_var_reg_expr.var.expr_function.desc);
       } else {
         array_add(parser->module.decls,
@@ -1735,6 +1780,30 @@ static char *get_exec_dir(const char *exec_filename) {
   return _exec_dir_path;
 }
 
+static ModulePath parse_module_path_from_string(const char *str) {
+  ModulePath path = {.path = array_new(Ident, &HEAP_ALLOCATOR)};
+
+  const char *c = str;
+  dyn_string_t cur_ident = {0};
+  dyn_string_init(&cur_ident);
+  while (*c != '\0') {
+    if (*c == '/') {
+      dyn_string_t new_str = {0};
+      dyn_string_init(&new_str);
+      dyn_string_copy(&new_str, &cur_ident);
+      array_add(path.path, new_str.string);
+      dyn_string_clear(&cur_ident);
+    } else {
+      dyn_string_add_char(&cur_ident, *c);
+    }
+    c++;
+  }
+
+  dyn_string_free(&cur_ident);
+
+  return path;
+}
+
 static Statement parse_stmt(Parser *parser) {
   switch (parser->cur_tok->type) {
   case TOKEN_RETURN: {
@@ -1771,14 +1840,15 @@ static Statement parse_stmt(Parser *parser) {
     }
     // Cur token is ident
     next_token(parser);
-    Ident name = parser->cur_tok->var.ident;
+    ModulePath mod_path = parse_module_path(parser);
     // Cur tok is first token of func desc
     next_token(parser);
     FuncDescriptor desc = {0};
     parse_func_desc(parser, &desc);
-    array_add(parser->foreign_functions, name);
-    return (Statement){.type = STMT_FOREIGN,
-                       .var = {.stmt_foreign = {.name = name, .desc = desc}}};
+    array_add(parser->foreign_functions, mod_path);
+    return (Statement){
+        .type = STMT_FOREIGN,
+        .var = {.stmt_foreign = {.name = mod_path, .desc = desc}}};
   }
   case TOKEN_IF:
   case TOKEN_IT:
@@ -1808,15 +1878,18 @@ static Statement parse_stmt(Parser *parser) {
                     right_expr.error_msg);
           exit(1);
         }
+        // TODO: Fix module path
         return (Statement){
             .type = STMT_ASSIGN,
-            .var = {.stmt_assign = {
-                        .left_ident_type = expr.expr.type == EXPR_IDENT
-                                               ? ACCESS_TYPE_IDENT
-                                               : ACCESS_TYPE_STRUCT_ACCESS,
-                        .left_ident = {.ident = expr.expr.var.expr_ident.ident},
-                        .right_expr = right_expr.expr,
-                        .assign_type = ASSIGN_REGULAR}}};
+            .var = {
+                .stmt_assign = {
+                    .left_ident_type = expr.expr.type == EXPR_IDENT
+                                           ? ACCESS_TYPE_IDENT
+                                           : ACCESS_TYPE_STRUCT_ACCESS,
+                    .left_ident = {.ident =
+                                       expr.expr.var.expr_ident.ident.path[0]},
+                    .right_expr = right_expr.expr,
+                    .assign_type = ASSIGN_REGULAR}}};
       }
       return (Statement){.type = STMT_EXPR,
                          .var = {.stmt_expr = {.expr = expr.expr}}};
@@ -1854,16 +1927,24 @@ static Statement parse_stmt(Parser *parser) {
 
         char *module_name = parser->cur_tok->var.string;
         char *exec_file_dir_path = get_exec_dir(parser->filename);
-        char path[strlen(exec_file_dir_path) + strlen(module_name) +
-                  sizeof(".goo")];
-        sprintf(path, "%s%s.goo", exec_file_dir_path, module_name);
+        dyn_string_t path = {0};
+        dyn_string_init(&path);
 
-        FILE *f = fopen(path, "r");
+        if (strncmp(module_name, "core/", 5) == 0) {
+          dyn_string_printf(&path, "%s/%s.goo", getenv(CORE_LIB_PATH),
+                            module_name + 5);
+        } else {
+          dyn_string_printf(&path, "%s%s.goo", exec_file_dir_path, module_name);
+        }
+
+        log_debug("Module path: %s", path.string);
+
+        FILE *f = fopen(path.string, "r");
 
         if (f == NULL) {
           log_error("[PREPROCESSOR] Cannot find module for import directive, "
                     "module: %s, path: %s. Execution path: %s",
-                    module_name, path, parser->filename);
+                    module_name, path.string, parser->filename);
           exit(1);
         }
 
@@ -1874,10 +1955,26 @@ static Statement parse_stmt(Parser *parser) {
         char *source_buf = malloc(4096);
         fread(source_buf, 1, 4096, f);
 
-        Module mod = parser_parse_module(source_buf, path);
+        ModulePath mod_path = parse_module_path_from_string(module_name);
 
-        hashmap_foreach(&mod.functions, Ident *key, FuncDescriptor *val, {
-          log_debug("Imported function: %s", *key);
+        printf("Module path:\n");
+
+        for (size_t i = 0; i < array_len(mod_path.path); i++) {
+          printf("%s\n", mod_path.path[i]);
+        }
+
+        Module mod = parser_parse_module(source_buf, path.string, mod_path);
+
+        hashmap_foreach(&mod.functions, ModulePath* key, FuncDescriptor * val, {
+          log_debug("Imported function:");
+          for (size_t i = 0; i < array_len(key->path); i++) {
+            printf("%s", key->path[i]);
+            if (i != array_len(key->path) - 1) {
+              printf(".");
+            } else {
+              printf("\n");
+            }
+          }
           hashmap_insert(&parser->imported_functions, key, val);
         });
 
@@ -2007,11 +2104,11 @@ inline Module parser_parse_module_ex(Parser *parser, const char *source,
   return parser->module;
 }
 
-Module parser_parse_module(const char *source, const char *filename) {
+Module parser_parse_module(const char *source, const char *filename, ModulePath path) {
   Lexer lexer = lexer_new();
   lexer_tokenize(&lexer, source, filename);
   array_add(lexer.tokens, (Token){.type = TOKEN_EOF});
-  Parser parser = parser_new(lexer.tokens, source, filename);
+  Parser parser = parser_new(lexer.tokens, source, filename, path);
   parser_parse(&parser);
   return parser.module;
 }

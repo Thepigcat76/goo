@@ -3,6 +3,7 @@
 #include "lilc/hashmap.h"
 #include "lilc/str.h"
 #include "types.h"
+#include "shared.h"
 
 typedef enum {
   PREC_LOWEST,
@@ -57,7 +58,7 @@ typedef struct {
 } ExprFor;
 
 typedef struct {
-  Ident function;
+  ModulePath function;
   struct _expr *args;
 } ExprCall;
 
@@ -139,7 +140,7 @@ typedef struct {
 } TypeExpr;
 
 typedef struct {
-  Ident ident;
+  ModulePath ident;
 } ExprIdent;
 
 typedef struct {
@@ -255,7 +256,7 @@ typedef struct {
 } StmtReturn;
 
 typedef struct {
-  Ident name;
+  ModulePath name;
   FuncDescriptor desc;
 } StmtForeign;
 

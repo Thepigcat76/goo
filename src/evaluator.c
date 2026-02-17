@@ -102,9 +102,9 @@ static Object eval_expr_block(Evaluator *evaluator,
 }
 
 Object eval_expr_call(Evaluator *evaluator, const ExprCall *expr_call) {
-  Ident function = expr_call->function;
+  Ident function = expr_call->function.path[0];
 
-  Object *value = environment_get(evaluator->cur_env, &expr_call->function,
+  Object *value = environment_get(evaluator->cur_env, &function,
                                   evaluator->global_env);
   if (value != NULL && value->type == OBJECT_FUNCTION) {
     ObjectFunction obj_function = value->var.obj_function;

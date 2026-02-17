@@ -10,6 +10,6 @@
 typedef struct {
   const char *filename;
   const char *source;
-  Hashmap(Ident *, FuncDescriptor) functions;
+  Hashmap(ModulePath, FuncDescriptor) functions;
   TypedIdent *decls;
 } Module;

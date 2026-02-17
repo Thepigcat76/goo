@@ -158,7 +158,7 @@ static Ident type_generic(const FuncDescriptor *desc, size_t arg_index) {
   if (func_arg_type.type == TYPE_IDENT && desc->generics != NULL) {
     for (size_t i = 0; i < array_len(desc->generics); i++) {
       Generic *generic = &desc->generics[i];
-      if (strv_eq(func_arg_type.var.type_ident, generic->name)) {
+      if (strv_eq(func_arg_type.var.type_ident.path[0], generic->name)) {
         return generic->name;
       }
     }
@@ -227,7 +227,7 @@ void checker_gen_functions(TypeChecker *checker) {
                                (OptionalType){.present = false});
               }
 
-              generic_func->caller_exprs[_arr_foreach_index]->function =
+              generic_func->caller_exprs[_arr_foreach_index]->function.path[0] =
                   generic_func_name_cpy;
 
               hashmap_free(&generics_lookup);
