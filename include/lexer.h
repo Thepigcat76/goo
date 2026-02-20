@@ -67,9 +67,15 @@ typedef struct {
 } Token;
 
 typedef struct {
+  const char *begin;
+  size_t len;
+} LexerLine;
+
+typedef struct {
   size_t index;
   const char *cur_char;
   Token *tokens;
+  LexerLine *lines;
   int line;
   int pos;
 } Lexer;

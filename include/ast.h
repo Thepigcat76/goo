@@ -235,7 +235,7 @@ typedef struct {
 } TypeTableValue;
 
 typedef struct {
-  Hashmap(Ident *, TypeTableValue) type_table;
+  Hashmap(ModulePath, TypeTableValue) type_table;
 } TypeTable;
 
 typedef struct {

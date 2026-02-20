@@ -1,6 +1,5 @@
 #import "core/io/files"
 
 main :: () {
-  files.open("tests/modules.goo")
-  files.open("tests/modules.goo")
+  arr := []i32{
 }

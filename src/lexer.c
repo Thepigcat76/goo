@@ -10,6 +10,7 @@
 Lexer lexer_new(void) {
   return (Lexer){
       .tokens = array_new(Token, &HEAP_ALLOCATOR),
+      .lines = array_new(LexerLine, &HEAP_ALLOCATOR),
       .line = 1,
       .pos = 1,
   };
@@ -166,13 +167,19 @@ void lexer_tok_print(char *buf, const Token *tok) {
 }
 
 static bool next_char_count_newline(Lexer *lexer) {
-  lexer->cur_char++;
   if (*lexer->cur_char == '\n') {
-    lexer->pos = 0;
+    lexer->pos = 1;
     lexer->line++;
+    size_t lines = array_len(lexer->lines);
+    if (lines > 0) {
+      lexer->lines[lines - 1].len =
+          lexer->cur_char - lexer->lines[lines - 1].begin;
+    }
+    array_add(lexer->lines, (LexerLine){.begin = lexer->cur_char + 1});
   } else {
     lexer->pos++;
   }
+  lexer->cur_char++;
   return *lexer->cur_char != '\0';
 }
 
@@ -186,6 +193,8 @@ void lexer_tokenize(Lexer *lexer, const char *src, const char *filename) {
   log_info("[LEXER] Start tokenization of file: %s", filename);
 
   lexer->cur_char = src;
+
+  array_add(lexer->lines, (LexerLine){.begin = lexer->cur_char});
 
   while (*lexer->cur_char != '\0') {
     Token tok;
@@ -204,9 +213,10 @@ void lexer_tokenize(Lexer *lexer, const char *src, const char *filename) {
       return;
     } else if (isalpha(*lexer->cur_char) || *lexer->cur_char == '_') {
       const char *begin = lexer->cur_char;
+      size_t begin_pos = lexer->pos;
       size_t cap = 256;
       char *ident = malloc(cap);
-      
+
       size_t i = 0;
       while (isalnum(*lexer->cur_char) || *lexer->cur_char == '_') {
         if (i >= cap - 1) {
@@ -214,8 +224,10 @@ void lexer_tokenize(Lexer *lexer, const char *src, const char *filename) {
           exit(1);
         }
         ident[i++] = *lexer->cur_char;
-        
-        if (*(lexer->cur_char + 1) != '\0' && (isalnum(*(lexer->cur_char + 1)) || *(lexer->cur_char + 1) == '_')) {
+
+        if (*(lexer->cur_char + 1) != '\0' &&
+            (isalnum(*(lexer->cur_char + 1)) ||
+             *(lexer->cur_char + 1) == '_')) {
           next_char(lexer);
         } else {
           break;
@@ -248,12 +260,13 @@ void lexer_tokenize(Lexer *lexer, const char *src, const char *filename) {
         tok.type = TOKEN_IDENT;
         tok.var.ident = ident;
       }
-      tok.begin_pos = lexer->pos;
+      tok.begin_pos = begin_pos;
       tok.line = lexer->line;
       tok.begin = begin;
       tok.len = i;
     } else if (*lexer->cur_char == '"') {
       const char *begin = lexer->cur_char;
+      size_t begin_pos = lexer->pos;
       char *string = malloc(256 * sizeof(char));
       next_char(lexer);
       size_t i = 0;
@@ -265,11 +278,12 @@ void lexer_tokenize(Lexer *lexer, const char *src, const char *filename) {
       tok = (Token){.type = TOKEN_STRING,
                     .var = {.string = strdup(string)},
                     .begin = begin,
-                    .begin_pos = lexer->pos,
+                    .begin_pos = begin_pos,
                     .line = lexer->line,
-                    .len = i};
+                    .len = i + 2};
     } else if (*lexer->cur_char >= '0' && *lexer->cur_char <= '9') {
       const char *begin = lexer->cur_char;
+      size_t begin_pos = lexer->pos;
       size_t cap = 32;
       char int_lit[cap];
       size_t i = 0;
@@ -291,7 +305,7 @@ void lexer_tokenize(Lexer *lexer, const char *src, const char *filename) {
       tok = (Token){.type = TOKEN_INT,
                     .var = {.integer = atoi(int_lit)},
                     .begin = begin,
-                    .begin_pos = lexer->pos,
+                    .begin_pos = begin_pos,
                     .line = lexer->line,
                     .len = i};
 
@@ -483,4 +497,9 @@ void lexer_tokenize(Lexer *lexer, const char *src, const char *filename) {
     next_char(lexer);
   }
   log_debug("[LEXER] Lines in file: %d", lexer->line);
+  size_t lines = array_len(lexer->lines);
+  if (lines > 0) {
+    lexer->lines[lines - 1].len =
+        lexer->cur_char - lexer->lines[lines - 1].begin;
+  }
 }

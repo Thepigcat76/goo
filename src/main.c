@@ -66,6 +66,7 @@ void run_program(char *buf, const char *filename, const char *output) {
   }
 
   Parser parser = parser_new(lexer.tokens, buf, filename, MODULE_PATH_ROOT);
+  parser.lines = lexer.lines;
 
   parser_parse(&parser);
 
@@ -89,14 +90,14 @@ void run_program(char *buf, const char *filename, const char *output) {
 
   preprocessor_process(&preprocessor);
 
-  TypeChecker checker = checker_new(parser.statements);
+  TypeChecker checker = checker_new(&parser);
 #ifdef TARGET_WEB
   function_println_use_buffer();
 #endif
   builtin_functions_init(checker.global_type_table);
 
   hashmap_foreach(
-      &parser.imported_functions, Ident * key, FuncDescriptor * val, {
+      &parser.imported_functions, ModulePath * key, FuncDescriptor * val, {
         Expression expr = {.type = EXPR_FUNCTION,
                            .var = {.expr_function = {.desc = *val,
                                                      .block = NULL,
@@ -107,17 +108,7 @@ void run_program(char *buf, const char *filename, const char *output) {
 
   checker_check(&checker);
 
-  return;
-
   checker_gen_functions(&checker);
-
-  puts("-- AST --");
-
-  for (size_t i = 0; i < array_len(checker.stmts); i++) {
-    char print_buf[1024];
-    parser_stmt_print(print_buf, &checker.stmts[i]);
-    printf("%s\n", print_buf);
-  }
 
 #ifdef INTERPRETER
   Evaluator evaluator = evaluator_new(checker.stmts);
@@ -141,6 +132,8 @@ void run_program(char *buf, const char *filename, const char *output) {
 
   fclose(out_file);
 #endif
+
+  return;
   //  array_free(lexer.tokens);
   //
   //  array_free(parser.statements);

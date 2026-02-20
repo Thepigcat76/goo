@@ -5,17 +5,20 @@
 #include "lilc/array.h"
 #include "lilc/eq.h"
 #include "lilc/hash.h"
+#include <lilc/hashmap.h>
 #include <lilc/log.h>
+#include <lilc/str.h>
 #include <stdio.h>
 
 static const CheckerContext EMPTY_CONTEXT = {0};
 
 static void checker_type_table_push(TypeChecker *checker);
 
-TypeChecker checker_new(Statement *stmts) {
-  TypeChecker checker = {.stmts = stmts,
+TypeChecker checker_new(Parser *parser) {
+  TypeChecker checker = {.stmts = parser->statements,
                          .type_tables = array_new(TypeTable, &HEAP_ALLOCATOR),
                          .generic_functions_table = gft_new(),
+                         .imported_modules = parser->imported_modules,
                          .generated_generic_functions =
                              hashmap_new(Ident *, Type, &HEAP_ALLOCATOR,
                                          str_ptrv_hash, str_ptrv_eq, NULL)};
@@ -25,26 +28,26 @@ TypeChecker checker_new(Statement *stmts) {
   return checker;
 }
 
-void type_table_add(TypeTable *table, Ident *ident, ExpressionVariant expr_var,
-                    OptionalType opt_type) {
+void type_table_add(TypeTable *table, ModulePath *path,
+                    ExpressionVariant expr_var, OptionalType opt_type) {
   TypeTableValue val = {.expr_variant = expr_var, .opt_type = opt_type};
-  bool inserted = hashmap_insert(&table->type_table, ident, &val);
+  hashmap_insert(&table->type_table, path, &val);
 }
 
 void type_table_add_generic(TypeTable *table, Ident *name) {
   TypeTableValue val = {.is_generic = true};
-  bool inserted = hashmap_insert(&table->type_table, name, &val);
+  hashmap_insert(&table->type_table, name, &val);
 }
 
-TypeTableValue *type_table_get(TypeTable *table, Ident *ident,
+TypeTableValue *type_table_get(TypeTable *table, ModulePath *path,
                                TypeTable *global_table) {
   // if (ident == NULL || *ident == NULL)
   //   return NULL;
 
-  TypeTableValue *res = hashmap_value(&table->type_table, ident);
+  TypeTableValue *res = hashmap_value(&table->type_table, path);
 
   if (res == NULL && global_table != NULL) {
-    return hashmap_value(&global_table->type_table, ident);
+    return hashmap_value(&global_table->type_table, path);
   }
 
   return res;
@@ -53,8 +56,8 @@ TypeTableValue *type_table_get(TypeTable *table, Ident *ident,
 static void checker_type_table_push(TypeChecker *checker) {
   array_add(checker->type_tables,
             (TypeTable){.type_table = hashmap_new(
-                            Ident *, TypeTableValue, &HEAP_ALLOCATOR,
-                            str_ptrv_hash, str_ptrv_eq, NULL)});
+                            ModulePath, TypeTableValue, &HEAP_ALLOCATOR,
+                            module_path_ptrv_hash, module_path_ptrv_eq, NULL)});
   checker->cur_type_table++;
 }
 
@@ -74,10 +77,34 @@ static void checker_type_table_pop(TypeChecker *checker) {
   checker->cur_type_table--;
 }
 
-static Type check_stmt(TypeChecker *checker, Statement *stmt, CheckerContext context);
+static ModulePath module_path_resolve(TypeChecker *checker,
+                                      const ModulePath *path) {
+  log_debug("Resolving path for: %s", module_path_fmt(path).string);
+  size_t modules_len = array_len(checker->imported_modules);
+  for (size_t i = 0; i < modules_len; i++) {
+    ModulePath imported_path = checker->imported_modules[i];
+    log_debug("Checking imported module: %s",
+              module_path_fmt(&imported_path).string);
+    size_t path_len = array_len(imported_path.path);
+    Ident last_path_segment = imported_path.path[path_len - 1];
+    if (strv_eq(path->path[0], last_path_segment)) {
+      ModulePath new_path = module_path_copy(&imported_path);
+      for (size_t i = 1; i < array_len(path->path); i++) {
+        array_add(new_path.path, path->path[i]);
+      }
+      log_debug("Resolved path: %s", module_path_fmt(&new_path).string);
+      return new_path;
+    }
+  }
+  return *path;
+}
+
+static Type check_stmt(TypeChecker *checker, Statement *stmt,
+                       CheckerContext context);
 
 static Type check_expr(TypeChecker *checker, Expression *expr);
 
+/*
 // Returns the name of the correct function
 static Ident resolve_overloaded_function(TypeChecker *checker,
                                          ExprCall *expr_call) {
@@ -142,15 +169,17 @@ static Ident resolve_overloaded_function(TypeChecker *checker,
           expr_call->function);
   exit(1);
 }
+*/
 
 static void type_table_dump(const TypeTable *type_table) {
-  hashmap_foreach(&type_table->type_table, Ident * key, TypeTableValue * val, {
-    if (val->opt_type.present) {
-      char type_buf[1024];
-      type_print(type_buf, &val->opt_type.type);
-      printf("Key: %s, Val: %s\n", *key, type_buf);
-    }
-  });
+  hashmap_foreach(
+      &type_table->type_table, ModulePath * key, TypeTableValue * val, {
+        if (val->opt_type.present) {
+          char type_buf[1024];
+          type_print(type_buf, &val->opt_type.type);
+          printf("Key: %s, Val: %s\n", module_path_fmt(key).string, type_buf);
+        }
+      });
 }
 
 static bool is_generic_function(const ExprFunction *func) {
@@ -158,15 +187,22 @@ static bool is_generic_function(const ExprFunction *func) {
 }
 
 static Type check_call_expr(TypeChecker *checker, ExprCall *expr_call) {
-  TypeTableValue *val =
-      type_table_get(checker->cur_type_table, &expr_call->function,
-                     checker->global_type_table);
+  ModulePath call_function_path =
+      module_path_resolve(checker, &expr_call->function);
+  TypeTableValue *val = type_table_get(
+      checker->cur_type_table, &call_function_path, checker->global_type_table);
+
+  log_debug("Type table dump:");
+  type_table_dump(checker->cur_type_table);
+
   // type_table_dump(checker->cur_type_table);
+
+  dyn_string_t mod_path_call = module_path_fmt(&expr_call->function);
 
   ExprFunction expr_function;
 
   if (val != NULL) {
-    if (val->expr_variant.type != EXPR_VAR_REG_EXPR) {
+    /*if (val->expr_variant.type != EXPR_VAR_REG_EXPR) {
       Ident resolved_overload_function =
           resolve_overloaded_function(checker, expr_call);
       expr_call->function.path[0] = resolved_overload_function;
@@ -174,17 +210,27 @@ static Type check_call_expr(TypeChecker *checker, ExprCall *expr_call) {
           type_table_get(checker->cur_type_table, &resolved_overload_function,
                          checker->global_type_table)
               ->expr_variant.var.expr_var_reg_expr.var.expr_function;
-    } else {
-      if (val->expr_variant.var.expr_var_reg_expr.type == EXPR_FUNCTION) {
-        expr_function =
-            val->expr_variant.var.expr_var_reg_expr.var.expr_function;
+    } else*/
+    {
+      Expression *expr = &val->expr_variant.var.expr_var_reg_expr;
+      if (expr->type == EXPR_FUNCTION) {
+        log_debug("epxression type is function, name: %s",
+                  module_path_fmt(&call_function_path).string);
+        void *val = hashmap_value(&checker->global_type_table->type_table,
+                                  &call_function_path);
+        log_debug("val: %p", val);
+        hashmap_foreach(&checker->global_type_table->type_table,
+                        ModulePath * key, TypeTableValue * val, {
+                          log_debug("!!Key!!: %s", module_path_fmt(key).string);
+                        });
+        expr_function = expr->var.expr_function;
       } else {
         fprintf(stderr, "Expr is not a function\n");
         exit(1);
       }
     }
   } else {
-    fprintf(stderr, "Could not find symbol %s\n", expr_call->function);
+    fprintf(stderr, "Could not find symbol %s\n", mod_path_call.string);
     exit(1);
   }
 
@@ -200,11 +246,8 @@ static Type check_call_expr(TypeChecker *checker, ExprCall *expr_call) {
           : false;
 
   if (!has_varargs && args_len != func_args_len) {
-    fprintf(stderr,
-            "Type error: Arg count for caller (%zu) and function (%zu) do not "
-            "match, "
-            "function: %s\n",
-            args_len, func_args_len, expr_call->function);
+    log_error("Type error: Expected %zu arguments for function %s, received %zu arguments",
+            func_args_len, mod_path_call.string, args_len);
     exit(1);
   }
   Type *arg_types = array_new(Type, &HEAP_ALLOCATOR);
@@ -215,7 +258,8 @@ static Type check_call_expr(TypeChecker *checker, ExprCall *expr_call) {
     if (expr_function.desc.args[i].var.typed_arg.type.type == TYPE_IDENT &&
         expr_function.desc.generics != NULL) {
       for (size_t j = 0; j < array_len(expr_function.desc.generics); j++) {
-        if (strcmp(expr_function.desc.args[i].var.typed_arg.type.var.type_ident.path[0],
+        if (strcmp(expr_function.desc.args[i]
+                       .var.typed_arg.type.var.type_ident.path[0],
                    expr_function.desc.generics[j].name) == 0) {
           generic_type = true;
           break;
@@ -227,22 +271,24 @@ static Type check_call_expr(TypeChecker *checker, ExprCall *expr_call) {
           !type_eq(&arg_type, &expr_function.desc.args[i].var.typed_arg.type) &&
           !generic_type) {
         type_table_dump(checker->cur_type_table);
-        char caller_arg_type_buf[512];
-        type_print(caller_arg_type_buf, &arg_type);
-        char func_arg_type_buf[512];
-        type_print(func_arg_type_buf,
-                   &expr_function.desc.args[i].var.typed_arg.type);
-        fprintf(stderr,
-                "Type error: Arg type of caller (%s) and function (%s) do not "
-                "match, "
-                "function: %s, "
-                "arg: %zu\n",
-                caller_arg_type_buf, func_arg_type_buf, expr_call->function, i);
+        dyn_string_t caller_arg_type =
+            type_format(&checker->type_fmt, &arg_type);
+        dyn_string_t func_arg_type = type_format(
+            &checker->type_fmt, &expr_function.desc.args[i].var.typed_arg.type);
+        log_error(
+            "Type error: Expected type %s for argument %zu of function %s, "
+            "received argument of type %s",
+            func_arg_type.string, i, mod_path_call.string,
+            caller_arg_type.string);
+        dyn_string_free(&caller_arg_type);
+        dyn_string_free(&func_arg_type);
         exit(1);
       }
     }
   }
 
+  // TODO: Reimplement generic functions
+  /*
   if (is_generic_function(&expr_function)) {
     GenericFunction *generic_func =
         gft_get(&checker->generic_functions_table, &expr_call->function);
@@ -255,6 +301,7 @@ static Type check_call_expr(TypeChecker *checker, ExprCall *expr_call) {
       exit(1);
     }
   }
+  */
 
   return expr_function.desc.ret_type;
 }
@@ -300,8 +347,7 @@ static Type check_expr(TypeChecker *checker, Expression *expr) {
         type_print(expected_buf, expected_item_type);
         char provided_buf[512];
         type_print(provided_buf, &item_type);
-        fprintf(
-            stderr,
+        log_error(
             "Type error: Expected (%s) and provided (%s) array item types do "
             "not match\n",
             expected_buf, provided_buf);
@@ -439,7 +485,7 @@ static Type check_expr(TypeChecker *checker, Expression *expr) {
         return check_expr(checker, &val->expr_variant.var.expr_var_reg_expr);
       } else {
         fprintf(stderr, "Could not find expression with symbol: %s",
-                expr->var.expr_ident.ident);
+                module_path_fmt(&expr->var.expr_ident.ident).string);
         exit(1);
       }
     }
@@ -521,9 +567,10 @@ create_struct_from_expr(const TypeExprStruct *ty_expr_struct) {
   return type_struct;
 }
 
-static Type check_stmt(TypeChecker *checker, Statement *stmt, CheckerContext context) {
-  //char print_buf[1024];
-//  parser_stmt_print(print_buf, stmt);
+static Type check_stmt(TypeChecker *checker, Statement *stmt,
+                       CheckerContext context) {
+  // char print_buf[1024];
+  //  parser_stmt_print(print_buf, stmt);
   switch (stmt->type) {
   case STMT_RETURN: {
     StmtReturn stmt_return = stmt->var.stmt_return;
@@ -532,15 +579,17 @@ static Type check_stmt(TypeChecker *checker, Statement *stmt, CheckerContext con
       fprintf(stderr, "Cannot use return outside of function\n");
       exit(1);
     }
-    
+
     if (stmt_return.has_ret_val) {
       if (!context.cur_func_desc->has_ret_type) {
-        fprintf(stderr, "Return stmt cannot have return value, if the function doesn't have return value\n");
+        fprintf(stderr, "Return stmt cannot have return value, if the function "
+                        "doesn't have return value\n");
         exit(1);
       }
     } else {
       if (context.cur_func_desc->has_ret_type) {
-        fprintf(stderr, "Return stmt needs to have return value, because the function has return type\n");
+        fprintf(stderr, "Return stmt needs to have return value, because the "
+                        "function has return type\n");
         exit(1);
       }
     }
@@ -589,8 +638,9 @@ static Type check_stmt(TypeChecker *checker, Statement *stmt, CheckerContext con
     }
 
     if (stmt->var.stmt_decl.value.type == EXPR_VAR_REG_EXPR) {
+      ModulePath decl_path = module_path_root(stmt->var.stmt_decl.name);
       type_table_add(
-          checker->cur_type_table, &stmt->var.stmt_decl.name,
+          checker->cur_type_table, &decl_path,
           EXPR_VAR_EXPR(stmt->var.stmt_decl.value.var.expr_var_reg_expr),
           opt_type);
     } else {
@@ -602,7 +652,7 @@ static Type check_stmt(TypeChecker *checker, Statement *stmt, CheckerContext con
           if (field->type.type == TYPE_IDENT &&
               !type_eq(&field->type, &I32_BUILTIN_TYPE) &&
               !type_eq(&field->type, &STRING_BUILTIN_TYPE)) {
-            Ident *ty_ident = &field->type.var.type_ident;
+            ModulePath *ty_ident = &field->type.var.type_ident;
             TypeTableValue *actual_type = type_table_get(
                 checker->cur_type_table, ty_ident, checker->global_type_table);
             if (actual_type != NULL) {
@@ -628,9 +678,12 @@ static Type check_stmt(TypeChecker *checker, Statement *stmt, CheckerContext con
   }
   case STMT_FOREIGN: {
     StmtForeign stmt_foreign = stmt->var.stmt_foreign;
-    ExprFunction expr_function = {.desc = stmt_foreign.desc, .native_function = NULL, .block = NULL};
-    Expression expr = {.type = EXPR_FUNCTION, .var = {.expr_function = expr_function}};
-    type_table_add(checker->global_type_table, &stmt_foreign.name, EXPR_VAR_EXPR(expr), OPT_TYPE_EMPTY);
+    ExprFunction expr_function = {
+        .desc = stmt_foreign.desc, .native_function = NULL, .block = NULL};
+    Expression expr = {.type = EXPR_FUNCTION,
+                       .var = {.expr_function = expr_function}};
+    type_table_add(checker->global_type_table, &stmt_foreign.name,
+                   EXPR_VAR_EXPR(expr), OPT_TYPE_EMPTY);
   }
   case STMT_EXPR: {
     return check_expr(checker, &stmt->var.stmt_expr.expr);
@@ -640,7 +693,7 @@ static Type check_stmt(TypeChecker *checker, Statement *stmt, CheckerContext con
 
 void checker_check(TypeChecker *checker) {
   log_info("[TYPECHECKER] Start type checking");
-  
+
   for (size_t i = 0; i < array_len(checker->stmts); i++) {
     check_stmt(checker, &checker->stmts[i], EMPTY_CONTEXT);
   }

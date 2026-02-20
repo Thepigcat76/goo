@@ -205,9 +205,6 @@ void checker_gen_functions(TypeChecker *checker) {
                             "!!Could not find generic ident at index: %zu, "
                             "generics amount: %zu!!\n",
                             k, array_len(expr_function.desc.generics));
-                    char print_buf[512];
-                    func_desc_print(print_buf, &expr_function.desc);
-                    fprintf(stderr, "Func desc: %s\n", print_buf);
                     exit(1);
                   }
                 }

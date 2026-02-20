@@ -150,11 +150,12 @@ void builtin_functions_init(TypeTable *type_table) {
                    VARARG("args"));
   BUILTIN_FUNCTION(PRINT_INT_FUNCTION, "print_int", NULL, UNIT_BUILTIN_TYPE,
                    ARG("i", I32_BUILTIN_TYPE));
-  BUILTIN_FUNCTION(PRINT_INT_PTR_FUNCTION, "print_int_ptr", NULL, UNIT_BUILTIN_TYPE,
-                   ARG("i", I32_BUILTIN_TYPE));
+  BUILTIN_FUNCTION(PRINT_INT_PTR_FUNCTION, "print_int_ptr", NULL,
+                   UNIT_BUILTIN_TYPE, ARG("i", I32_BUILTIN_TYPE));
   BUILTIN_FUNCTION(EXIT_FUNCTION, "exit", execute_exit, UNIT_BUILTIN_TYPE,
                    ARG("code", I32_BUILTIN_TYPE));
 
+  /*
   type_table_add(type_table, &PRINTLN_FUNCTION.name,
                  EXPR_VAR_EXPR(PRINTLN_FUNCTION.expr), OPT_TYPE_EMPTY);
   type_table_add(type_table, &PRINTFN_FUNCTION.name,
@@ -167,4 +168,5 @@ void builtin_functions_init(TypeTable *type_table) {
                  EXPR_VAR_EXPR(PRINT_INT_PTR_FUNCTION.expr), OPT_TYPE_EMPTY);
   type_table_add(type_table, &FORMAT_FUNCTION.name,
                  EXPR_VAR_EXPR(FORMAT_FUNCTION.expr), OPT_TYPE_EMPTY);
+                 */
 }

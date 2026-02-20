@@ -3,6 +3,7 @@
 #include "lilc/hashmap.h"
 #include "parser.h"
 #include "generics.h"
+#include "types.h"
 
 typedef struct {
   Statement *stmts;
@@ -18,13 +19,16 @@ typedef struct {
   // (just their args) of the function
   GenericFunctionsTable generic_functions_table;
   Hashmap(Ident *, Expression *) generated_generic_functions;
+  ModulePath *imported_modules;
+  
+  TypeFormatter type_fmt;
 } TypeChecker;
 
 typedef struct {
   FuncDescriptor *cur_func_desc;
 } CheckerContext;
 
-TypeChecker checker_new(Statement *stmts);
+TypeChecker checker_new(Parser *parser);
 
 void checker_check(TypeChecker *checker);
 

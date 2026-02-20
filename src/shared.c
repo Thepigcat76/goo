@@ -4,10 +4,11 @@
 #include "lilc/eq.h"
 #include "stddef.h"
 #include <lilc/alloc.h>
+#include <lilc/str.h>
 #include <stdbool.h>
 
 int32_t module_path_ptrv_hash(const void *array) {
-  ModulePath *path = array;
+  const ModulePath *path = array;
 
   int32_t hash = 1;
   if (path != NULL) {
@@ -51,3 +52,26 @@ ModulePath module_path_copy(const ModulePath *path) {
   }
   return new_path;
 }
+
+ModulePath module_path_root(const char *str) {
+  ModulePath path = {.path = array_new(Ident, &HEAP_ALLOCATOR)};
+  array_add(path.path, str);
+  return path;
+}
+
+dyn_string_t module_path_fmt(const ModulePath *path) {
+  dyn_string_t str = {0};
+  dyn_string_init(&str);
+
+  for (size_t i = 0; i < array_len(path->path); i++) {
+    dyn_string_add_str(&str, path->path[i]);
+    if (i < array_len(path->path) - 1) {
+      dyn_string_add_char(&str, '.');
+    } else {
+      // FIXME: This is pretty hacky and shouldnt be neccessary
+      dyn_string_add_char(&str, '\0');
+    }
+  }
+  return str;
+}
+

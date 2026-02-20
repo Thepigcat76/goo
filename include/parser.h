@@ -5,7 +5,6 @@
 #include "lilc/hashmap.h"
 #include "preprocess.h"
 #include "shared.h"
-#include "types.h"
 #include "ast.h"
 #include <stdbool.h>
 
@@ -33,13 +32,14 @@ typedef struct {
   ModulePath *foreign_functions;
   // Imports
   Hashmap(ModulePath, FuncDescriptor) imported_functions;
-  Ident *imported_modules;
+  ModulePath *imported_modules;
   // Preprocessor
   PpDirective *pp_dirs;
   size_t *pp_dir_conditionals;
   // Debugging info
   const char *source;
   const char *filename;
+  LexerLine *lines;
   // Module
   Module module;
   ModulePath path;
@@ -49,14 +49,10 @@ Parser parser_new(Token *tokens, const char *source, const char *filename, Modul
 
 void parser_parse(Parser *parser);
 
-void parser_stmt_print(char *buf, const Statement *stmt);
-
-void func_desc_print(char *buf, const FuncDescriptor *desc);
-
-TypeTableValue *type_table_get(TypeTable *table, Ident *ident,
+TypeTableValue *type_table_get(TypeTable *table, ModulePath *path,
                                TypeTable *global_table);
 
-void type_table_add(TypeTable *table, Ident *ident, ExpressionVariant expr_var,
+void type_table_add(TypeTable *table, ModulePath *path, ExpressionVariant expr_var,
                     OptionalType opt_type);
 
 // Uses the default parser
