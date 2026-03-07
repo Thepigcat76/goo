@@ -190,8 +190,8 @@ void checker_gen_functions(TypeChecker *checker) {
               if (args != NULL) {
                 for (size_t k = 0; k < array_len(args); k++) {
                   Type arg = args[k];
-                  char type_buf[256];
-                  type_print(type_buf, &arg);
+                  char *type_buf =
+                      type_format(&TYPE_FORMATTER_DEFAULT, &arg).string;
                   strcat(generic_func_name, type_buf);
                   if (k < array_len(args) - 1) {
                     strcat(generic_func_name, ",");

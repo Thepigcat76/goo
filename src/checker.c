@@ -25,6 +25,7 @@ TypeChecker checker_new(Parser *parser) {
   checker_type_table_push(&checker);
   checker.global_type_table = &checker.type_tables[0];
   checker.cur_type_table = checker.global_type_table;
+
   return checker;
 }
 
@@ -77,6 +78,7 @@ static void checker_type_table_pop(TypeChecker *checker) {
   checker->cur_type_table--;
 }
 
+// TODO: Might be redundant
 static ModulePath module_path_resolve(TypeChecker *checker,
                                       const ModulePath *path) {
   log_debug("Resolving path for: %s", module_path_fmt(path).string);
@@ -175,9 +177,10 @@ static void type_table_dump(const TypeTable *type_table) {
   hashmap_foreach(
       &type_table->type_table, ModulePath * key, TypeTableValue * val, {
         if (val->opt_type.present) {
-          char type_buf[1024];
-          type_print(type_buf, &val->opt_type.type);
-          printf("Key: %s, Val: %s\n", module_path_fmt(key).string, type_buf);
+          dyn_string_t type_buf =
+              type_format(&(TypeFormatter){.debug = true}, &val->opt_type.type);
+          printf("Key: %s, Val: %s\n", module_path_fmt(key).string,
+                 type_buf.string);
         }
       });
 }
@@ -246,8 +249,9 @@ static Type check_call_expr(TypeChecker *checker, ExprCall *expr_call) {
           : false;
 
   if (!has_varargs && args_len != func_args_len) {
-    log_error("Type error: Expected %zu arguments for function %s, received %zu arguments",
-            func_args_len, mod_path_call.string, args_len);
+    log_error("Type error: Expected %zu arguments for function %s, received "
+              "%zu arguments",
+              func_args_len, mod_path_call.string, args_len);
     exit(1);
   }
   Type *arg_types = array_new(Type, &HEAP_ALLOCATOR);
@@ -336,6 +340,7 @@ static Type check_block_expr(TypeChecker *checker,
 
 // TODO: Create a type table ident -> type
 static Type check_expr(TypeChecker *checker, Expression *expr) {
+  log_debug("Checking expr");
   switch (expr->type) {
   case EXPR_ARRAY_INIT: {
     Type *expected_item_type = expr->var.expr_array_init.type.type;
@@ -343,14 +348,11 @@ static Type check_expr(TypeChecker *checker, Expression *expr) {
     for (size_t i = 0; i < declared_items_len; i++) {
       Type item_type = check_expr(checker, &expr->var.expr_array_init.items[i]);
       if (!type_eq(&item_type, expected_item_type)) {
-        char expected_buf[512];
-        type_print(expected_buf, expected_item_type);
-        char provided_buf[512];
-        type_print(provided_buf, &item_type);
         log_error(
             "Type error: Expected (%s) and provided (%s) array item types do "
             "not match\n",
-            expected_buf, provided_buf);
+            type_format(&TYPE_FORMATTER_DEFAULT, expected_item_type).string,
+            type_format(&TYPE_FORMATTER_DEFAULT, &item_type).string);
         exit(1);
       }
     }
@@ -361,20 +363,16 @@ static Type check_expr(TypeChecker *checker, Expression *expr) {
     ExprArrayAccess *arr_access_expr = &expr->var.expr_array_access;
     Type array_ty = check_expr(checker, arr_access_expr->array_expr);
     if (array_ty.type != TYPE_ARRAY) {
-      char type_buf[128];
-      type_print(type_buf, &array_ty);
       fprintf(stderr, "Type error: Only arrays can be indexed, received: %s\n",
-              type_buf);
+              type_format(&TYPE_FORMATTER_DEFAULT, &array_ty).string);
       exit(1);
     }
     Type index_ty = check_expr(checker, arr_access_expr->index_expr);
     if (!type_is_numeric(&index_ty)) {
-      char type_buf[128];
-      type_print(type_buf, &index_ty);
       fprintf(stderr,
               "Type error: Invalid type for indexing into array. Expected "
               "numeric type, received: %s\n",
-              type_buf);
+              type_format(&TYPE_FORMATTER_DEFAULT, &index_ty).string);
       exit(1);
     }
 
@@ -385,12 +383,10 @@ static Type check_expr(TypeChecker *checker, Expression *expr) {
     Type cond_ty = check_expr(checker, expr_if.condition);
     if (!type_eq(&cond_ty, &I32_BUILTIN_TYPE) &&
         !type_eq(&cond_ty, &BOOL_BUILTIN_TYPE)) {
-      char type_buf[128];
-      type_print(type_buf, &cond_ty);
       fprintf(
           stderr,
           "Type error: Expected integer/boolean as condition, received: %s\n",
-          type_buf);
+          type_format(&TYPE_FORMATTER_DEFAULT, &cond_ty).string);
       exit(1);
     }
     return check_block_expr(checker, &expr_if.block);
@@ -403,9 +399,13 @@ static Type check_expr(TypeChecker *checker, Expression *expr) {
       // Add func args to typetable
       for (size_t i = 0; i < array_len(expr_function.desc.args); i++) {
         Type type = expr_function.desc.args[i].var.typed_arg.type;
+        ModulePath arg_path = {.path = array_new(Ident, &HEAP_ALLOCATOR)};
+        array_add(arg_path.path,
+                  expr_function.desc.args[i].var.typed_arg.ident);
+        log_debug("Argument module path: %s",
+                  module_path_fmt(&arg_path).string);
         type_table_add(
-            checker->cur_type_table,
-            &expr_function.desc.args[i].var.typed_arg.ident,
+            checker->cur_type_table, &arg_path,
             (ExpressionVariant){.type = EXPR_VAR_REG_EXPR,
                                 .var = {.expr_var_reg_expr = UNIT_EXPR}},
             (OptionalType){.type = type, .present = true});
@@ -477,8 +477,9 @@ static Type check_expr(TypeChecker *checker, Expression *expr) {
     TypeTableValue *val =
         type_table_get(checker->cur_type_table, &expr->var.expr_ident.ident,
                        checker->global_type_table);
+    log_debug("Looking up val by name: %s",
+              module_path_fmt(&expr->var.expr_ident.ident).string);
     if (val != NULL) {
-
       if (val->opt_type.present) {
         return val->opt_type.type;
       } else if (val->expr_variant.type == EXPR_VAR_REG_EXPR) {
@@ -527,10 +528,11 @@ static Type check_expr(TypeChecker *checker, Expression *expr) {
             TypedIdent *field = &ty_expr_struct.fields[j];
             if (strv_eq(labeled_expr->field, field->ident)) {
               if (!type_eq(&labeled_expr_type, &field->type)) {
-                char expected_type_buf[128];
-                type_print(expected_type_buf, &field->type);
-                char received_type_buf[128];
-                type_print(received_type_buf, &labeled_expr_type);
+                char *expected_type_buf =
+                    type_format(&TYPE_FORMATTER_DEFAULT, &field->type).string;
+                char *received_type_buf =
+                    type_format(&TYPE_FORMATTER_DEFAULT, &labeled_expr_type)
+                        .string;
                 fprintf(stderr,
                         "Type Error: Types of struct initializer and struct "
                         "declaration "
@@ -620,10 +622,10 @@ static Type check_stmt(TypeChecker *checker, Statement *stmt,
 
       if (opt_type.present) {
         if (!type_eq(&value_type, &opt_type.type)) {
-          char value_type_buf[256];
-          type_print(value_type_buf, &value_type);
-          char decl_type_buf[256];
-          type_print(decl_type_buf, &opt_type.type);
+          char *value_type_buf =
+              type_format(&TYPE_FORMATTER_DEFAULT, &value_type).string;
+          char *decl_type_buf =
+              type_format(&TYPE_FORMATTER_DEFAULT, &opt_type.type).string;
           fprintf(stderr,
                   "Type error: Type of declaration (%s) and value (%s) do not "
                   "match, decl "

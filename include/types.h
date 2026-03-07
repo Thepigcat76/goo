@@ -90,10 +90,10 @@ void builtin_types_init();
 
 bool type_eq(const Type *a, const Type *b);
 
-void type_print(char *buf, const Type *type);
-
 typedef struct {
   bool debug;
 } TypeFormatter;
+
+#define TYPE_FORMATTER_DEFAULT (TypeFormatter){.debug = true}
 
 dyn_string_t type_format(const TypeFormatter *fmt, const Type *type);

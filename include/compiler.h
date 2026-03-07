@@ -1,9 +1,8 @@
 #pragma once
 
 #include "ast.h"
-#include "parser.h"
-#include <stdio.h>
 #include "ins.h"
+#include <stdio.h>
 
 typedef struct {
   uint8_t *bytes;
@@ -57,13 +56,13 @@ typedef struct {
   size_t program_offset;
 } Relocation;
 
-//typedef struct {
-//  RelocationType rel_type;
-//  char *symbol;
-//  size_t data_offset;
-//  size_t program_offset;
-//  size_t r_offset;
-//} Relocation;
+// typedef struct {
+//   RelocationType rel_type;
+//   char *symbol;
+//   size_t data_offset;
+//   size_t program_offset;
+//   size_t r_offset;
+// } Relocation;
 
 typedef enum {
   DATA_IMMEDIATE,
@@ -97,7 +96,9 @@ typedef struct {
   CompilerStep step;
   Hashmap(Ident *, GlobalDataLocation) globals;
   Hashmap(Ident *, size_t) symbols;
-  //Hashmap(Ident *, size_t) extern_functions;
+  Hashmap(ModulePath, Ident) mangled_functions;
+  Hashmap(Ident, ModulePath) custom_mangled_functions;
+  // Hashmap(Ident *, size_t) extern_functions;
   Frame cur_frame;
   size_t program_size;
   /* Data */
@@ -111,7 +112,8 @@ typedef struct {
   size_t program_data_capacity;
 } Compiler;
 
-Compiler compiler_new(const Statement *stmts, TypeTable *type_tables);
+Compiler compiler_new(const Statement *stmts, TypeTable *type_tables,
+                      Hashmap(ModulePath, Ident) mangled_functions);
 
 void compiler_compile(Compiler *compiler);
 

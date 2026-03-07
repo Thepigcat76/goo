@@ -22,7 +22,8 @@ static inline DataSection data_section_new(void) {
                                        str_ptrv_hash, str_ptrv_eq, NULL)};
 }
 
-Compiler compiler_new(const Statement *statements, TypeTable *type_tables) {
+Compiler compiler_new(const Statement *statements, TypeTable *type_tables,
+                      Hashmap(ModulePath, Ident) mangled_functions) {
   return (Compiler){
       .stmts = statements,
       .type_tables = type_tables,
@@ -32,6 +33,7 @@ Compiler compiler_new(const Statement *statements, TypeTable *type_tables) {
                              str_ptrv_eq, NULL),
       .globals = hashmap_new(Ident *, GlobalDataLocation, &HEAP_ALLOCATOR,
                              str_ptrv_hash, str_ptrv_eq, NULL),
+      .mangled_functions = mangled_functions,
       .data_section = data_section_new(),
       .rodata_section = data_section_new(),
       .elf64_relocations =

@@ -1,4 +1,5 @@
 #include <assert.h>
+#include <complex.h>
 #include <lilc/eq.h>
 #include <lilc/hashmap.h>
 #include <lilc/log.h>
@@ -45,7 +46,8 @@ void function_println_use_buffer(void) {
 }
 
 KEEPALIVE
-void run_program(char *buf, const char *filename, const char *output) {
+void run_program(char *buf, const char *filename, const char *output,
+                 const char *raw_module_path) {
   alloc_init();
 
   builtin_types_init();
@@ -53,6 +55,8 @@ void run_program(char *buf, const char *filename, const char *output) {
   //  parser_test_functions();
 
   //  return;
+
+  ModulePath module_path = parse_module_path_from_string(raw_module_path);
 
   Lexer lexer = lexer_new();
 
@@ -74,13 +78,20 @@ void run_program(char *buf, const char *filename, const char *output) {
 
   log_debug("-- FUNCTIONS --");
 
-  hashmap_foreach(&parser.custom_functions, Ident * key, ExprFunction * val,
-                  { log_debug("%s", *key); });
+  Hashmap(Ident, ModulePath) custom_mangled_functions =
+      hashmap_new(Ident, ModulePath, &HEAP_ALLOCATOR, module_path_ptrv_hash,
+                  module_path_ptrv_eq, NULL);
+
+  hashmap_foreach(&parser.custom_functions, Ident * key, ExprFunction * val, {
+    log_debug("CUSTOM FUNCTION: %s", *key);
+    ModulePath custom_mangled_path = module_path_copy(&module_path);
+    hashmap_insert(&custom_mangled_functions, key, &custom_mangled_path);
+  });
   log_debug("Custom functions: %zu", parser.custom_functions.len);
 
   log_debug("-- TYPES --");
 
-  hashmap_foreach(&parser.custom_types, Ident *key, TypeExpr * val,
+  hashmap_foreach(&parser.custom_types, Ident * key, TypeExpr * val,
                   { log_debug("%s", *key); });
 
   log_debug("---");
@@ -121,7 +132,9 @@ void run_program(char *buf, const char *filename, const char *output) {
                      .var = {.expr_call = {.function = "main", .args = NULL}}};
   evaluator_eval_expr(&evaluator, &expr);
 #elif defined(COMPILER)
-  Compiler compiler = compiler_new(parser.statements, checker.type_tables);
+  Compiler compiler =
+      compiler_new(parser.statements, checker.type_tables, mangled_functions);
+  compiler.custom_mangled_functions = custom_mangled_functions;
   compiler_compile(&compiler);
 
   compiler_generate(&compiler);
@@ -181,6 +194,7 @@ static bool _internal_str_cmp_or(char *base_str, char **strs) {
 typedef struct {
   char *output_path;
   char *input_path;
+  char *module_path;
 } CliArgs;
 
 static char *_corelib_path = NULL;
@@ -198,6 +212,9 @@ int main(int argc, char **argv) {
     if (STR_CMP_OR(argv[i], "-o", "--output")) {
       NEXT_ARG(i, argc);
       args.output_path = argv[i];
+    } else if (STR_CMP_OR(argv[i], "-mp", "--module-path")) {
+      NEXT_ARG(i, argc);
+      args.module_path = argv[i];
     }
     NEXT_ARG(i, argc);
   }
@@ -214,6 +231,10 @@ int main(int argc, char **argv) {
     args.output_path = "output/out.o";
   }
 
+  if (args.module_path == NULL) {
+    args.module_path = "";
+  }
+
   char *core_lib_path = getenv(CORE_LIB_PATH);
   if (core_lib_path == NULL) {
     setenv(CORE_LIB_PATH, DEFAULT_CORE_LIB_PATH, 0);
@@ -227,7 +248,7 @@ int main(int argc, char **argv) {
   size_t n = fread(file_buf, 1, sizeof(file_buf) - 1, file);
   file_buf[n] = '\0';
 
-  run_program(file_buf, args.input_path, args.output_path);
+  run_program(file_buf, args.input_path, args.output_path, args.module_path);
   log_debug("compiling: %s", args.input_path);
 
   fclose(file);

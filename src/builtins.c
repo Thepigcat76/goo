@@ -155,9 +155,11 @@ void builtin_functions_init(TypeTable *type_table) {
   BUILTIN_FUNCTION(EXIT_FUNCTION, "exit", execute_exit, UNIT_BUILTIN_TYPE,
                    ARG("code", I32_BUILTIN_TYPE));
 
-  /*
-  type_table_add(type_table, &PRINTLN_FUNCTION.name,
+  ModulePath println_path = {.path = array_new(Ident, &HEAP_ALLOCATOR)};
+  array_add(println_path.path, "println");
+  type_table_add(type_table, &println_path,
                  EXPR_VAR_EXPR(PRINTLN_FUNCTION.expr), OPT_TYPE_EMPTY);
+  /*
   type_table_add(type_table, &PRINTFN_FUNCTION.name,
                  EXPR_VAR_EXPR(PRINTFN_FUNCTION.expr), OPT_TYPE_EMPTY);
   type_table_add(type_table, &EXIT_FUNCTION.name,

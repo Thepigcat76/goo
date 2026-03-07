@@ -59,6 +59,7 @@ void compiler_generate(Compiler *compiler) {
     }
     elf64_reloc.program_offset = reloc.program_offset;
     elf64_reloc.r_offset = reloc.r_offset;
+    log_debug("Symbol: %s", reloc.symbol);
     log_debug("R-offset: %u", reloc.r_offset);
     array_add(compiler->elf64_relocations, elf64_reloc);
   }

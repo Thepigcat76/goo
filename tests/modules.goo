@@ -1,5 +1,5 @@
 #import "core/io/files"
 
 main :: () {
-  arr := []i32{
+  files.open("file.file")
 }

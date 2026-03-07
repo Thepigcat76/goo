@@ -17,6 +17,8 @@
 #include <string.h>
 #include <sys/types.h>
 
+Hashmap(ModulePath, Ident) mangled_functions = {.keys = NULL};
+
 #define DEBUG_TOK(tok_ptr, ctx_msg)                                            \
   do {                                                                         \
     char tok_buf[64];                                                          \
@@ -51,13 +53,16 @@ typedef struct {
   fprintf(stderr, "Illegal " #tok " at beginning of stmt\n");                  \
   exit(1)
 
-static Statement PREV_STMT = {0};
-
 const Expression UNIT_EXPR = {.type = EXPR_UNIT};
 const OptionalType OPT_TYPE_EMPTY = {.present = false};
 
 Parser parser_new(Token *tokens, const char *source, const char *filename,
                   ModulePath path) {
+  if (mangled_functions.keys == NULL) {
+    mangled_functions =
+        hashmap_new(ModulePath, Ident, &HEAP_ALLOCATOR, module_path_ptrv_hash,
+                    module_path_ptrv_eq, NULL);
+  }
   return (Parser){
       .tokens = tokens,
       .statements = array_new(Statement, &HEAP_ALLOCATOR),
@@ -318,7 +323,7 @@ static ParseResult parse_expr_list(Parser *parser, Expression *exprs,
                                    TokenType end) {
   while (parser->cur_tok->type != end) {
     DEBUG_TOK(parser->cur_tok, "begin of arg");
-    Expression expr;
+    Expression expr = {0};
     ParseResult result = parse_expr1(parser, &expr, PREC_LOWEST);
 
     if (result.success) {
@@ -576,22 +581,46 @@ static dyn_string_t error_msg_fmt(const Parser *parser,
   return str;
 }
 
-static dyn_string_t print_lines(Parser *parser, size_t first_line,
-                                size_t lines_amount,
-                                size_t *out_line_number_len) {
+static dyn_string_t error_msg_deco_fmt(const Parser *parser,
+                                       const ErrorMessage *msg,
+                                       const char *error_msg_text, size_t line,
+                                       size_t pos) {
   dyn_string_t str = {0};
   dyn_string_init(&str);
-  for (size_t i = 0; i < lines_amount; i++) {
-    size_t actual_line_idx = first_line + i;
-    LexerLine actual_line = parser->lines[actual_line_idx];
-    char prefix_buf[32];
-    *out_line_number_len = sprintf(prefix_buf, "%zu", actual_line_idx + 1);
-    printf("%s |%.*s\n", prefix_buf, (int)actual_line.len, actual_line.begin);
-  }
+
+  dyn_string_printf(&str, "%s:%zu:%zu: " ANSI_RED "error:" ANSI_RESET " %s\n",
+                    parser->filename, line, pos, error_msg_text);
+
+  dyn_string_t str0 = error_msg_fmt(parser, msg);
+  dyn_string_add_str(&str, str0.string);
+
+  dyn_string_free(&str0);
+
   return str;
 }
 
-dyn_string_t print_empty_line(Parser *parser, size_t) {}
+// TODO: Might want to factor out into extra step
+
+static ModulePath module_path_resolve(Parser *parser, const ModulePath *path) {
+  log_debug("Resolving path for: %s", module_path_fmt(path).string);
+  size_t modules_len = array_len(parser->imported_modules);
+  for (size_t i = 0; i < modules_len; i++) {
+    ModulePath imported_path = parser->imported_modules[i];
+    log_debug("Checking imported module: %s",
+              module_path_fmt(&imported_path).string);
+    size_t path_len = array_len(imported_path.path);
+    Ident last_path_segment = imported_path.path[path_len - 1];
+    if (strv_eq(path->path[0], last_path_segment)) {
+      ModulePath new_path = module_path_copy(&imported_path);
+      for (size_t i = 1; i < array_len(path->path); i++) {
+        array_add(new_path.path, path->path[i]);
+      }
+      log_debug("Resolved path: %s", module_path_fmt(&new_path).string);
+      return new_path;
+    }
+  }
+  return *path;
+}
 
 static ParseResult parse_expr(Parser *parser, Expression *expr) {
   switch (parser->cur_tok->type) {
@@ -656,7 +685,8 @@ static ParseResult parse_expr(Parser *parser, Expression *expr) {
   case TOKEN_IDENT: {
     Token first_token = *parser->cur_tok;
     Ident ident = parser->cur_tok->var.ident;
-    ModulePath path = parse_module_path(parser);
+    ModulePath raw_path = parse_module_path(parser);
+    ModulePath resolved_path = module_path_resolve(parser, &raw_path);
     if (parser->peek_tok->type == TOKEN_LPAREN) {
       // if (hashmap_contains(&parser->custom_functions, &ident)||
       //     ident_is_imported_function(parser, ident) ||
@@ -670,10 +700,6 @@ static ParseResult parse_expr(Parser *parser, Expression *expr) {
       Expression *exprs = array_new_capacity(Expression, 8, &HEAP_ALLOCATOR);
       ParseResult result = parse_expr_list(parser, exprs, TOKEN_RPAREN);
       if (!result.success) {
-        DEBUG_TOK(parser->cur_tok, "Function call");
-        log_debug("Function: %s", ident);
-        printf("%s:%d:%d: " ANSI_RED "error:" ANSI_RESET " %s\n",
-               parser->filename, result.line, result.pos, result.error_msg);
         size_t first_line = first_token.line;
         size_t cur_line = parser->cur_tok->line;
         ErrorMessage msg = {.ctx_first_line = first_line,
@@ -681,7 +707,8 @@ static ParseResult parse_expr(Parser *parser, Expression *expr) {
                             .issue_pos = result.pos,
                             .issue_line = result.line,
                             .issue_ctx_msg = ")"};
-        dyn_string_t err_msg = error_msg_fmt(parser, &msg);
+        dyn_string_t err_msg = error_msg_deco_fmt(
+            parser, &msg, result.error_msg, result.line, result.pos);
         printf("%s", err_msg.string);
         exit(1);
       }
@@ -698,7 +725,7 @@ static ParseResult parse_expr(Parser *parser, Expression *expr) {
 
       *expr = (Expression){.type = EXPR_CALL,
                            .var = {.expr_call = {
-                                       .function = path,
+                                       .function = resolved_path,
                                        .args = exprs,
                                    }}};
       return PARSE_RESULT({.success = true});
@@ -716,10 +743,6 @@ static ParseResult parse_expr(Parser *parser, Expression *expr) {
             .type = EXPR_STRUCT_INIT,
             .var = {.expr_struct_init = {.struct_name = ident,
                                          .field_inits = field_inits}}};
-        return PARSE_RESULT({.success = true});
-      } else {
-        *expr = (Expression){.type = EXPR_IDENT,
-                             .var = {.expr_ident = {.ident = path}}};
         return PARSE_RESULT({.success = true});
       }
     } /*else if (parser->peek_tok->type == TOKEN_DOT &&
@@ -747,7 +770,8 @@ static ParseResult parse_expr(Parser *parser, Expression *expr) {
       }
     }*/
     *expr = (Expression){.type = EXPR_IDENT,
-                         .var = {.expr_ident = {.ident = path}}};
+                         .var = {.expr_ident = {.ident = raw_path}}};
+        return PARSE_RESULT({.success = true});
   }
   case TOKEN_INT: {
     *expr = (Expression){.type = EXPR_INTEGER_LIT,
@@ -819,10 +843,6 @@ static ParseResult parse_expr(Parser *parser, Expression *expr) {
     printf("Left square tok :3\n");
     Type type = parse_type(parser);
     if (parser->peek_tok->type != TOKEN_LCURLY) {
-      printf("%s:%d:%zu: " ANSI_RED "error:" ANSI_RESET " %s\n",
-             parser->filename, parser->cur_tok->line,
-             parser->cur_tok->begin_pos + parser->cur_tok->len,
-             "Expected left curly after array type for initializer");
       size_t first_line = parser->cur_tok->line;
       size_t cur_line = parser->cur_tok->line;
       ErrorMessage msg = {.ctx_first_line = first_line,
@@ -831,7 +851,10 @@ static ParseResult parse_expr(Parser *parser, Expression *expr) {
                               parser->cur_tok->begin_pos + parser->cur_tok->len,
                           .issue_line = parser->cur_tok->line,
                           .issue_ctx_msg = "{"};
-      dyn_string_t err_msg = error_msg_fmt(parser, &msg);
+      dyn_string_t err_msg = error_msg_deco_fmt(
+          parser, &msg, "Expected left curly after array type for initializer",
+          parser->cur_tok->line,
+          parser->cur_tok->begin_pos + parser->cur_tok->len);
       printf("%s", err_msg.string);
       exit(1);
     }
@@ -1291,7 +1314,7 @@ static Expression parse_array_access(Parser *parser, Expression expr) {
 
 static ParseResult parse_expr1(Parser *parser, Expression *expr,
                                Precedence prec) {
-  Expression expr1;
+  Expression expr1 = { 0 };
   ParseResult result = parse_expr(parser, &expr1);
 
   if (!result.success)
@@ -1441,10 +1464,19 @@ static StmtDecl parse_decl_stmt(Parser *parser, bool typed) {
       if (expr_var.var.expr_var_reg_expr.type == EXPR_FUNCTION) {
         ModulePath module_path = module_path_copy(&parser->path);
         array_add(module_path.path, stmt_decl.name);
-        hashmap_insert(&parser->custom_functions, &stmt_decl.name,
-                       &expr_var.var.expr_var_reg_expr.var.expr_function);
-        hashmap_insert(&parser->module.functions, &module_path,
-                       &expr_var.var.expr_var_reg_expr.var.expr_function.desc);
+
+        if (array_len(module_path.path) > 0) {
+          hashmap_insert(&parser->custom_functions, &stmt_decl.name,
+                         &expr_var.var.expr_var_reg_expr.var.expr_function);
+          hashmap_insert(
+              &parser->module.functions, &module_path,
+              &expr_var.var.expr_var_reg_expr.var.expr_function.desc);
+          Ident mangled_function = mangle_function_name(&module_path);
+          log_debug("Mangled function name: %s absolute path: %s",
+                    mangled_function, module_path_fmt(&module_path).string);
+          hashmap_insert(&mangled_functions, &module_path,
+                         &mangled_function);
+        }
       } else {
         array_add(parser->module.decls,
                   (TypedIdent){.ident = stmt_decl.name,
@@ -1543,31 +1575,6 @@ static char *get_exec_dir(const char *exec_filename) {
   }
 
   return _exec_dir_path;
-}
-
-static ModulePath parse_module_path_from_string(const char *str) {
-  ModulePath path = {.path = array_new(Ident, &HEAP_ALLOCATOR)};
-
-  const char *c = str;
-  dyn_string_t cur_ident = {0};
-  dyn_string_init(&cur_ident);
-  for (;;) {
-    if (*c == '/' || *c == '\0') {
-      dyn_string_t new_str = {0};
-      dyn_string_init(&new_str);
-      dyn_string_copy(&new_str, &cur_ident);
-      array_add(path.path, new_str.string);
-      dyn_string_clear(&cur_ident);
-      if (*c == '\0') {
-        break;
-      }
-    } else {
-      dyn_string_add_char(&cur_ident, *c);
-    }
-    c++;
-  }
-
-  return path;
 }
 
 static Statement parse_stmt(Parser *parser) {
@@ -1818,6 +1825,7 @@ Module parser_parse_module(const char *source, const char *filename,
   lexer_tokenize(&lexer, source, filename);
   array_add(lexer.tokens, (Token){.type = TOKEN_EOF});
   Parser parser = parser_new(lexer.tokens, source, filename, path);
+  parser.lines = lexer.lines;
   parser_parse(&parser);
   return parser.module;
 }

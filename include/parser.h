@@ -22,6 +22,8 @@ void *_internal_heap_clone(void *ptr, size_t size);
     .type = EXPR_VAR_REG_EXPR, .var = {.expr_var_reg_expr = expr }             \
   }
 
+extern Hashmap(ModulePath, Ident) mangled_functions;
+
 typedef struct {
   const Token *cur_tok;
   const Token *peek_tok;

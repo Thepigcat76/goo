@@ -49,6 +49,8 @@ static dyn_string_t module_path_format(Formatter *fmt, const ModulePath *path) {
   return str;
 }
 
+static dyn_string_t expr_list_format(Formatter *fmt, const Expression *exprs);
+
 static dyn_string_t expr_format(Formatter *fmt, const Expression *expr) {
   dyn_string_t str = {0};
   dyn_string_init(&str);
@@ -77,14 +79,14 @@ static dyn_string_t expr_format(Formatter *fmt, const Expression *expr) {
   }
   case EXPR_CALL: {
     ExprCall expr_call = expr->var.expr_call;
-    dyn_string_printf(&str, "ExprCall{function=%s, args=}", module_path_format(fmt, &expr_call.function).string);
+    dyn_string_printf(&str, "ExprCall{function=%s, args=[%s]}", module_path_format(fmt, &expr_call.function).string, expr_list_format(fmt, expr_call.args).string);
     break;
   }
   case EXPR_GENERIC_CALL: {
     break;
   }
   case EXPR_STRING_LIT: {
-    dyn_string_add_str(&str, expr->var.expr_string_literal.string);
+    dyn_string_printf(&str, "\"%s\"", expr->var.expr_string_literal.string);
     break;
   }
   case EXPR_INTEGER_LIT: {
@@ -164,6 +166,19 @@ static dyn_string_t expr_format(Formatter *fmt, const Expression *expr) {
   case EXPR_IT: {
     break;
   } break;
+  }
+  return str;
+}
+
+static dyn_string_t expr_list_format(Formatter *fmt, const Expression *exprs) {
+  dyn_string_t str = {0};
+  dyn_string_init(&str);
+
+  for (size_t i = 0; i < array_len(exprs); i++) {
+    dyn_string_add_str(&str, expr_format(fmt, &exprs[i]).string);
+    if (i < array_len(exprs) - 1) {
+      dyn_string_add_char(&str, ',');
+    }
   }
   return str;
 }

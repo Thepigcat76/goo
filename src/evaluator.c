@@ -104,8 +104,8 @@ static Object eval_expr_block(Evaluator *evaluator,
 Object eval_expr_call(Evaluator *evaluator, const ExprCall *expr_call) {
   Ident function = expr_call->function.path[0];
 
-  Object *value = environment_get(evaluator->cur_env, &function,
-                                  evaluator->global_env);
+  Object *value =
+      environment_get(evaluator->cur_env, &function, evaluator->global_env);
   if (value != NULL && value->type == OBJECT_FUNCTION) {
     ObjectFunction obj_function = value->var.obj_function;
     Object *call_args = array_new(Object, &HEAP_ALLOCATOR);
@@ -269,10 +269,8 @@ Object obj_cast(const Type *type, const Object *obj) {
   }
   }
   fprintf(stderr, "Invalid cast\n");
-  char type_buf[128];
-  type_print(type_buf, type);
   fprintf(stderr, "Tried to cast obj of type %d, to type %s\n", obj->type,
-          type_buf);
+          type_format(&(TypeFormatter){.debug = false}, type).string);
   exit(1);
 }
 

@@ -57,7 +57,7 @@ int main(int argc, char **argv) {
             files, OPTS.out_dir, out_name);
   } else {
     make_dir(OPTS.out_dir);
-    int code = compile("%s %s %s %s -o %s%s -rdynamic", OPTS.compiler, files,
+    int code = compile("%s %s %s %s -o %s%s -rdynamic", compiler, files,
                        libraries, flags, OPTS.out_dir, out_name);
     if (code != 0) {
       fprintf(stderr, "Failed to compile the program\n");

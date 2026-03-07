@@ -182,6 +182,7 @@ void compiler_write(Compiler *compiler, FILE *file) {
     switch (reloc.rel_type) {
     case RELOCATION_FUNCTION: {
       size_t sym_idx = array_len(obj.symbols);
+      log_debug("Function reloc symbol: %s", reloc.symbol);
       obj_symbol_table_add_foreign_func(&obj, reloc.symbol);
       /* Uses 1 as an additional offset because thats the opcode length of the
        * call instruction */

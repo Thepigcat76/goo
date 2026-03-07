@@ -1,5 +1,8 @@
 #include "../../include/compiler.h"
+#include "lilc/eq.h"
+#include "lilc/hash.h"
 #include "lilc/log.h"
+#include <lilc/hashmap.h>
 
 #define STACK_OBJ(_offset, _size)                                              \
   (StackObject) { .offset = _offset, .size = _size }
@@ -134,11 +137,36 @@ static ExprCompileResult expr_call_compile(Compiler *compiler,
     compiler_arg_push(compiler, i, &res);
   }
 
-  RELOCATIONS_ADD(compiler, {.sec = SECTION_TYPE_TEXT,
-                             .r_offset = 1,
-                             .symbol = strv_eq(expr_call->function.path[0], "println")
-                                           ? "puts"
-                                           : expr_call->function.path[0]});
+  Ident *mangled_function_name =
+      hashmap_value(&compiler->mangled_functions, &expr_call->function);
+  hashmap_foreach(&compiler->mangled_functions, ModulePath * key, Ident * val, {
+    log_debug("Key: %s -> Mangled Val: %s", module_path_fmt(key).string, *val);
+  });
+  log_debug("Compiling call expr %s for mangled: %s",
+            module_path_fmt(&expr_call->function).string,
+            mangled_function_name == NULL ? NULL : *mangled_function_name);
+
+  if (mangled_function_name != NULL) {
+    RELOCATIONS_ADD(compiler,
+                    {.sec = SECTION_TYPE_TEXT,
+                     .r_offset = 1,
+                     .symbol = strv_eq(expr_call->function.path[0], "println")
+                                   ? "puts"
+                                   : *mangled_function_name});
+    log_debug("Added relocation for mangled: %s",
+              strv_eq(expr_call->function.path[0], "println")
+                  ? "puts"
+                  : *mangled_function_name);
+  } else {
+    RELOCATIONS_ADD(compiler,
+                    {.sec = SECTION_TYPE_TEXT,
+                     .r_offset = 1,
+                     .symbol = strv_eq(expr_call->function.path[0], "println")
+                                   ? "puts"
+                                   : expr_call->function.path[0]});
+    log_debug("Added relocation for non-mangled: %s",
+              expr_call->function.path[0]);
+  }
 
   // size_t placeholder_0 = 0;
   //// FIXME: do we need reloc info for these calls?
@@ -266,7 +294,9 @@ static void expr_func_compile(Compiler *compiler, const ExprFunction *expr_func,
     size_t stack_size = ALIGN_BY(compiler->cur_frame.sp_offset, 16);
     // insns_add(compiler, INSN(INS_ADD_IMM8_RSP, .op0 = {.imm = 0x10},
     //                                 .op0_size = sizeof(uint8_t)));
-    insns_add(compiler, INS_ADD_I8_R64(IMM32_PACK(stack_size == 0 ? 16 : stack_size), REG_ESP));
+    insns_add(
+        compiler,
+        INS_ADD_I8_R64(IMM32_PACK(stack_size == 0 ? 16 : stack_size), REG_ESP));
     stack_frame_pop(compiler);
     stack_fix_sub_stack_size(compiler->insns,
                              compiler->cur_frame.sub_stack_size_ins_idx,
@@ -308,10 +338,6 @@ static uint32_t apply_lit_bin_op(uint32_t a, uint32_t b, BinOperator op) {
   expr_res_type == EXPR_COMPILE_RES_DATA_OFFSET ? SECTION_TYPE_DATA            \
                                                 : SECTION_TYPE_RODATA
 
-static Register bin_op_non_res_reg(Register reg) {
-  return reg == REG_EAX ? REG_EDX : REG_EAX;
-}
-
 static void mov_global_data_reg(Compiler *compiler, Register res_reg,
                                 SectionType sec, size_t offset) {
   RELOCATIONS_ADD(compiler, {.r_offset = 3, .sec = sec, .data_offset = offset});
@@ -335,6 +361,8 @@ static Instruction ins_bin_op_i32_r64(BinOperator op, int32_t imm,
   case BIN_OP_GTE:
     break;
   }
+  log_error("Trying to compile bin op that hasnt been implemented yet");
+  exit(1);
 }
 
 // res_reg is either REG_EAX or REG_EDX, depending on the side of the bin op
@@ -403,7 +431,8 @@ static ExprCompileResult expr_bin_op_compile(Compiler *compiler,
           return EXPR_COMPILE_RES(EXPR_COMPILE_RES_REG, sizeof(uint64_t),
                                   .reg = res_reg);
         } else if (expr_bin_op->op == BIN_OP_SUB) {
-          insns_add(compiler, INS_MOV_I32_R64(res_reg, IMM32_PACK(res_left.var.imm32)));
+          insns_add(compiler,
+                    INS_MOV_I32_R64(res_reg, IMM32_PACK(res_left.var.imm32)));
           insns_add(compiler, INS_SUB_R64_R64(res_right.var.reg, res_reg));
           return EXPR_COMPILE_RES(EXPR_COMPILE_RES_REG, sizeof(uint64_t),
                                   .reg = res_reg);
@@ -500,20 +529,22 @@ static ExprCompileResult expr_bin_op_compile(Compiler *compiler,
         log_debug("Register: %d", reg);
         break;
       }
+      case EXPR_COMPILE_RES_COMPARISON: {
+        log_error("Bin op with comparison NYI");
+        exit(1);
+        break;
+      }
       }
       break;
     }
     case EXPR_COMPILE_RES_REG: {
-      Register reg = res_left.var.reg;
       switch (res_right.type) {
       case EXPR_COMPILE_RES_RODATA_OFFSET:
       case EXPR_COMPILE_RES_DATA_OFFSET: {
-        Register other_reg = REG_ECX;
-        DataType type = res_right.var.data_offset.data_type;
         size_t offset = res_right.var.data_offset.offset;
-        mov_global_data_reg(compiler, other_reg,
+        mov_global_data_reg(compiler, REG_ECX,
                             SECTION_FROM_EXPR_RES(res_right.type), offset);
-        insns_add(compiler, INS_ADD_R64_R64(other_reg, res_reg));
+        insns_add(compiler, INS_ADD_R64_R64(REG_ECX, res_reg));
         return EXPR_COMPILE_RES(EXPR_COMPILE_RES_REG, sizeof(uint64_t),
                                 .reg = res_reg);
       }
@@ -534,7 +565,8 @@ static ExprCompileResult expr_bin_op_compile(Compiler *compiler,
       }
       case EXPR_COMPILE_RES_REG: {
         if (expr_bin_op->op == BIN_OP_ADD) {
-          insns_add(compiler, INS_ADD_R64_R64(res_left.var.reg, res_right.var.reg));
+          insns_add(compiler,
+                    INS_ADD_R64_R64(res_left.var.reg, res_right.var.reg));
           if (res_right.var.reg != res_reg) {
             insns_add(compiler, INS_MOV_R64_R64(res_right.var.reg, res_reg));
           }
@@ -567,6 +599,8 @@ static ExprCompileResult expr_bin_op_compile(Compiler *compiler,
     return EXPR_COMPILE_RES(EXPR_COMPILE_RES_COMPARISON, sizeof(bool),
                             .comparison = COMPARISON_GT);
   }
+  log_debug("Unimplement bin op expr");
+  exit(1);
 }
 
 static void stack_dump(const Frame *frame) {
@@ -688,7 +722,6 @@ static ExprCompileResult expr_compile_with_res(Compiler *compiler,
 
 static void compiler_arg_push(Compiler *compiler, size_t arg_idx,
                               const ExprCompileResult *res) {
-  uint32_t x = 0xffffffff;
   switch (res->type) {
   case EXPR_COMPILE_RES_IMM32: {
     Register arg_reg;
@@ -775,7 +808,16 @@ static void stmt_compile(Compiler *compiler, const Statement *stmt,
         DataSection *data_section =
             stmt_decl.mut ? &compiler->data_section : &compiler->rodata_section;
         if (expr.type == EXPR_FUNCTION) {
-          hashmap_insert(&compiler->symbols, &stmt_decl.name,
+          ModulePath *module_func_name = hashmap_value(
+              &compiler->custom_mangled_functions, &stmt_decl.name);
+          Ident mangled_func_name;
+          if (module_func_name != NULL) {
+            mangled_func_name = mangle_function_name(module_func_name);
+          } else {
+            mangled_func_name = stmt_decl.name;
+          }
+          log_debug("MANGLED FUNC NAME: %s, mangled funcs amount: %zu", mangled_func_name, compiler->custom_mangled_functions.len);
+          hashmap_insert(&compiler->symbols, &mangled_func_name,
                          &compiler->program_size);
           expr_func_compile(compiler, &expr.var.expr_function,
                             (CompileContext){.level = COMPILE_LEVEL_GLOBAL,
