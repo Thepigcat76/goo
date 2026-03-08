@@ -3,6 +3,7 @@
 #include "lilc/hash.h"
 #include "lilc/log.h"
 #include <lilc/hashmap.h>
+#include <threads.h>
 
 #define STACK_OBJ(_offset, _size)                                              \
   (StackObject) { .offset = _offset, .size = _size }
@@ -13,7 +14,6 @@
   do {                                                                         \
     Relocation _internal_reloc = __VA_ARGS__;                                  \
     _internal_reloc.program_offset = compiler_ptr->program_size;               \
-    log_debug("Relocation Program offset: %zu", compiler_ptr->program_size);   \
     array_add(compiler_ptr->relocations, _internal_reloc);                     \
   } while (0)
 
@@ -45,7 +45,6 @@ static inline void insns_add(Compiler *compiler, Instruction ins) {
   array_add(compiler->insns, ins);
   size_t len = ins_gen(&ins, NULL);
   compiler->program_size += len;
-  log_debug("Ins len: %zu", len);
 }
 
 static void stmt_compile(Compiler *compiler, const Statement *stmt,
@@ -139,12 +138,9 @@ static ExprCompileResult expr_call_compile(Compiler *compiler,
 
   Ident *mangled_function_name =
       hashmap_value(&compiler->mangled_functions, &expr_call->function);
-  hashmap_foreach(&compiler->mangled_functions, ModulePath * key, Ident * val, {
-    log_debug("Key: %s -> Mangled Val: %s", module_path_fmt(key).string, *val);
-  });
-  log_debug("Compiling call expr %s for mangled: %s",
+/*  log_debug("Compiling call expr %s for mangled: %s",
             module_path_fmt(&expr_call->function).string,
-            mangled_function_name == NULL ? NULL : *mangled_function_name);
+            mangled_function_name == NULL ? NULL : *mangled_function_name);*/
 
   if (mangled_function_name != NULL) {
     RELOCATIONS_ADD(compiler,
@@ -153,10 +149,10 @@ static ExprCompileResult expr_call_compile(Compiler *compiler,
                      .symbol = strv_eq(expr_call->function.path[0], "println")
                                    ? "puts"
                                    : *mangled_function_name});
-    log_debug("Added relocation for mangled: %s",
+    /*log_debug("Added relocation for mangled: %s",
               strv_eq(expr_call->function.path[0], "println")
                   ? "puts"
-                  : *mangled_function_name);
+                  : *mangled_function_name);*/
   } else {
     RELOCATIONS_ADD(compiler,
                     {.sec = SECTION_TYPE_TEXT,
@@ -164,8 +160,8 @@ static ExprCompileResult expr_call_compile(Compiler *compiler,
                      .symbol = strv_eq(expr_call->function.path[0], "println")
                                    ? "puts"
                                    : expr_call->function.path[0]});
-    log_debug("Added relocation for non-mangled: %s",
-              expr_call->function.path[0]);
+    /*log_debug("Added relocation for non-mangled: %s",
+              expr_call->function.path[0]);*/
   }
 
   // size_t placeholder_0 = 0;
@@ -246,7 +242,9 @@ static void stack_fix_sub_stack_size(Instruction *insns, size_t index,
 
 static void expr_func_compile(Compiler *compiler, const ExprFunction *expr_func,
                               CompileContext context) {
-  log_info("[COMPILER] Pushed new stack frame");
+  if (debug_flags.print_compile_info) {
+    log_info("[COMPILER] Pushed new stack frame");
+  }
   compiler->cur_frame =
       (Frame){.sp_offset = 0,
               .symbol_table = hashmap_new(Ident *, StackObject, &HEAP_ALLOCATOR,
@@ -285,7 +283,6 @@ static void expr_func_compile(Compiler *compiler, const ExprFunction *expr_func,
                                   .function_name = context.function_name});
   }
 
-  printf("func name: %s\n", context.function_name);
   if (context.function_name != NULL && strv_eq(context.function_name, "main")) {
     insns_add(compiler, INS_XOR_R32_R32(REG_EAX, REG_EAX));
   }
@@ -738,7 +735,6 @@ static void compiler_arg_push(Compiler *compiler, size_t arg_idx,
       RELOCATIONS_ADD(compiler, {.sec = SECTION_FROM_EXPR_RES(res->type),
                                  .r_offset = 3,
                                  .data_offset = res->var.data_offset.offset});
-      log_debug("Pushed Arg offset: %zu", res->var.data_offset.offset);
       insns_add(compiler, INS_LEA_ABS_ADDR32_R64(IMM32_PACK(0), arg_reg));
       // insns_add(compiler,
       //           INSN(INS_LEA_RIP_REG, .op0 = {.reg = REG_BASE_05(arg_reg)},
@@ -808,15 +804,18 @@ static void stmt_compile(Compiler *compiler, const Statement *stmt,
         DataSection *data_section =
             stmt_decl.mut ? &compiler->data_section : &compiler->rodata_section;
         if (expr.type == EXPR_FUNCTION) {
-          ModulePath *module_func_name = hashmap_value(
-              &compiler->custom_mangled_functions, &stmt_decl.name);
+          ModulePath *module_func_name =
+              hashmap_value(&compiler->mangled_functions, &stmt_decl.name);
           Ident mangled_func_name;
           if (module_func_name != NULL) {
+            log_debug("Looking up mangled function: %s => %s", stmt_decl.name,
+                      module_path_fmt(module_func_name).string);
+            log_debug("Module path info: len: %zu",
+                      array_len(module_func_name->path));
             mangled_func_name = mangle_function_name(module_func_name);
           } else {
             mangled_func_name = stmt_decl.name;
           }
-          log_debug("MANGLED FUNC NAME: %s, mangled funcs amount: %zu", mangled_func_name, compiler->custom_mangled_functions.len);
           hashmap_insert(&compiler->symbols, &mangled_func_name,
                          &compiler->program_size);
           expr_func_compile(compiler, &expr.var.expr_function,
@@ -982,7 +981,9 @@ static const CompileContext GLOBAL_COMPILE_CONTEXT = {
 void compiler_compile(Compiler *compiler) {
   compiler->step = COMPILE_STEP_COMPILE_SRC;
 
-  log_info("[COMPILER] Start compiling");
+  if (debug_flags.print_compile_info) {
+    log_info("[COMPILER] Start compiling file %s", "?");
+  }
 
   size_t stmts_len = array_len(compiler->stmts);
   while (compiler->stmt_index < stmts_len) {

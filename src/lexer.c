@@ -1,4 +1,5 @@
 #include "../include/lexer.h"
+#include "../include/shared.h"
 #include "lilc/alloc.h"
 #include "lilc/array.h"
 #include <ctype.h>
@@ -190,7 +191,9 @@ void lexer_tokenize(Lexer *lexer, const char *src, const char *filename) {
     filename = "<inline>";
   }
 
-  log_info("[LEXER] Start tokenization of file: %s", filename);
+  if (debug_flags.print_tokens) {
+    log_info("[LEXER] Start tokenization of file: %s", filename);
+  }
 
   lexer->cur_char = src;
 
@@ -485,8 +488,8 @@ void lexer_tokenize(Lexer *lexer, const char *src, const char *filename) {
                     .begin = lexer->cur_char,
                     .len = 1};
     } else {
-      printf("Illegal token cur char: %c at %s:%d:%d\n", *lexer->cur_char,
-             filename, lexer->line, lexer->pos);
+      log_error("Illegal token cur char: %c at %s:%d:%d", *lexer->cur_char,
+                filename, lexer->line, lexer->pos);
       tok = (Token){.type = TOKEN_ILLEGAL,
                     .begin_pos = lexer->pos,
                     .line = lexer->line,
@@ -496,7 +499,6 @@ void lexer_tokenize(Lexer *lexer, const char *src, const char *filename) {
     array_add(lexer->tokens, tok);
     next_char(lexer);
   }
-  log_debug("[LEXER] Lines in file: %d", lexer->line);
   size_t lines = array_len(lexer->lines);
   if (lines > 0) {
     lexer->lines[lines - 1].len =

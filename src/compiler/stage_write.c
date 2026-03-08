@@ -1,6 +1,7 @@
 #include "../../include/compiler.h"
 #include "lilc/log.h"
 #include <elf.h>
+#include <lilc/array.h>
 
 #define WRITE(fp, ptr) fwrite(ptr, 1, sizeof(*ptr), fp)
 
@@ -60,11 +61,15 @@ static void obj_write(const Object *obj, FILE *file) {
   // fwrite(obj->symtab_section_data, 1, obj->symtab_section_size, file);
   for (size_t i = 0; i < array_len(obj->symbols); i++) {
     WRITE(file, &obj->symbols[i]);
-    log_info("Writing symbol %zu", i);
+  }
+  if (debug_flags.print_obj_write_info) {
+    log_info("[COMPILER] Wrote %zu symbols", array_len(obj->symbols));
   }
   for (size_t i = 0; i < array_len(obj->relocations); i++) {
     WRITE(file, &obj->relocations[i]);
-    log_info("Writing relocation %zu", i);
+  }
+  if (debug_flags.print_obj_write_info) {
+    log_info("[COMPILER] Wrote %zu, relocations", array_len(obj->relocations));
   }
   fwrite(shstrtab_data, 1, sizeof(shstrtab_data), file);
   WRITE(file, &obj->sh_null);
@@ -126,7 +131,9 @@ void compiler_write(Compiler *compiler, FILE *file) {
     return;
   compiler->step = COMPILE_STEP_OUTPUT_OBJECT;
 
-  log_info("[COMPILER] Start writing object file");
+  if (debug_flags.print_obj_write_info) {
+    log_info("[COMPILER] Start writing object file");
+  }
 
   Object obj = {0};
 
@@ -182,7 +189,6 @@ void compiler_write(Compiler *compiler, FILE *file) {
     switch (reloc.rel_type) {
     case RELOCATION_FUNCTION: {
       size_t sym_idx = array_len(obj.symbols);
-      log_debug("Function reloc symbol: %s", reloc.symbol);
       obj_symbol_table_add_foreign_func(&obj, reloc.symbol);
       /* Uses 1 as an additional offset because thats the opcode length of the
        * call instruction */
@@ -197,8 +203,6 @@ void compiler_write(Compiler *compiler, FILE *file) {
       rela.r_info = ELF64_R_INFO(reloc.rel_type == RELOCATION_DATA ? 3 : 2,
                                  R_X86_64_PC32);
       rela.r_addend = -4 + reloc.data_offset;
-      log_debug("RODATA/DATA with offset: %zu, symbol shndx: %hu",
-                rela.r_offset, obj.symbols[2].st_shndx);
       break;
     }
     default: {
@@ -206,15 +210,16 @@ void compiler_write(Compiler *compiler, FILE *file) {
       exit(1);
     }
     }
-    log_debug("Created relocation %zu for r-offset: %zu, type: %s, "
-              "data_offset: %zu, symbol: %s",
-              i, rela.r_offset,
-              reloc.rel_type == RELOCATION_DATA ||
-                      reloc.rel_type == RELOCATION_RODATA
-                  ? "DATA"
-                  : "FUNCTION",
-              reloc.data_offset,
-              reloc.rel_type == RELOCATION_FUNCTION ? reloc.symbol : "<EMPTY>");
+    // log_debug("Created relocation %zu for r-offset: %zu, type: %s, "
+    //           "data_offset: %zu, symbol: %s",
+    //           i, rela.r_offset,
+    //           reloc.rel_type == RELOCATION_DATA ||
+    //                   reloc.rel_type == RELOCATION_RODATA
+    //               ? "DATA"
+    //               : "FUNCTION",
+    //           reloc.data_offset,
+    //           reloc.rel_type == RELOCATION_FUNCTION ? reloc.symbol :
+    //           "<EMPTY>");
     array_add(obj.relocations, rela);
   }
 
@@ -248,9 +253,12 @@ void compiler_write(Compiler *compiler, FILE *file) {
   eh->e_shstrndx = 7;
   eh->e_shoff = sh_table_offset;
 
-  log_info("Symbols: %zu, Relocations: %zu - SH Table offset: %zu, Size: %zu",
-           array_len(obj.symbols) + 2, array_len(obj.relocations),
-           sh_table_offset, eh->e_shoff + eh->e_shentsize * eh->e_shnum);
+  if (debug_flags.print_obj_write_info) {
+    log_info("[COMPILER] Symbols: %zu, Relocations: %zu - SH Table offset: "
+             "%zu, Size: %zu",
+             array_len(obj.symbols) + 2, array_len(obj.relocations),
+             sh_table_offset, eh->e_shoff + eh->e_shentsize * eh->e_shnum);
+  }
 
   /* Section Header */
 

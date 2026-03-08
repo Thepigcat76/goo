@@ -97,7 +97,6 @@ typedef struct {
   Hashmap(Ident *, GlobalDataLocation) globals;
   Hashmap(Ident *, size_t) symbols;
   Hashmap(ModulePath, Ident) mangled_functions;
-  Hashmap(Ident, ModulePath) custom_mangled_functions;
   // Hashmap(Ident *, size_t) extern_functions;
   Frame cur_frame;
   size_t program_size;

@@ -1,11 +1,13 @@
 #include "../include/shared.h"
 #include "lilc/array.h"
-#include "lilc/hash.h"
 #include "lilc/eq.h"
+#include "lilc/hash.h"
 #include "stddef.h"
 #include <lilc/alloc.h>
 #include <lilc/str.h>
 #include <stdbool.h>
+
+struct debug_flags debug_flags = {0};
 
 int32_t module_path_ptrv_hash(const void *array) {
   const ModulePath *path = array;
@@ -48,11 +50,13 @@ Ident mangle_function_name(const ModulePath *module_path) {
 ModulePath parse_module_path_from_string(const char *str) {
   ModulePath path = {.path = array_new(Ident, &HEAP_ALLOCATOR)};
 
+  if (str == NULL || strlen(str) == 0) return path;
+
   const char *c = str;
   dyn_string_t cur_ident = {0};
   dyn_string_init(&cur_ident);
   for (;;) {
-    if (*c == '/' || *c == '\0') {
+    if (*c == '/' || *c == '.' || *c == '\0') {
       dyn_string_t new_str = {0};
       dyn_string_init(&new_str);
       dyn_string_copy(&new_str, &cur_ident);
@@ -84,7 +88,8 @@ bool module_path_ptrv_eq(const void *array0, const void *array1) {
     return false;
 
   for (size_t i = 0; i < len0; i++) {
-    if (!strv_eq(path0->path[i], path1->path[i])) return false;
+    if (!strv_eq(path0->path[i], path1->path[i]))
+      return false;
   }
 
   return true;
@@ -95,7 +100,9 @@ ModulePath module_path_copy(const ModulePath *path) {
     return (ModulePath){.path = array_new(Ident, &HEAP_ALLOCATOR)};
   }
 
-  ModulePath new_path = {.path = array_new_capacity(Ident, array_len(path->path) * 2, &HEAP_ALLOCATOR)};
+  ModulePath new_path = {.path = array_new_capacity(Ident,
+                                                    array_len(path->path) * 2,
+                                                    &HEAP_ALLOCATOR)};
   for (size_t i = 0; i < array_len(path->path); i++) {
     array_add(new_path.path, path->path[i]);
   }
@@ -112,6 +119,9 @@ dyn_string_t module_path_fmt(const ModulePath *path) {
   dyn_string_t str = {0};
   dyn_string_init(&str);
 
+  if (path == NULL || path->path == NULL || array_len(path->path) == 0)
+    return str;
+
   for (size_t i = 0; i < array_len(path->path); i++) {
     dyn_string_add_str(&str, path->path[i]);
     if (i < array_len(path->path) - 1) {
@@ -123,4 +133,3 @@ dyn_string_t module_path_fmt(const ModulePath *path) {
   }
   return str;
 }
-

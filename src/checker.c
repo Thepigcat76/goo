@@ -81,12 +81,9 @@ static void checker_type_table_pop(TypeChecker *checker) {
 // TODO: Might be redundant
 static ModulePath module_path_resolve(TypeChecker *checker,
                                       const ModulePath *path) {
-  log_debug("Resolving path for: %s", module_path_fmt(path).string);
   size_t modules_len = array_len(checker->imported_modules);
   for (size_t i = 0; i < modules_len; i++) {
     ModulePath imported_path = checker->imported_modules[i];
-    log_debug("Checking imported module: %s",
-              module_path_fmt(&imported_path).string);
     size_t path_len = array_len(imported_path.path);
     Ident last_path_segment = imported_path.path[path_len - 1];
     if (strv_eq(path->path[0], last_path_segment)) {
@@ -94,7 +91,6 @@ static ModulePath module_path_resolve(TypeChecker *checker,
       for (size_t i = 1; i < array_len(path->path); i++) {
         array_add(new_path.path, path->path[i]);
       }
-      log_debug("Resolved path: %s", module_path_fmt(&new_path).string);
       return new_path;
     }
   }
@@ -195,9 +191,6 @@ static Type check_call_expr(TypeChecker *checker, ExprCall *expr_call) {
   TypeTableValue *val = type_table_get(
       checker->cur_type_table, &call_function_path, checker->global_type_table);
 
-  log_debug("Type table dump:");
-  type_table_dump(checker->cur_type_table);
-
   // type_table_dump(checker->cur_type_table);
 
   dyn_string_t mod_path_call = module_path_fmt(&expr_call->function);
@@ -217,15 +210,6 @@ static Type check_call_expr(TypeChecker *checker, ExprCall *expr_call) {
     {
       Expression *expr = &val->expr_variant.var.expr_var_reg_expr;
       if (expr->type == EXPR_FUNCTION) {
-        log_debug("epxression type is function, name: %s",
-                  module_path_fmt(&call_function_path).string);
-        void *val = hashmap_value(&checker->global_type_table->type_table,
-                                  &call_function_path);
-        log_debug("val: %p", val);
-        hashmap_foreach(&checker->global_type_table->type_table,
-                        ModulePath * key, TypeTableValue * val, {
-                          log_debug("!!Key!!: %s", module_path_fmt(key).string);
-                        });
         expr_function = expr->var.expr_function;
       } else {
         fprintf(stderr, "Expr is not a function\n");
@@ -340,7 +324,6 @@ static Type check_block_expr(TypeChecker *checker,
 
 // TODO: Create a type table ident -> type
 static Type check_expr(TypeChecker *checker, Expression *expr) {
-  log_debug("Checking expr");
   switch (expr->type) {
   case EXPR_ARRAY_INIT: {
     Type *expected_item_type = expr->var.expr_array_init.type.type;
@@ -694,7 +677,9 @@ static Type check_stmt(TypeChecker *checker, Statement *stmt,
 }
 
 void checker_check(TypeChecker *checker) {
-  log_info("[TYPECHECKER] Start type checking");
+  if (debug_flags.print_checker_info) {
+    log_info("[TYPECHECKER] Start type checking");
+  }
 
   for (size_t i = 0; i < array_len(checker->stmts); i++) {
     check_stmt(checker, &checker->stmts[i], EMPTY_CONTEXT);

@@ -322,7 +322,6 @@ static Statement *parse_block_statements(Parser *parser, TokenType end) {
 static ParseResult parse_expr_list(Parser *parser, Expression *exprs,
                                    TokenType end) {
   while (parser->cur_tok->type != end) {
-    DEBUG_TOK(parser->cur_tok, "begin of arg");
     Expression expr = {0};
     ParseResult result = parse_expr1(parser, &expr, PREC_LOWEST);
 
@@ -334,7 +333,6 @@ static ParseResult parse_expr_list(Parser *parser, Expression *exprs,
 
     if (parser->peek_tok->type != TOKEN_COMMA &&
         parser->peek_tok->type != end) {
-      DEBUG_TOK(parser->cur_tok, "Args error");
       return (ParseResult){
           .success = false,
           .line = parser->cur_tok->line,
@@ -602,20 +600,17 @@ static dyn_string_t error_msg_deco_fmt(const Parser *parser,
 // TODO: Might want to factor out into extra step
 
 static ModulePath module_path_resolve(Parser *parser, const ModulePath *path) {
-  log_debug("Resolving path for: %s", module_path_fmt(path).string);
   size_t modules_len = array_len(parser->imported_modules);
   for (size_t i = 0; i < modules_len; i++) {
     ModulePath imported_path = parser->imported_modules[i];
-    log_debug("Checking imported module: %s",
-              module_path_fmt(&imported_path).string);
     size_t path_len = array_len(imported_path.path);
     Ident last_path_segment = imported_path.path[path_len - 1];
+
     if (strv_eq(path->path[0], last_path_segment)) {
       ModulePath new_path = module_path_copy(&imported_path);
       for (size_t i = 1; i < array_len(path->path); i++) {
         array_add(new_path.path, path->path[i]);
       }
-      log_debug("Resolved path: %s", module_path_fmt(&new_path).string);
       return new_path;
     }
   }
@@ -717,10 +712,6 @@ static ParseResult parse_expr(Parser *parser, Expression *expr) {
       if (parser->cur_tok->type != TOKEN_RPAREN) {
         fprintf(stderr, "No TOKEN_RPAREN at end of call");
         exit(1);
-      } else {
-        char tok_buf[128];
-        lexer_tok_print(tok_buf, parser->cur_tok);
-        printf("Cur tok: %s\n", tok_buf);
       }
 
       *expr = (Expression){.type = EXPR_CALL,
@@ -771,7 +762,7 @@ static ParseResult parse_expr(Parser *parser, Expression *expr) {
     }*/
     *expr = (Expression){.type = EXPR_IDENT,
                          .var = {.expr_ident = {.ident = raw_path}}};
-        return PARSE_RESULT({.success = true});
+    return PARSE_RESULT({.success = true});
   }
   case TOKEN_INT: {
     *expr = (Expression){.type = EXPR_INTEGER_LIT,
@@ -1314,7 +1305,7 @@ static Expression parse_array_access(Parser *parser, Expression expr) {
 
 static ParseResult parse_expr1(Parser *parser, Expression *expr,
                                Precedence prec) {
-  Expression expr1 = { 0 };
+  Expression expr1 = {0};
   ParseResult result = parse_expr(parser, &expr1);
 
   if (!result.success)
@@ -1465,17 +1456,18 @@ static StmtDecl parse_decl_stmt(Parser *parser, bool typed) {
         ModulePath module_path = module_path_copy(&parser->path);
         array_add(module_path.path, stmt_decl.name);
 
-        if (array_len(module_path.path) > 0) {
-          hashmap_insert(&parser->custom_functions, &stmt_decl.name,
-                         &expr_var.var.expr_var_reg_expr.var.expr_function);
+        if (array_len(module_path.path) > 0 &&
+            !strv_eq(module_path.path[0], "main")) {
           hashmap_insert(
               &parser->module.functions, &module_path,
               &expr_var.var.expr_var_reg_expr.var.expr_function.desc);
           Ident mangled_function = mangle_function_name(&module_path);
-          log_debug("Mangled function name: %s absolute path: %s",
-                    mangled_function, module_path_fmt(&module_path).string);
-          hashmap_insert(&mangled_functions, &module_path,
-                         &mangled_function);
+          hashmap_insert(&mangled_functions, &module_path, &mangled_function);
+          if (debug_flags.print_parse_info) {
+            log_debug("Mangled function mod path len: %zu, %s", array_len(module_path.path), module_path.path[0]);
+            log_info("[PARSER] Mangled function: %s, mangled name: %s",
+                     module_path_fmt(&module_path).string, mangled_function);
+          }
         }
       } else {
         array_add(parser->module.decls,
@@ -1602,7 +1594,6 @@ static Statement parse_stmt(Parser *parser) {
       StmtDecl stmt_decl = parse_decl_stmt(parser, typed);
       return (Statement){.type = STMT_DECL, .var = {.stmt_decl = stmt_decl}};
     } else {
-      log_debug("Nvm, its an expr");
       goto parse_expr;
     }
     exit(1);
@@ -1637,7 +1628,6 @@ static Statement parse_stmt(Parser *parser) {
   parse_expr: {
     Expression expr;
     ParseResult result = parse_expr1(parser, &expr, PREC_LOWEST);
-    log_debug("Expr type: %i", result.success ? expr.type : -1);
     if (result.success) {
       if ((expr.type == EXPR_IDENT || expr.type == EXPR_STRUCT_ACCESS) &&
           parser->peek_tok->type == TOKEN_ASSIGN) {
@@ -1674,7 +1664,6 @@ static Statement parse_stmt(Parser *parser) {
     exit(1);
   }
   case TOKEN_HASH: {
-    log_debug("Found pp dir");
     size_t line = parser->cur_tok->line;
     if (parser->peek_tok->type == TOKEN_COMPTIME) {
       // cur_tok is 'comptime'
@@ -1712,8 +1701,6 @@ static Statement parse_stmt(Parser *parser) {
           dyn_string_printf(&path, "%s%s.goo", exec_file_dir_path, module_name);
         }
 
-        log_debug("Module path: %s", path.string);
-
         FILE *f = fopen(path.string, "r");
 
         if (f == NULL) {
@@ -1726,33 +1713,21 @@ static Statement parse_stmt(Parser *parser) {
         ModulePath mod_path = parse_module_path_from_string(module_name);
 
         array_add(parser->imported_modules, mod_path);
-        log_debug("Module: %s", module_name);
 
         // TODO: Make dynamic
         char *source_buf = malloc(4096);
         fread(source_buf, 1, 4096, f);
 
-        printf("Module path:\n");
-
-        for (size_t i = 0; i < array_len(mod_path.path); i++) {
-          printf("%s\n", mod_path.path[i]);
+        if (debug_flags.print_parse_info) {
+          log_info("[PARSER] Loaded imported module %s",
+                   module_path_fmt(&mod_path).string);
         }
 
         Module mod = parser_parse_module(source_buf, path.string, mod_path);
 
-        hashmap_foreach(&mod.functions, ModulePath * key, FuncDescriptor * val,
-                        {
-                          log_debug("Imported function:");
-                          for (size_t i = 0; i < array_len(key->path); i++) {
-                            printf("%s", key->path[i]);
-                            if (i != array_len(key->path) - 1) {
-                              printf(".");
-                            } else {
-                              printf("\n");
-                            }
-                          }
-                          hashmap_insert(&parser->imported_functions, key, val);
-                        });
+        hashmap_foreach(
+            &mod.functions, ModulePath * key, FuncDescriptor * val,
+            { hashmap_insert(&parser->imported_functions, key, val); });
 
         // Parse and return next stmt, effectively removing the pp dir from
         // source code cur_tok is first token of stmt
@@ -1804,7 +1779,9 @@ void parser_parse(Parser *parser) {
   parser->cur_tok = parser->tokens;
   parser->peek_tok = parser->tokens + 1;
 
-  log_info("[Parser] Start parsing");
+  if (debug_flags.print_parse_info) {
+    log_info("[Parser] Start parsing file %s", parser->filename);
+  }
 
   while (parser->cur_tok->type != TOKEN_EOF) {
     Statement stmt = parse_stmt(parser);

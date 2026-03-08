@@ -63,38 +63,22 @@ void run_program(char *buf, const char *filename, const char *output,
   lexer_tokenize(&lexer, buf, filename);
   array_add(lexer.tokens, (Token){.type = TOKEN_EOF});
 
-  for (size_t i = 0; i < array_len(lexer.tokens); i++) {
-    char print_buf[256];
-    lexer_tok_print(print_buf, &lexer.tokens[i]);
-    puts(print_buf);
+  if (debug_flags.print_tokens) {
+    for (size_t i = 0; i < array_len(lexer.tokens); i++) {
+      char print_buf[256];
+      lexer_tok_print(print_buf, &lexer.tokens[i]);
+      puts(print_buf);
+    }
   }
 
-  Parser parser = parser_new(lexer.tokens, buf, filename, MODULE_PATH_ROOT);
+  Parser parser = parser_new(lexer.tokens, buf, filename, module_path);
   parser.lines = lexer.lines;
 
   parser_parse(&parser);
 
-  log_debug("AST:\n%s", ast_format(parser.statements).string);
-
-  log_debug("-- FUNCTIONS --");
-
-  Hashmap(Ident, ModulePath) custom_mangled_functions =
-      hashmap_new(Ident, ModulePath, &HEAP_ALLOCATOR, module_path_ptrv_hash,
-                  module_path_ptrv_eq, NULL);
-
-  hashmap_foreach(&parser.custom_functions, Ident * key, ExprFunction * val, {
-    log_debug("CUSTOM FUNCTION: %s", *key);
-    ModulePath custom_mangled_path = module_path_copy(&module_path);
-    hashmap_insert(&custom_mangled_functions, key, &custom_mangled_path);
-  });
-  log_debug("Custom functions: %zu", parser.custom_functions.len);
-
-  log_debug("-- TYPES --");
-
-  hashmap_foreach(&parser.custom_types, Ident * key, TypeExpr * val,
-                  { log_debug("%s", *key); });
-
-  log_debug("---");
+  if (debug_flags.print_ast) {
+    log_debug("AST:\n%s", ast_format(parser.statements).string);
+  }
 
   PreProcessor preprocessor =
       preprocessor_new(parser.statements, parser.pp_dirs);
@@ -134,7 +118,6 @@ void run_program(char *buf, const char *filename, const char *output,
 #elif defined(COMPILER)
   Compiler compiler =
       compiler_new(parser.statements, checker.type_tables, mangled_functions);
-  compiler.custom_mangled_functions = custom_mangled_functions;
   compiler_compile(&compiler);
 
   compiler_generate(&compiler);
@@ -202,9 +185,11 @@ static char *_corelib_path = NULL;
 int main(int argc, char **argv) {
   CliArgs args = {0};
 
+  memset(&debug_flags, 0, sizeof(struct debug_flags));
+
   int i = 1;
   while (i < argc) {
-    if (i == 1) {
+    if (i == 1 && argv[i][0] != '-') {
       args.input_path = argv[i];
       NEXT_ARG(i, argc);
     }
@@ -215,6 +200,9 @@ int main(int argc, char **argv) {
     } else if (STR_CMP_OR(argv[i], "-mp", "--module-path")) {
       NEXT_ARG(i, argc);
       args.module_path = argv[i];
+    } else if (STR_CMP_OR(argv[i], "-di", "--debug-info")) {
+      memset(&debug_flags, 1, sizeof(struct debug_flags));
+      break;
     }
     NEXT_ARG(i, argc);
   }
@@ -249,7 +237,6 @@ int main(int argc, char **argv) {
   file_buf[n] = '\0';
 
   run_program(file_buf, args.input_path, args.output_path, args.module_path);
-  log_debug("compiling: %s", args.input_path);
 
   fclose(file);
 

@@ -16,7 +16,9 @@ void compiler_generate(Compiler *compiler) {
     return;
   compiler->step = COMPILE_STEP_GENERATE_MACHINE;
 
-  log_info("[COMPILER] Start generating machine code");
+  if (debug_flags.print_compile_info) {
+    log_info("[COMPILER] Start generating machine code");
+  }
 
   compiler->program_data_capacity = 512;
   compiler->program_data = malloc(compiler->program_data_capacity);
@@ -59,17 +61,8 @@ void compiler_generate(Compiler *compiler) {
     }
     elf64_reloc.program_offset = reloc.program_offset;
     elf64_reloc.r_offset = reloc.r_offset;
-    log_debug("Symbol: %s", reloc.symbol);
-    log_debug("R-offset: %u", reloc.r_offset);
     array_add(compiler->elf64_relocations, elf64_reloc);
   }
 
   compiler->program_data_size = program_data_offset;
-
-  log_debug("Labels (fixed)");
-  hashmap_foreach(&compiler->symbols, Ident * key, size_t *val, {
-    log_debug("Key: %s", *key);
-    log_debug("Value: %zu", *val);
-  });
-  log_debug("Labels amount: %zu", compiler->symbols.len);
 }

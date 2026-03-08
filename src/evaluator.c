@@ -142,7 +142,7 @@ Object eval_expr_call(Evaluator *evaluator, const ExprCall *expr_call) {
   } else {
     fprintf(stderr,
             "Invalid name: %s for function call (func-ptr: %p), type: %d\n",
-            expr_call->function, value, value != NULL ? value->type : -1);
+            module_path_fmt(&expr_call->function).string, (void *) value, value != NULL ? value->type : -1);
     // hashmap_foreach(&evaluator->global_env->env, Ident * key, Object * obj,
     //                 { printf("Key: %s\n", *key); });
     exit(1);
