@@ -1,17 +1,3 @@
-//#import(libc.stdio)
-
-//printf :: (format: string, ...) {
-//  puts(format)
-//}
-
-//printfn :: (format: string, ...) {
-//  puts(format)
-//}
-
-//writef :: (file: fd, format: string) {
-//
-//}
-
 print :: (str: string) {
   println(str)
 }

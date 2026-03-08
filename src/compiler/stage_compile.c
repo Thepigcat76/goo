@@ -138,9 +138,9 @@ static ExprCompileResult expr_call_compile(Compiler *compiler,
 
   Ident *mangled_function_name =
       hashmap_value(&compiler->mangled_functions, &expr_call->function);
-/*  log_debug("Compiling call expr %s for mangled: %s",
-            module_path_fmt(&expr_call->function).string,
-            mangled_function_name == NULL ? NULL : *mangled_function_name);*/
+  /*  log_debug("Compiling call expr %s for mangled: %s",
+              module_path_fmt(&expr_call->function).string,
+              mangled_function_name == NULL ? NULL : *mangled_function_name);*/
 
   if (mangled_function_name != NULL) {
     RELOCATIONS_ADD(compiler,
@@ -195,6 +195,38 @@ static void compiler_stack_alloc_imm32(Compiler *compiler, Ident *name,
   insns_add(compiler,
             INS_MOV_I32_R32_DISP8(REG_EBP, compiler->cur_frame.sp_offset,
                                   IMM32_PACK(imm32)));
+}
+
+static void compiler_stack_alloc_imm64(Compiler *compiler, Ident *name,
+                                       uint32_t imm32) {
+  compiler->cur_frame.sp_offset += sizeof(int32_t);
+  hashmap_insert(&compiler->cur_frame.symbol_table, name,
+                 &STACK_OBJ(compiler->cur_frame.sp_offset, sizeof(uint32_t)));
+  insns_add(compiler,
+            INS_MOV_I64_R64_DISP8(REG_EBP, compiler->cur_frame.sp_offset,
+                                  IMM32_PACK(imm32)));
+}
+
+static void compiler_stack_alloc_expr_res(Compiler *compiler,
+                                          ExprCompileResult expr_res,
+                                          size_t sp_offset) {
+  compiler->cur_frame.sp_offset = sp_offset;
+  switch (expr_res.type) {
+  case EXPR_COMPILE_RES_RODATA_OFFSET:
+  case EXPR_COMPILE_RES_DATA_OFFSET: {
+  } break;
+  case EXPR_COMPILE_RES_IMM32: {
+    insns_add(compiler,
+              INS_MOV_I32_R32_DISP8(REG_EBP, compiler->cur_frame.sp_offset,
+                                    IMM32_PACK(expr_res.var.imm32)));
+  } break;
+  case EXPR_COMPILE_RES_STACK_OBJ: {
+  } break;
+  case EXPR_COMPILE_RES_REG: {
+  } break;
+  case EXPR_COMPILE_RES_COMPARISON: {
+  } break;
+  }
 }
 
 static void compiler_stack_alloc_reg(Compiler *compiler, Ident *name,
@@ -609,8 +641,6 @@ static void stack_dump(const Frame *frame) {
   puts("-- END-STACK-DUMP --");
 }
 
-static size_t for_loop_idx = 0;
-
 static ExprCompileResult expr_compile_with_res(Compiler *compiler,
                                                const Expression *expr,
                                                Register bin_op_res_reg) {
@@ -659,9 +689,40 @@ static ExprCompileResult expr_compile_with_res(Compiler *compiler,
                                bin_op_res_reg == -1 ? REG_EAX : bin_op_res_reg);
   }
   case EXPR_FOR: {
-    if (!expr->var.expr_for.has_range) {
-      Statement *stmts = expr->var.expr_for.block.statements;
-      for_loop_idx = array_len(compiler->insns);
+    ExprFor expr_for = expr->var.expr_for;
+    Statement *stmts = expr_for.block.statements;
+    if (expr_for.has_range) {
+      Ident iter_var = expr_for.variable_name;
+      ExprCompileResult min_res = expr_compile(compiler, expr_for.range.min);
+      if (min_res.type != EXPR_COMPILE_RES_IMM32) {
+        log_error("Only immediate integers are supported in ranges");
+        exit(1);
+      }
+      ExprCompileResult max_res = expr_compile(compiler, expr_for.range.max);
+      if (max_res.type != EXPR_COMPILE_RES_IMM32) {
+        log_error("Only immediate integers are supported in ranges");
+        exit(1);
+      }
+
+      compiler_stack_alloc_imm64(compiler, &iter_var, min_res.var.imm32);
+      size_t for_loop_begin = compiler->program_size;
+      for (size_t i = 0; i < array_len(stmts); i++) {
+        stmt_compile(compiler, &stmts[i],
+                     (CompileContext){.level = COMPILE_LEVEL_LOCAL,
+                                      .function_name = NULL});
+      }
+
+      StackObject *stack_obj =
+          hashmap_value(&compiler->cur_frame.symbol_table, &iter_var);
+      insns_add(compiler,
+                INS_ADD_I32_R64_DISP32(IMM32_PACK(1), REG_EBP,
+                                       IMM32_PACK(-stack_obj->offset)));
+      insns_add(compiler,
+                INS_CMP_I32_R64_DISP32(IMM32_PACK(max_res.var.imm32), REG_EBP,
+                                       IMM32_PACK(-stack_obj->offset)));
+      insns_add(compiler, INS_JL_DISP32(IMM32_PACK(
+                              for_loop_begin - compiler->program_size - 6)));
+    } else {
       size_t for_loop_begin = compiler->program_size;
       for (size_t i = 0; i < array_len(stmts); i++) {
         stmt_compile(compiler, &stmts[i],
@@ -674,6 +735,19 @@ static ExprCompileResult expr_compile_with_res(Compiler *compiler,
                 (int64_t)for_loop_begin - compiler->program_size - 5);
     }
     return (ExprCompileResult){0};
+  }
+  case EXPR_ARRAY_INIT: {
+    ExprArrayInit expr_arr_init = expr->var.expr_array_init;
+    size_t arr_len = array_len(expr_arr_init.items);
+    size_t stack_offset = compiler->cur_frame.sp_offset;
+    for (size_t i = arr_len; i > 0; i--) {
+      ExprCompileResult expr_res =
+          expr_compile(compiler, &expr_arr_init.items[arr_len - i]);
+      compiler_stack_alloc_expr_res(compiler, expr_res, stack_offset + i * 4);
+    }
+    insns_add(compiler, INS_LEA_R32_R32_DISP32(REG_EBP, REG_EAX, IMM32_PACK(-(stack_offset + arr_len * 4))));
+    return EXPR_COMPILE_RES(EXPR_COMPILE_RES_REG, 8,
+                            .reg = REG_EAX);
   }
   case EXPR_BOOLEAN_LIT: {
     return EXPR_COMPILE_RES(EXPR_COMPILE_RES_IMM32, 4,
@@ -808,7 +882,7 @@ static void stmt_compile(Compiler *compiler, const Statement *stmt,
           array_add(func_name_mod_path.path, stmt_decl.name);
           Ident *module_func_name =
               hashmap_value(&compiler->mangled_functions, &func_name_mod_path);
-              
+
           Ident mangled_func_name;
           if (module_func_name != NULL) {
             mangled_func_name = *module_func_name;

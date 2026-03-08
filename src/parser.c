@@ -1456,7 +1456,10 @@ static StmtDecl parse_decl_stmt(Parser *parser, bool typed) {
         ModulePath module_path = module_path_copy(&parser->path);
         array_add(module_path.path, stmt_decl.name);
 
-        log_debug("Parser Module path: %s", module_path_fmt(&module_path).string);
+        if (debug_flags.print_parse_info) {
+          log_debug("Parser Module path: %s",
+                    module_path_fmt(&module_path).string);
+        }
 
         if (array_len(module_path.path) > 0 &&
             !strv_eq(module_path.path[0], "main")) {
@@ -1466,7 +1469,8 @@ static StmtDecl parse_decl_stmt(Parser *parser, bool typed) {
           Ident mangled_function = mangle_function_name(&module_path);
           hashmap_insert(&mangled_functions, &module_path, &mangled_function);
           if (debug_flags.print_parse_info) {
-            log_debug("Mangled function mod path len: %zu, %s", array_len(module_path.path), module_path.path[0]);
+            log_debug("Mangled function mod path len: %zu, %s",
+                      array_len(module_path.path), module_path.path[0]);
             log_info("[PARSER] Mangled function: %s, mangled name: %s",
                      module_path_fmt(&module_path).string, mangled_function);
           }

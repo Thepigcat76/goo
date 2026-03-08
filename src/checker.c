@@ -217,7 +217,7 @@ static Type check_call_expr(TypeChecker *checker, ExprCall *expr_call) {
       }
     }
   } else {
-    fprintf(stderr, "Could not find symbol %s\n", mod_path_call.string);
+    log_error(stderr, "Could not find symbol %s", mod_path_call.string);
     exit(1);
   }
 

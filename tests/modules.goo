@@ -1,7 +1,5 @@
-#import "core/io/files"
-#import "core/io"
+foreign printf(s: string, i: []i32)
 
 main :: () {
-  print("Slay")
-  files.open("file.file")
+  printf("Pointer: %p", []i32{1, 2, 4})
 }

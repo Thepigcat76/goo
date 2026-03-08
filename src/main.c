@@ -218,8 +218,6 @@ int main(int argc, char **argv) {
     args.output_path = "output/out.o";
   }
 
-  log_debug("Mod path: %s", args.module_path);
-
   if (args.module_path == NULL) {
     args.module_path = "";
   }
