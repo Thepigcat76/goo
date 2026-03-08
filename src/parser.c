@@ -1456,6 +1456,8 @@ static StmtDecl parse_decl_stmt(Parser *parser, bool typed) {
         ModulePath module_path = module_path_copy(&parser->path);
         array_add(module_path.path, stmt_decl.name);
 
+        log_debug("Parser Module path: %s", module_path_fmt(&module_path).string);
+
         if (array_len(module_path.path) > 0 &&
             !strv_eq(module_path.path[0], "main")) {
           hashmap_insert(

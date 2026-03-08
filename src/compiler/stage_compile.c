@@ -804,15 +804,14 @@ static void stmt_compile(Compiler *compiler, const Statement *stmt,
         DataSection *data_section =
             stmt_decl.mut ? &compiler->data_section : &compiler->rodata_section;
         if (expr.type == EXPR_FUNCTION) {
-          ModulePath *module_func_name =
-              hashmap_value(&compiler->mangled_functions, &stmt_decl.name);
+          ModulePath func_name_mod_path = module_path_copy(&compiler->mod_path);
+          array_add(func_name_mod_path.path, stmt_decl.name);
+          Ident *module_func_name =
+              hashmap_value(&compiler->mangled_functions, &func_name_mod_path);
+              
           Ident mangled_func_name;
           if (module_func_name != NULL) {
-            log_debug("Looking up mangled function: %s => %s", stmt_decl.name,
-                      module_path_fmt(module_func_name).string);
-            log_debug("Module path info: len: %zu",
-                      array_len(module_func_name->path));
-            mangled_func_name = mangle_function_name(module_func_name);
+            mangled_func_name = *module_func_name;
           } else {
             mangled_func_name = stmt_decl.name;
           }

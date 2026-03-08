@@ -117,7 +117,7 @@ void run_program(char *buf, const char *filename, const char *output,
   evaluator_eval_expr(&evaluator, &expr);
 #elif defined(COMPILER)
   Compiler compiler =
-      compiler_new(parser.statements, checker.type_tables, mangled_functions);
+      compiler_new(parser.statements, checker.type_tables, mangled_functions, module_path);
   compiler_compile(&compiler);
 
   compiler_generate(&compiler);
@@ -202,7 +202,6 @@ int main(int argc, char **argv) {
       args.module_path = argv[i];
     } else if (STR_CMP_OR(argv[i], "-di", "--debug-info")) {
       memset(&debug_flags, 1, sizeof(struct debug_flags));
-      break;
     }
     NEXT_ARG(i, argc);
   }
@@ -218,6 +217,8 @@ int main(int argc, char **argv) {
   if (args.output_path == NULL) {
     args.output_path = "output/out.o";
   }
+
+  log_debug("Mod path: %s", args.module_path);
 
   if (args.module_path == NULL) {
     args.module_path = "";

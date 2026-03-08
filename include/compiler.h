@@ -2,6 +2,7 @@
 
 #include "ast.h"
 #include "ins.h"
+#include "shared.h"
 #include <stdio.h>
 
 typedef struct {
@@ -109,10 +110,14 @@ typedef struct {
   uint8_t *program_data;
   size_t program_data_size;
   size_t program_data_capacity;
+
+  /* Module info */
+  ModulePath mod_path;
 } Compiler;
 
 Compiler compiler_new(const Statement *stmts, TypeTable *type_tables,
-                      Hashmap(ModulePath, Ident) mangled_functions);
+                      Hashmap(ModulePath, Ident) mangled_functions,
+                      ModulePath mod_path);
 
 void compiler_compile(Compiler *compiler);
 

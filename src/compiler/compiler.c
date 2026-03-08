@@ -23,7 +23,8 @@ static inline DataSection data_section_new(void) {
 }
 
 Compiler compiler_new(const Statement *statements, TypeTable *type_tables,
-                      Hashmap(ModulePath, Ident) mangled_functions) {
+                      Hashmap(ModulePath, Ident) mangled_functions,
+                      ModulePath mod_path) {
   return (Compiler){
       .stmts = statements,
       .type_tables = type_tables,
@@ -37,5 +38,6 @@ Compiler compiler_new(const Statement *statements, TypeTable *type_tables,
       .data_section = data_section_new(),
       .rodata_section = data_section_new(),
       .elf64_relocations =
-          array_new_capacity(Elf64_Relocation, 64, &HEAP_ALLOCATOR)};
+          array_new_capacity(Elf64_Relocation, 64, &HEAP_ALLOCATOR),
+      .mod_path = mod_path};
 }

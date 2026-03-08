@@ -1,5 +1,7 @@
 #import "core/io/files"
+#import "core/io"
 
 main :: () {
+  print("Slay")
   files.open("file.file")
 }
