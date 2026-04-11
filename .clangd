@@ -1,3 +1,0 @@
-CompileFlags:
-  Add: [-x, c, -std=gnu23, -Wall, -Wextra, -pedantic, -Isrc, -Iinclude]
-  Remove: [-stdlib=libc++]

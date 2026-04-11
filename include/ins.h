@@ -1,5 +1,6 @@
 #pragma once
 
+#include "lilc/panic.h"
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -179,7 +180,7 @@ static const Instruction INS_CALL = (Instruction){
     }                                                                          \
   }
 
-#define INS_JL_DISP32(...)                                                    \
+#define INS_JL_DISP32(...)                                                     \
   (Instruction) {                                                              \
     .opcode = OPCODE2(0x0f, 0x8c), .disp = __VA_ARGS__, .flags = {             \
       .has_disp = true,                                                        \
@@ -219,7 +220,7 @@ static const Instruction INS_CALL = (Instruction){
 
 #define INS_MOV_I64_R64_DISP8(_reg, _disp, ...)                                \
   (Instruction) {                                                              \
-    .prefix = PREFIX_EMPTY, .opcode = OPCODE2(0x48, 0xc7),                           \
+    .prefix = PREFIX_EMPTY, .opcode = OPCODE2(0x48, 0xc7),                     \
     .mod_rm = {.mod = MOD_MEM_8BIT_DISP, .reg = 0b00, .rm = _reg},             \
     .sib = SIB_EMPTY, .disp = {256 - _disp, 0, 0, 0}, .imm = __VA_ARGS__,      \
     .flags = {                                                                 \
@@ -242,8 +243,8 @@ static const Instruction INS_CALL = (Instruction){
 #define INS_CMP_I32_R64_DISP32(_imm, _reg, ...)                                \
   (Instruction) {                                                              \
     .opcode = OPCODE2(0x48, 0x81),                                             \
-    .mod_rm = {.mod = MOD_MEM_32BIT_DISP, .reg = 111, .rm = _reg},                 \
-    .imm = _imm, .disp = __VA_ARGS__, .flags = {                                             \
+    .mod_rm = {.mod = MOD_MEM_32BIT_DISP, .reg = 111, .rm = _reg},             \
+    .imm = _imm, .disp = __VA_ARGS__, .flags = {                               \
       .has_imm = true,                                                         \
       .has_mod_rm = true,                                                      \
       .has_disp = true,                                                        \
@@ -327,6 +328,29 @@ static const Instruction INS_CALL = (Instruction){
     .disp = _disp, .flags = {                                                  \
       .has_mod_rm = true,                                                      \
       .has_disp = true                                                         \
+    }                                                                          \
+  }
+
+#define SIB_SCALE(_scale)                                                      \
+  (_scale == 1                                                                 \
+       ? 0b00                                                                  \
+       : (_scale == 2                                                          \
+              ? 0b01                                                           \
+              : (_scale == 4 ? 0b10                                            \
+                             : (_scale == 8 ? 0b11                             \
+                                            : (uint8_t)(long)panic(            \
+                                                  "INVALID SIB SCALE: %d",     \
+                                                  (int)_scale)))))
+
+#define INS_MOV_INDEXED_R64_DISP32(r_src, _disp, r_index, _scale, r_dest)      \
+  (Instruction) {                                                              \
+    .opcode = OPCODE1(0x8b),                                             \
+    .mod_rm = {.mod = MOD_MEM_32BIT_DISP, .reg = r_dest, .rm = 100},           \
+    .sib = {.scale = _scale, .index = r_index, .base = r_src}, .disp = _disp,  \
+    .flags = {                                                                 \
+      .has_mod_rm = true,                                                      \
+      .has_disp = true,                                                        \
+      .has_sib = true                                                          \
     }                                                                          \
   }
 

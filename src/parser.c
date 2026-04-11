@@ -79,7 +79,7 @@ Parser parser_new(Token *tokens, const char *source, const char *filename,
                  .functions = hashmap_new(
                      ModulePath, FuncDescriptor, &HEAP_ALLOCATOR,
                      module_path_ptrv_hash, module_path_ptrv_eq, NULL),
-                 .decls = array_new(Ident, &HEAP_ALLOCATOR)},
+                 .decls = array_new(TypedIdent, &HEAP_ALLOCATOR)},
       .path = path,
       .foreign_functions = array_new(ModulePath, &HEAP_ALLOCATOR),
       .imported_modules = array_new(ModulePath, &HEAP_ALLOCATOR),

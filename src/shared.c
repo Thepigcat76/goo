@@ -42,7 +42,6 @@ Ident mangle_function_name(const ModulePath *module_path) {
       dyn_string_add_str(&mangled_ident, MANGLE_MODULE_SEPERATOR);
     }
   }
-  dyn_string_add_char(&mangled_ident, '\0');
 
   return mangled_ident.string;
 }
@@ -126,9 +125,6 @@ dyn_string_t module_path_fmt(const ModulePath *path) {
     dyn_string_add_str(&str, path->path[i]);
     if (i < array_len(path->path) - 1) {
       dyn_string_add_char(&str, '.');
-    } else {
-      // FIXME: This is pretty hacky and shouldnt be neccessary
-      dyn_string_add_char(&str, '\0');
     }
   }
   return str;

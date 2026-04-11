@@ -31,24 +31,13 @@ static size_t data_section_add(DataSection *section, Ident *key,
   return offset;
 }
 
-typedef enum {
-  COMPILE_LEVEL_GLOBAL,
-  COMPILE_LEVEL_LOCAL,
-} CompileLevel;
-
-typedef struct {
-  CompileLevel level;
-  const char *function_name;
-} CompileContext;
-
 static inline void insns_add(Compiler *compiler, Instruction ins) {
   array_add(compiler->insns, ins);
   size_t len = ins_gen(&ins, NULL);
   compiler->program_size += len;
 }
 
-static void stmt_compile(Compiler *compiler, const Statement *stmt,
-                         CompileContext context);
+static void stmt_compile(Compiler *compiler, const Statement *stmt);
 
 static inline void stack_frame_push(Compiler *compiler) {
   Instruction ins = INS_PUSH_R32(REG_EBP);
@@ -92,8 +81,13 @@ typedef enum {
 } ComparisonType;
 
 typedef struct {
+  DataType data_type;
+  size_t offset;
+  bool read_only;
+} DataOffset;
+
+typedef struct {
   enum {
-    EXPR_COMPILE_RES_RODATA_OFFSET,
     EXPR_COMPILE_RES_DATA_OFFSET,
     EXPR_COMPILE_RES_IMM32,
     EXPR_COMPILE_RES_STACK_OBJ,
@@ -101,10 +95,7 @@ typedef struct {
     EXPR_COMPILE_RES_COMPARISON,
   } type;
   union {
-    struct {
-      DataType data_type;
-      size_t offset;
-    } data_offset;
+    DataOffset data_offset;
     uint32_t imm32;
     StackObject stack_obj;
     Register reg;
@@ -212,7 +203,6 @@ static void compiler_stack_alloc_expr_res(Compiler *compiler,
                                           size_t sp_offset) {
   compiler->cur_frame.sp_offset = sp_offset;
   switch (expr_res.type) {
-  case EXPR_COMPILE_RES_RODATA_OFFSET:
   case EXPR_COMPILE_RES_DATA_OFFSET: {
   } break;
   case EXPR_COMPILE_RES_IMM32: {
@@ -308,16 +298,20 @@ static void expr_func_compile(Compiler *compiler, const ExprFunction *expr_func,
     }
   }
 
+  CompileContext prev_ctx = compiler->context;
+  CompileContext func_ctx = {.level = COMPILE_LEVEL_LOCAL,
+                             .function_name = context.function_name};
+  compiler->context = func_ctx;
   for (size_t i = 0; i < array_len(expr_func->block->statements); i++) {
     Statement *stmt = &expr_func->block->statements[i];
-    stmt_compile(compiler, stmt,
-                 (CompileContext){.level = COMPILE_LEVEL_LOCAL,
-                                  .function_name = context.function_name});
+    stmt_compile(compiler, stmt);
   }
 
   if (context.function_name != NULL && strv_eq(context.function_name, "main")) {
     insns_add(compiler, INS_XOR_R32_R32(REG_EAX, REG_EAX));
   }
+
+  compiler->context = prev_ctx;
 
   if (uses_stack) {
     size_t stack_size = ALIGN_BY(compiler->cur_frame.sp_offset, 16);
@@ -414,7 +408,6 @@ static ExprCompileResult expr_bin_op_compile(Compiler *compiler,
     switch (res_left.type) {
     case EXPR_COMPILE_RES_IMM32: {
       switch (res_right.type) {
-      case EXPR_COMPILE_RES_RODATA_OFFSET:
       case EXPR_COMPILE_RES_DATA_OFFSET: {
         printf("REG_IMM32 target register during bin op: %d\n", res_reg);
         if (expr_bin_op->op == BIN_OP_ADD || expr_bin_op->op == BIN_OP_MUL) {
@@ -475,13 +468,11 @@ static ExprCompileResult expr_bin_op_compile(Compiler *compiler,
       }
       break;
     }
-    case EXPR_COMPILE_RES_RODATA_OFFSET:
     case EXPR_COMPILE_RES_DATA_OFFSET: {
       mov_global_data_reg(compiler, res_reg,
                           SECTION_FROM_EXPR_RES(res_left.type),
                           res_left.var.data_offset.offset);
       switch (res_right.type) {
-      case EXPR_COMPILE_RES_RODATA_OFFSET:
       case EXPR_COMPILE_RES_DATA_OFFSET: {
         size_t offset = res_right.var.data_offset.offset;
         Register other_reg = REG_ECX;
@@ -521,7 +512,6 @@ static ExprCompileResult expr_bin_op_compile(Compiler *compiler,
       insns_add(compiler, INS_MOV_R64_DISP32_R64(
                               REG_EBP, IMM32_PACK(-stack_obj.offset), res_reg));
       switch (res_right.type) {
-      case EXPR_COMPILE_RES_RODATA_OFFSET:
       case EXPR_COMPILE_RES_DATA_OFFSET: {
         Register other_reg = REG_ECX;
         mov_global_data_reg(compiler, other_reg,
@@ -568,7 +558,6 @@ static ExprCompileResult expr_bin_op_compile(Compiler *compiler,
     }
     case EXPR_COMPILE_RES_REG: {
       switch (res_right.type) {
-      case EXPR_COMPILE_RES_RODATA_OFFSET:
       case EXPR_COMPILE_RES_DATA_OFFSET: {
         size_t offset = res_right.var.data_offset.offset;
         mov_global_data_reg(compiler, REG_ECX,
@@ -641,6 +630,29 @@ static void stack_dump(const Frame *frame) {
   puts("-- END-STACK-DUMP --");
 }
 
+static void expr_res_move_to_reg(Compiler *compiler, ExprCompileResult res,
+                                 Register reg) {
+  switch (res.type) {
+  case EXPR_COMPILE_RES_DATA_OFFSET: {
+    log_warn("NYI move data to reg");
+  } break;
+  case EXPR_COMPILE_RES_IMM32: {
+    insns_add(compiler, INS_MOV_I32_R64(reg, IMM32_PACK(res.var.imm32)));
+  } break;
+  case EXPR_COMPILE_RES_STACK_OBJ: {
+    insns_add(compiler,
+              INS_MOV_R64_DISP32_R64(
+                  REG_EBP, IMM32_PACK(-res.var.stack_obj.offset), reg));
+  } break;
+  case EXPR_COMPILE_RES_REG: {
+    insns_add(compiler, INS_MOV_R64_R64(res.var.reg, reg));
+  } break;
+  case EXPR_COMPILE_RES_COMPARISON: {
+    log_warn("NYI move cmp to reg");
+  } break;
+  }
+}
+
 static ExprCompileResult expr_compile_with_res(Compiler *compiler,
                                                const Expression *expr,
                                                Register bin_op_res_reg) {
@@ -648,9 +660,10 @@ static ExprCompileResult expr_compile_with_res(Compiler *compiler,
   case EXPR_STRING_LIT: {
     size_t rodata_idx =
         expr_string_lit_compile(compiler, &expr->var.expr_string_literal);
-    return EXPR_COMPILE_RES(
-        EXPR_COMPILE_RES_RODATA_OFFSET, sizeof(uint8_t *),
-        .data_offset = {.offset = rodata_idx, .data_type = DATA_POINTER});
+    return EXPR_COMPILE_RES(EXPR_COMPILE_RES_DATA_OFFSET, sizeof(uint8_t *),
+                            .data_offset = {.offset = rodata_idx,
+                                            .data_type = DATA_POINTER,
+                                            .read_only = true});
   }
   case EXPR_INTEGER_LIT: {
     return EXPR_COMPILE_RES(EXPR_COMPILE_RES_IMM32, sizeof(uint32_t),
@@ -665,11 +678,10 @@ static ExprCompileResult expr_compile_with_res(Compiler *compiler,
     GlobalDataLocation *data_loc = hashmap_value(&globals, &ident);
     if (data_loc != NULL) {
       return EXPR_COMPILE_RES(
-          data_loc->type == GLOB_DATA_LOC_DATA ? EXPR_COMPILE_RES_DATA_OFFSET
-                                               : EXPR_COMPILE_RES_RODATA_OFFSET,
-          sizeof(uint8_t *),
+          data_loc->type == EXPR_COMPILE_RES_DATA_OFFSET, sizeof(uint8_t *),
           .data_offset = {.offset = data_loc->data_offset,
-                          .data_type = data_loc->data_type});
+                          .data_type = data_loc->data_type,
+                          .read_only = data_loc->type != GLOB_DATA_LOC_DATA});
     } else {
       StackObject *stack_obj =
           hashmap_value(&compiler->cur_frame.symbol_table, &ident);
@@ -705,11 +717,10 @@ static ExprCompileResult expr_compile_with_res(Compiler *compiler,
       }
 
       compiler_stack_alloc_imm64(compiler, &iter_var, min_res.var.imm32);
+      // insns_add(compiler, INS_JMP_DISP32(IMM32_PACK(0)));
       size_t for_loop_begin = compiler->program_size;
       for (size_t i = 0; i < array_len(stmts); i++) {
-        stmt_compile(compiler, &stmts[i],
-                     (CompileContext){.level = COMPILE_LEVEL_LOCAL,
-                                      .function_name = NULL});
+        stmt_compile(compiler, &stmts[i]);
       }
 
       StackObject *stack_obj =
@@ -717,6 +728,13 @@ static ExprCompileResult expr_compile_with_res(Compiler *compiler,
       insns_add(compiler,
                 INS_ADD_I32_R64_DISP32(IMM32_PACK(1), REG_EBP,
                                        IMM32_PACK(-stack_obj->offset)));
+      if (compiler->program_data != NULL) {
+        uint8_t offset_bytes[] =
+            IMM32_PACK(compiler->program_size - for_loop_begin + 6);
+        for (size_t i = 0; i < 4; i++) {
+          compiler->program_data[for_loop_begin - 1 - i] = offset_bytes[i];
+        }
+      }
       insns_add(compiler,
                 INS_CMP_I32_R64_DISP32(IMM32_PACK(max_res.var.imm32), REG_EBP,
                                        IMM32_PACK(-stack_obj->offset)));
@@ -725,9 +743,7 @@ static ExprCompileResult expr_compile_with_res(Compiler *compiler,
     } else {
       size_t for_loop_begin = compiler->program_size;
       for (size_t i = 0; i < array_len(stmts); i++) {
-        stmt_compile(compiler, &stmts[i],
-                     (CompileContext){.level = COMPILE_LEVEL_LOCAL,
-                                      .function_name = NULL});
+        stmt_compile(compiler, &stmts[i]);
       }
       insns_add(compiler, INS_JMP_DISP32(IMM32_PACK(
                               for_loop_begin - compiler->program_size - 5)));
@@ -737,17 +753,62 @@ static ExprCompileResult expr_compile_with_res(Compiler *compiler,
     return (ExprCompileResult){0};
   }
   case EXPR_ARRAY_INIT: {
-    ExprArrayInit expr_arr_init = expr->var.expr_array_init;
-    size_t arr_len = array_len(expr_arr_init.items);
-    size_t stack_offset = compiler->cur_frame.sp_offset;
-    for (size_t i = arr_len; i > 0; i--) {
-      ExprCompileResult expr_res =
-          expr_compile(compiler, &expr_arr_init.items[arr_len - i]);
-      compiler_stack_alloc_expr_res(compiler, expr_res, stack_offset + i * 4);
+    if (compiler->context.level == COMPILE_LEVEL_LOCAL) {
+      ExprArrayInit expr_arr_init = expr->var.expr_array_init;
+      size_t arr_len = array_len(expr_arr_init.items);
+      size_t stack_offset = compiler->cur_frame.sp_offset + 8;
+      for (size_t i = arr_len; i > 0; i--) {
+        ExprCompileResult expr_res =
+            expr_compile(compiler, &expr_arr_init.items[arr_len - i]);
+        compiler_stack_alloc_expr_res(compiler, expr_res, stack_offset + i * 4);
+      }
+      // insns_add(compiler,
+      //           INS_LEA_R32_R32_DISP32(
+      //               REG_EBP, REG_EAX, IMM32_PACK(-(stack_offset + arr_len *
+      //               4))));
+      StackObject stack_obj =
+          STACK_OBJ(stack_offset + arr_len * 4, arr_len * 4);
+      stack_obj.inline_val = true;
+      log_debug("Stack offset: 0x%zx", stack_offset);
+      return EXPR_COMPILE_RES(EXPR_COMPILE_RES_STACK_OBJ, arr_len * 4,
+                              .stack_obj = stack_obj);
+    } else {
+      log_error("Global arrays not implemented yet");
+      exit(1);
     }
-    insns_add(compiler, INS_LEA_R32_R32_DISP32(REG_EBP, REG_EAX, IMM32_PACK(-(stack_offset + arr_len * 4))));
-    return EXPR_COMPILE_RES(EXPR_COMPILE_RES_REG, 8,
-                            .reg = REG_EAX);
+  }
+  case EXPR_ARRAY_ACCESS: {
+    ExprArrayAccess expr_arr_access = expr->var.expr_array_access;
+    ExprCompileResult index_res =
+        expr_compile(compiler, expr_arr_access.index_expr);
+    ExprCompileResult arr_res =
+        expr_compile(compiler, expr_arr_access.array_expr);
+    if (arr_res.type != EXPR_COMPILE_RES_STACK_OBJ) {
+      log_error("Array expression must be stack allocated");
+      exit(1);
+    }
+
+    StackObject stack_obj = arr_res.var.stack_obj;
+
+    if (index_res.type == EXPR_COMPILE_RES_IMM32) {
+      int index = index_res.var.imm32;
+      insns_add(
+          compiler,
+          INS_MOV_R64_DISP32_R64(
+              REG_EBP, IMM32_PACK(-stack_obj.offset + index * 4), REG_EAX));
+
+      if (debug_flags.print_compile_info) {
+        log_debug("Index: %d", index);
+      }
+    } else {
+      log_debug("Access offset: 0x%zx", stack_obj.offset);
+      expr_res_move_to_reg(compiler, index_res, REG_EAX);
+      insns_add(compiler, INS_MOV_INDEXED_R64_DISP32(
+                              REG_EBP, IMM32_PACK(-stack_obj.offset), REG_EAX,
+                              SIB_SCALE(4), REG_EAX));
+    }
+
+    return EXPR_COMPILE_RES(EXPR_COMPILE_RES_REG, 8, .reg = REG_EAX);
   }
   case EXPR_BOOLEAN_LIT: {
     return EXPR_COMPILE_RES(EXPR_COMPILE_RES_IMM32, 4,
@@ -776,7 +837,7 @@ static ExprCompileResult expr_compile_with_res(Compiler *compiler,
     size_t jump_program_size = compiler->program_size;
     for (size_t i = 0; i < array_len(expr_if.block.statements); i++) {
       Statement *stmt = &expr_if.block.statements[i];
-      stmt_compile(compiler, stmt, (CompileContext){});
+      stmt_compile(compiler, stmt);
     }
     compiler->insns[jump_ins_idx].disp[0] =
         compiler->program_size - jump_program_size;
@@ -800,8 +861,7 @@ static void compiler_arg_push(Compiler *compiler, size_t arg_idx,
     insns_add(compiler, INS_MOV_I32_R64(arg_reg, IMM32_PACK(res->var.imm32)));
     break;
   }
-  case EXPR_COMPILE_RES_DATA_OFFSET:
-  case EXPR_COMPILE_RES_RODATA_OFFSET: {
+  case EXPR_COMPILE_RES_DATA_OFFSET: {
     Register arg_reg;
     bool valid = reg_for_arg(&arg_reg, arg_idx);
     if (res->var.data_offset.data_type == DATA_POINTER) {
@@ -857,8 +917,7 @@ static void compiler_arg_push(Compiler *compiler, size_t arg_idx,
   }
 }
 
-static void stmt_compile(Compiler *compiler, const Statement *stmt,
-                         CompileContext context) {
+static void stmt_compile(Compiler *compiler, const Statement *stmt) {
   switch (stmt->type) {
   case STMT_EXPR: {
     Expression expr = stmt->var.stmt_expr.expr;
@@ -874,7 +933,7 @@ static void stmt_compile(Compiler *compiler, const Statement *stmt,
     StmtDecl stmt_decl = stmt->var.stmt_decl;
     if (stmt_decl.value.type == EXPR_VAR_REG_EXPR) {
       Expression expr = stmt_decl.value.var.expr_var_reg_expr;
-      if (context.level == COMPILE_LEVEL_GLOBAL) {
+      if (compiler->context.level == COMPILE_LEVEL_GLOBAL) {
         DataSection *data_section =
             stmt_decl.mut ? &compiler->data_section : &compiler->rodata_section;
         if (expr.type == EXPR_FUNCTION) {
@@ -926,10 +985,8 @@ static void stmt_compile(Compiler *compiler, const Statement *stmt,
         switch (res.type) {
         case EXPR_COMPILE_RES_IMM32: {
           compiler_stack_alloc_imm32(compiler, &stmt_decl.name, res.var.imm32);
-          break;
-        }
-        case EXPR_COMPILE_RES_DATA_OFFSET:
-        case EXPR_COMPILE_RES_RODATA_OFFSET: {
+        } break;
+        case EXPR_COMPILE_RES_DATA_OFFSET: {
           compiler->cur_frame.sp_offset += sizeof(char *);
           hashmap_insert(
               &compiler->cur_frame.symbol_table, &stmt_decl.name,
@@ -941,34 +998,37 @@ static void stmt_compile(Compiler *compiler, const Statement *stmt,
           insns_add(compiler, INS_MOV_R64_R64_DISP32(
                                   REG_EAX, REG_EBP,
                                   IMM32_PACK(-compiler->cur_frame.sp_offset)));
-          break;
-        }
+        } break;
         case EXPR_COMPILE_RES_REG: {
           compiler_stack_alloc_reg(compiler, &stmt_decl.name, res.var.reg);
-          break;
-        }
+        } break;
         case EXPR_COMPILE_RES_STACK_OBJ: {
           StackObject stack_obj = res.var.stack_obj;
+          // Alloc as a stack variable if the value should not be inlined
           compiler->cur_frame.sp_offset += stack_obj.size;
-          hashmap_insert(
-              &compiler->cur_frame.symbol_table, &stmt_decl.name,
-              &STACK_OBJ(compiler->cur_frame.sp_offset, stack_obj.size));
-          insns_add(compiler,
-                    INS_MOV_R64_DISP32_R64(
-                        REG_EBP, IMM32_PACK(-stack_obj.offset), REG_EAX));
-          insns_add(compiler, INS_MOV_R64_R64_DISP32(
-                                  REG_EAX, REG_EBP,
-                                  IMM32_PACK(-compiler->cur_frame.sp_offset)));
-          break;
-        }
+          log_debug("Size: %zu", stack_obj.size);
+          if (!stack_obj.inline_val) {
+            insns_add(compiler,
+                      INS_MOV_R64_DISP32_R64(
+                          REG_EBP, IMM32_PACK(-stack_obj.offset), REG_EAX));
+            insns_add(compiler,
+                      INS_MOV_R64_R64_DISP32(
+                          REG_EAX, REG_EBP,
+                          IMM32_PACK(-compiler->cur_frame.sp_offset)));
+            hashmap_insert(
+                &compiler->cur_frame.symbol_table, &stmt_decl.name,
+                &STACK_OBJ(compiler->cur_frame.sp_offset, stack_obj.size));
+          } else {
+            hashmap_insert(&compiler->cur_frame.symbol_table, &stmt_decl.name,
+                           &stack_obj);
+          }
+        } break;
         default: {
-          break;
-        }
+        } break;
         }
       }
     }
-    break;
-  }
+  } break;
   case STMT_RETURN: {
     StmtReturn stmt_return = stmt->var.stmt_return;
     if (stmt_return.has_ret_val) {
@@ -977,19 +1037,15 @@ static void stmt_compile(Compiler *compiler, const Statement *stmt,
       case EXPR_COMPILE_RES_IMM32: {
         insns_add(compiler,
                   INS_MOV_I32_R32(REG_EAX, IMM32_PACK(res.var.imm32)));
-        break;
-      }
-      case EXPR_COMPILE_RES_DATA_OFFSET:
-      case EXPR_COMPILE_RES_RODATA_OFFSET: {
+      } break;
+      case EXPR_COMPILE_RES_DATA_OFFSET: {
         RELOCATIONS_ADD(compiler, {.sec = SECTION_FROM_EXPR_RES(res.type),
                                    .r_offset = 3,
                                    .data_offset = res.var.data_offset.offset});
         insns_add(compiler, INS_LEA_ABS_ADDR32_R64(IMM32_PACK(0), REG_EAX));
-        break;
-      }
+      } break;
       default: {
-        break;
-      }
+      } break;
       }
     }
     break;
@@ -1008,9 +1064,6 @@ static void stmt_compile(Compiler *compiler, const Statement *stmt,
                      &stmt_assign.left_ident.ident,
                      &STACK_OBJ(stack_obj->offset, expr_compile_res.size));
       switch (expr_compile_res.type) {
-      case EXPR_COMPILE_RES_RODATA_OFFSET: {
-        break;
-      }
       case EXPR_COMPILE_RES_DATA_OFFSET: {
         break;
       }
@@ -1058,10 +1111,11 @@ void compiler_compile(Compiler *compiler) {
     log_info("[COMPILER] Start compiling file %s", "?");
   }
 
+  compiler->context = GLOBAL_COMPILE_CONTEXT;
+
   size_t stmts_len = array_len(compiler->stmts);
   while (compiler->stmt_index < stmts_len) {
-    stmt_compile(compiler, &compiler->stmts[compiler->stmt_index],
-                 GLOBAL_COMPILE_CONTEXT);
+    stmt_compile(compiler, &compiler->stmts[compiler->stmt_index]);
     compiler->stmt_index++;
   }
 }

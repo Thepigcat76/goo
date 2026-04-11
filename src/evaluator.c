@@ -288,8 +288,9 @@ static Ident IT_NAME = "it";
 Object evaluator_eval_expr(Evaluator *evaluator, Expression *expr) {
   switch (expr->type) {
   case EXPR_IDENT: {
+    char *s = "";
     Object *value = environment_get(
-        evaluator->cur_env, &expr->var.expr_ident.ident, evaluator->global_env);
+        evaluator->cur_env, &s /*&expr->var.expr_ident.ident*/, evaluator->global_env);
     if (value != NULL) {
       return *value;
     } else {

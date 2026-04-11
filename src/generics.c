@@ -168,7 +168,7 @@ static Ident type_generic(const FuncDescriptor *desc, size_t arg_index) {
 }
 
 void checker_gen_functions(TypeChecker *checker) {
-  // Iterate through all functions (with generics)
+  /*// Iterate through all functions (with generics)
   hashmap_foreach(
       &checker->generic_functions_table.table, Ident * key,
       GenericFunction * generic_func, {
@@ -235,4 +235,5 @@ void checker_gen_functions(TypeChecker *checker) {
           exit(1);
         }
       });
+      */
 }

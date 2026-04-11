@@ -27,6 +27,7 @@ typedef enum {
 typedef struct {
   size_t offset;
   size_t size;
+  bool inline_val;
 } StackObject;
 
 typedef struct {
@@ -87,14 +88,24 @@ typedef struct {
   char *symbol;
 } Elf64_Relocation;
 
+typedef enum {
+  COMPILE_LEVEL_GLOBAL,
+  COMPILE_LEVEL_LOCAL,
+} CompileLevel;
+
+typedef struct {
+  CompileLevel level;
+  const char *function_name;
+} CompileContext;
+
 typedef struct {
   const Statement *stmts;
   TypeTable *type_tables;
+  CompilerStep step;
 
   size_t stmt_index;
   Instruction *insns;
   Relocation *relocations;
-  CompilerStep step;
   Hashmap(Ident *, GlobalDataLocation) globals;
   Hashmap(Ident *, size_t) symbols;
   Hashmap(ModulePath, Ident) mangled_functions;
@@ -113,6 +124,9 @@ typedef struct {
 
   /* Module info */
   ModulePath mod_path;
+
+  /* Context */
+  CompileContext context;
 } Compiler;
 
 Compiler compiler_new(const Statement *stmts, TypeTable *type_tables,

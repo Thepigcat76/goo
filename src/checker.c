@@ -217,7 +217,7 @@ static Type check_call_expr(TypeChecker *checker, ExprCall *expr_call) {
       }
     }
   } else {
-    log_error(stderr, "Could not find symbol %s", mod_path_call.string);
+    log_error("Could not find symbol %s", mod_path_call.string);
     exit(1);
   }
 
@@ -498,7 +498,7 @@ static Type check_expr(TypeChecker *checker, Expression *expr) {
   case EXPR_STRUCT_INIT: {
     ExprStructInit *expr_struct_init = &expr->var.expr_struct_init;
     TypeTableValue *value =
-        type_table_get(checker->cur_type_table, &expr_struct_init->struct_name,
+        type_table_get(checker->cur_type_table, NULL,//&expr_struct_init->struct_name,
                        checker->global_type_table);
     if (value != NULL) {
       if (value->expr_variant.type == EXPR_VAR_TYPE_EXPR) {
@@ -655,7 +655,7 @@ static Type check_stmt(TypeChecker *checker, Statement *stmt,
           }
         }
       }
-      type_table_add(checker->cur_type_table, &stmt->var.stmt_decl.name,
+      type_table_add(checker->cur_type_table, NULL,//&stmt->var.stmt_decl.name,
                      EXPR_VAR_TYPE(type_expr), opt_type);
     }
 
