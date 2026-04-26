@@ -28,7 +28,7 @@ static Type try_transform_generic_type(const Type *type,
   //   type_print(print_buf, val);
   //   printf("Key: %s, Val: %s\n", *key, print_buf);
   // });
-  if (type->type == TYPE_IDENT) {
+  if (type->kind == TYPE_IDENT) {
     Type *resolved_type =
         hashmap_value(&generics_lookup, &type->var.type_ident);
     if (resolved_type != NULL) {
@@ -50,7 +50,7 @@ static ExprFunction transform_generic_function(TypeChecker *checker,
 
 static void transform_generic_expr(TypeChecker *checker, Expression *expr,
                                    Hashmap(Ident *, Type) generics_lookup) {
-  switch (expr->type) {
+  switch (expr->kind) {
   case EXPR_CAST: {
     ExprCast *expr_cast = &expr->var.expr_cast;
     expr_cast->type =
@@ -100,7 +100,7 @@ static ExprBlock *transform_generic_block(TypeChecker *checker,
                                           Hashmap(Ident *, Type)
                                               generics_lookup) {
   array_foreach(block->statements, Statement, stmt, {
-    switch (stmt.type) {
+    switch (stmt.kind) {
     case STMT_DECL: {
       StmtDecl *stmt_decl = &stmt.var.stmt_decl;
       if (stmt_decl->type.present) {
@@ -134,7 +134,7 @@ static ExprFunction transform_generic_function(TypeChecker *checker,
     array_add(
         args,
         (Argument){
-            .type = ARG_TYPED_ARG,
+            .kind = ARG_TYPED_ARG,
             .var = {
                 .typed_arg = (TypedIdent){
                     .type = try_transform_generic_type(
@@ -155,7 +155,7 @@ static ExprFunction transform_generic_function(TypeChecker *checker,
 // Otherwise the generic will be returned
 static Ident type_generic(const FuncDescriptor *desc, size_t arg_index) {
   Type func_arg_type = desc->args[arg_index].var.typed_arg.type;
-  if (func_arg_type.type == TYPE_IDENT && desc->generics != NULL) {
+  if (func_arg_type.kind == TYPE_IDENT && desc->generics != NULL) {
     for (size_t i = 0; i < array_len(desc->generics); i++) {
       Generic *generic = &desc->generics[i];
       if (strv_eq(func_arg_type.var.type_ident.path[0], generic->name)) {

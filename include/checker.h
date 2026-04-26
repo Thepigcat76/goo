@@ -6,12 +6,18 @@
 #include "types.h"
 
 typedef struct {
+  const Type *hint;
+} TypeHint;
+
+typedef struct {
   Statement *stmts;
 
   // Works like environemnts in the evaluator but for type checking
   TypeTable *type_tables;
   TypeTable *cur_type_table;
   TypeTable *global_type_table;
+
+  TypeHint hint;
 
   // Table of all functions that have generics
   // Maps the name of the function to the names

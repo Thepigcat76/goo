@@ -1,5 +1,7 @@
 #pragma once
 
+#include "lilc/bump.h"
+#include <lilc/alloc.h>
 #include <stdbool.h>
 #include <stdlib.h>
 
@@ -46,10 +48,10 @@ typedef enum {
   TOKEN_COMPTIME,
   TOKEN_EOF,
   TOKEN_ILLEGAL,
-} TokenType;
+} TokenKind;
 
 typedef struct {
-  TokenType type;
+  TokenKind kind;
   union {
     char *ident;
     char *string;
@@ -78,9 +80,14 @@ typedef struct {
   LexerLine *lines;
   int line;
   int pos;
+  Bump arena;
 } Lexer;
 
-Lexer lexer_new(void);
+extern Allocator LEXER_ARENA_ALLOCATOR;
+
+void lexer_init(Lexer *lexer);
+
+void lexer_deinit(Lexer *lexer);
 
 void lexer_tok_print(char *buf, const Token *tok);
 

@@ -14,7 +14,7 @@ static char *obj_to_string(Object *val_ptr) {
 #define OBJ_TO_STRING(val_ptr)                                                 \
   obj_cast_string(obj_cast(&STRING_BUILTIN_TYPE, val_ptr))
 
-const Object UNIT_OBJ = {.type = OBJECT_UNIT};
+const Object UNIT_OBJ = {.kind = OBJECT_UNIT};
 
 static const OptionalObject EMPTY_OBJECT = {.present = false};
 
@@ -76,7 +76,7 @@ static void evaluator_envs_pop(Evaluator *evaluator) {
 
 static void eval_stmt_decl(Evaluator *evaluator, StmtDecl *stmt_decl) {
   OptionalType type = stmt_decl->type;
-  if (stmt_decl->value.type == EXPR_VAR_REG_EXPR) {
+  if (stmt_decl->value.kind == EXPR_VAR_REG_EXPR) {
     environment_add(evaluator->cur_env, &stmt_decl->name,
                     evaluator_eval_expr(
                         evaluator, &stmt_decl->value.var.expr_var_reg_expr));
@@ -88,7 +88,7 @@ static Object eval_expr_block(Evaluator *evaluator,
   size_t len = array_len(expr_block->statements);
   for (size_t i = 0; i < len; i++) {
     Statement *stmt = &expr_block->statements[i];
-    if (i == len - 1 && stmt->type == STMT_EXPR) {
+    if (i == len - 1 && stmt->kind == STMT_EXPR) {
       return evaluator_eval_expr(evaluator, &stmt->var.stmt_expr.expr);
     } else {
       OptionalObject opt_obj =
@@ -106,7 +106,7 @@ Object eval_expr_call(Evaluator *evaluator, const ExprCall *expr_call) {
 
   Object *value =
       environment_get(evaluator->cur_env, &function, evaluator->global_env);
-  if (value != NULL && value->type == OBJECT_FUNCTION) {
+  if (value != NULL && value->kind == OBJECT_FUNCTION) {
     ObjectFunction obj_function = value->var.obj_function;
     Object *call_args = array_new(Object, &HEAP_ALLOCATOR);
     if (expr_call->args != NULL) {
@@ -122,7 +122,7 @@ Object eval_expr_call(Evaluator *evaluator, const ExprCall *expr_call) {
       // Push function arguments to environment in case there are any
       if (expr_call->args != NULL) {
         for (size_t i = 0; i < array_len(call_args); i++) {
-          if (obj_function.args[i].type != ARG_VARARG &&
+          if (obj_function.args[i].kind != ARG_VARARG &&
               i < array_len(obj_function.args)) {
             environment_add(evaluator->cur_env,
                             &obj_function.args[i].var.typed_arg.ident,
@@ -142,7 +142,7 @@ Object eval_expr_call(Evaluator *evaluator, const ExprCall *expr_call) {
   } else {
     fprintf(stderr,
             "Invalid name: %s for function call (func-ptr: %p), type: %d\n",
-            module_path_fmt(&expr_call->function).string, (void *) value, value != NULL ? value->type : -1);
+            module_path_fmt(&expr_call->function).string, (void *) value, value != NULL ? value->kind : -1);
     // hashmap_foreach(&evaluator->global_env->env, Ident * key, Object * obj,
     //                 { printf("Key: %s\n", *key); });
     exit(1);
@@ -151,14 +151,14 @@ Object eval_expr_call(Evaluator *evaluator, const ExprCall *expr_call) {
 }
 
 Object obj_cast(const Type *type, const Object *obj) {
-  switch (obj->type) {
+  switch (obj->kind) {
   case OBJECT_INT: {
-    switch (type->type) {
+    switch (type->kind) {
     case TYPE_IDENT: {
       if (type_eq(type, &STRING_BUILTIN_TYPE)) {
         char *string = malloc(32);
         sprintf(string, "%d", obj->var.obj_int);
-        return (Object){.type = OBJECT_STRING, .var = {.obj_string = string}};
+        return (Object){.kind = OBJECT_STRING, .var = {.obj_string = string}};
       } else if (type_eq(type, &I32_BUILTIN_TYPE)) {
         return *obj;
       } else {
@@ -193,10 +193,10 @@ Object obj_cast(const Type *type, const Object *obj) {
     }
   }
   case OBJECT_STRING: {
-    switch (type->type) {
+    switch (type->kind) {
     case TYPE_IDENT: {
       if (type_eq(type, &I32_BUILTIN_TYPE)) {
-        return (Object){.type = OBJECT_INT,
+        return (Object){.kind = OBJECT_INT,
                         .var = {.obj_int = atoi(obj->var.obj_string)}};
       } else if (type_eq(type, &STRING_BUILTIN_TYPE)) {
         return *obj;
@@ -212,7 +212,7 @@ Object obj_cast(const Type *type, const Object *obj) {
       for (size_t i = 0; i < len; i++) {
         array_add(chars, OBJ_INT(obj->var.obj_string[i]));
       }
-      return (Object){.type = OBJECT_ARRAY,
+      return (Object){.kind = OBJECT_ARRAY,
                       .var = {.obj_array = {.items = chars}}};
     }
     default: {
@@ -228,7 +228,7 @@ Object obj_cast(const Type *type, const Object *obj) {
       const ObjectArray *obj_array = &obj->var.obj_array;
       for (size_t i = 0; i < array_len(obj_array->items); i++) {
         Object item_obj = obj_cast(&STRING_BUILTIN_TYPE, &obj_array->items[i]);
-        if (item_obj.type == OBJECT_STRING) {
+        if (item_obj.kind == OBJECT_STRING) {
           strcat(string, item_obj.var.obj_string);
         } else {
           strcat(string, "<UNCASTABLE OBJECT>");
@@ -238,7 +238,7 @@ Object obj_cast(const Type *type, const Object *obj) {
           strcat(string, ", ");
         }
       }
-      return (Object){.type = OBJECT_STRING, .var = {.obj_string = string}};
+      return (Object){.kind = OBJECT_STRING, .var = {.obj_string = string}};
     }
     break;
   }
@@ -250,7 +250,7 @@ Object obj_cast(const Type *type, const Object *obj) {
     break;
   }
   case OBJECT_BOOL: {
-    switch (type->type) {
+    switch (type->kind) {
     case TYPE_IDENT: {
       if (type_eq(type, &BOOL_BUILTIN_TYPE)) {
         return *obj;
@@ -258,7 +258,7 @@ Object obj_cast(const Type *type, const Object *obj) {
         return OBJ_INT(obj->var.obj_bool ? 1 : 0);
       } else if (type_eq(type, &STRING_BUILTIN_TYPE)) {
         return (Object){
-            .type = OBJECT_STRING,
+            .kind = OBJECT_STRING,
             .var = {.obj_string = obj->var.obj_bool ? "true" : "false"}};
       }
     }
@@ -269,15 +269,15 @@ Object obj_cast(const Type *type, const Object *obj) {
   }
   }
   fprintf(stderr, "Invalid cast\n");
-  fprintf(stderr, "Tried to cast obj of type %d, to type %s\n", obj->type,
+  fprintf(stderr, "Tried to cast obj of kind %d, to type %s\n", obj->kind,
           type_format(&(TypeFormatter){.debug = false}, type).string);
   exit(1);
 }
 
 static bool obj_is_true(const Object *obj) {
-  if (obj->type == OBJECT_INT) {
+  if (obj->kind == OBJECT_INT) {
     return obj->var.obj_int;
-  } else if (obj->type == OBJECT_BOOL) {
+  } else if (obj->kind == OBJECT_BOOL) {
     return obj->var.obj_bool;
   }
   return false;
@@ -286,7 +286,7 @@ static bool obj_is_true(const Object *obj) {
 static Ident IT_NAME = "it";
 
 Object evaluator_eval_expr(Evaluator *evaluator, Expression *expr) {
-  switch (expr->type) {
+  switch (expr->kind) {
   case EXPR_IDENT: {
     char *s = "";
     Object *value = environment_get(
@@ -294,7 +294,7 @@ Object evaluator_eval_expr(Evaluator *evaluator, Expression *expr) {
     if (value != NULL) {
       return *value;
     } else {
-      panic("Error: Unknown identifier: %s\n", expr->var.expr_ident.ident);
+      panic("Error: Unknown identifier: %s\n", module_path_fmt(&expr->var.expr_ident.ident).string);
       // fprintf(stderr, "Error: Unknown identifier: %s\n",
       //         expr->var.expr_ident.ident);
       // exit(1);
@@ -304,7 +304,7 @@ Object evaluator_eval_expr(Evaluator *evaluator, Expression *expr) {
   case EXPR_FUNCTION: {
     ExprBlock *block = expr->var.expr_function.block;
     return (Object){
-        .type = OBJECT_FUNCTION,
+        .kind = OBJECT_FUNCTION,
         .var = {.obj_function = {.args = expr->var.expr_function.desc.args,
                                  .block = block,
                                  .native_function =
@@ -349,27 +349,27 @@ Object evaluator_eval_expr(Evaluator *evaluator, Expression *expr) {
   }
   case EXPR_STRING_LIT: {
     return (Object){
-        .type = OBJECT_STRING,
+        .kind = OBJECT_STRING,
         .var = {.obj_string = expr->var.expr_string_literal.string}};
   }
   case EXPR_INTEGER_LIT: {
-    return (Object){.type = OBJECT_INT,
+    return (Object){.kind = OBJECT_INT,
                     .var = {.obj_int = expr->var.expr_integer_literal.integer}};
   }
   case EXPR_BOOLEAN_LIT: {
     return (Object){
-        .type = OBJECT_BOOL,
+        .kind = OBJECT_BOOL,
         .var = {.obj_bool = expr->var.expr_boolean_literal.boolean}};
   }
   case EXPR_ARRAY_ACCESS: {
     ExprArrayAccess arr_access = expr->var.expr_array_access;
     Object arr_obj = evaluator_eval_expr(evaluator, arr_access.array_expr);
     Object index_obj = evaluator_eval_expr(evaluator, arr_access.index_expr);
-    if (index_obj.type != OBJECT_INT) {
+    if (index_obj.kind != OBJECT_INT) {
       fprintf(stderr, "Index not an integer!\n");
       exit(1);
     }
-    if (arr_obj.type == OBJECT_STRING) {
+    if (arr_obj.kind == OBJECT_STRING) {
       return OBJ_INT(arr_obj.var.obj_string[obj_cast_int(&index_obj)]);
     }
     return arr_obj.var.obj_array.items[obj_cast_int(&index_obj)];
@@ -387,11 +387,11 @@ Object evaluator_eval_expr(Evaluator *evaluator, Expression *expr) {
   }
   case EXPR_ADDR_OF: {
     Object obj = evaluator_eval_expr(evaluator, expr->var.expr_addr_of.expr);
-    return (Object){.type = OBJECT_PTR, .var = {.obj_ptr = heap_clone(&obj)}};
+    return (Object){.kind = OBJECT_PTR, .var = {.obj_ptr = heap_clone(&obj)}};
   }
   case EXPR_PTR_DEREF: {
     Object obj = evaluator_eval_expr(evaluator, expr->var.expr_ptr_deref.expr);
-    if (obj.type != OBJECT_PTR) {
+    if (obj.kind != OBJECT_PTR) {
       fprintf(stderr, "Cannot deref non-pointer\n");
       exit(1);
     }
@@ -406,7 +406,7 @@ Object evaluator_eval_expr(Evaluator *evaluator, Expression *expr) {
                 evaluator_eval_expr(evaluator, &expr_array.items[i]));
     }
 
-    return (Object){.type = OBJECT_ARRAY, .var = {.obj_array = obj_array}};
+    return (Object){.kind = OBJECT_ARRAY, .var = {.obj_array = obj_array}};
   }
   case EXPR_UNIT: {
     return UNIT_OBJ;
@@ -457,7 +457,7 @@ Object evaluator_eval_expr(Evaluator *evaluator, Expression *expr) {
   }
   case EXPR_STRUCT_INIT: {
     ExprStructInit *struct_init_expr = &expr->var.expr_struct_init;
-    Object obj = {.type = OBJECT_STRUCT,
+    Object obj = {.kind = OBJECT_STRUCT,
                   .var = {.obj_struct = {.fields = hashmap_new(
                                              char *, Object, &HEAP_ALLOCATOR,
                                              strv_hash, strv_eq, NULL)}}};
@@ -477,7 +477,7 @@ Object evaluator_eval_expr(Evaluator *evaluator, Expression *expr) {
     size_t len = array_len(expr_struct_access->fields);
     for (size_t i = 0; i < len; i++) {
       Ident field = expr_struct_access->fields[i];
-      if (obj.type == OBJECT_STRUCT) {
+      if (obj.kind == OBJECT_STRUCT) {
         ObjectStruct field_obj = obj.var.obj_struct;
         Object *next_obj = hashmap_value(&field_obj.fields, field);
         obj = *next_obj;
@@ -499,7 +499,7 @@ Object evaluator_eval_expr(Evaluator *evaluator, Expression *expr) {
 }
 
 OptionalObject evaluator_eval_stmt(Evaluator *evaluator, Statement *stmt) {
-  switch (stmt->type) {
+  switch (stmt->kind) {
   case STMT_DECL: {
     eval_stmt_decl(evaluator, &stmt->var.stmt_decl);
     return EMPTY_OBJECT;
@@ -522,7 +522,7 @@ OptionalObject evaluator_eval_stmt(Evaluator *evaluator, Statement *stmt) {
 
     Object right_obj = evaluator_eval_expr(evaluator, &stmt_assign.right_expr);
 
-    switch (stmt_assign.assign_type) {
+    switch (stmt_assign.assign_kind) {
     case ASSIGN_ADD: {
       break;
     }
@@ -540,7 +540,7 @@ OptionalObject evaluator_eval_stmt(Evaluator *evaluator, Statement *stmt) {
     }
     }
 
-    switch (stmt_assign.left_ident_type) {
+    switch (stmt_assign.left_ident_kind) {
     case ACCESS_TYPE_IDENT: {
       environment_add(evaluator->cur_env, &stmt_assign.left_ident.ident,
                       right_obj);
@@ -567,7 +567,7 @@ static void eval(Evaluator *evaluator) {
 void evaluator_eval_global(Evaluator *evaluator, TypeTable *global_table) {
   hashmap_foreach(
       &global_table->type_table, Ident * key, TypeTableValue * val, {
-        if (val->expr_variant.type == EXPR_VAR_REG_EXPR) {
+        if (val->expr_variant.kind == EXPR_VAR_REG_EXPR) {
           environment_add(
               evaluator->global_env, key,
               evaluator_eval_expr(evaluator,

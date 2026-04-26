@@ -16,7 +16,7 @@ typedef struct {
   enum {
     ARG_TYPED_ARG,
     ARG_VARARG,
-  } type;
+  } kind;
   union {
     TypedIdent typed_arg;
     Ident vararg;
@@ -132,7 +132,7 @@ typedef struct {
   enum {
     TYPE_EXPR_OVERLOAD_SET,
     TYPE_EXPR_STRUCT,
-  } type;
+  } kind;
   union {
     TypeExprOverloadSet type_expr_overload_set;
     TypeExprStruct type_expr_struct;
@@ -177,7 +177,7 @@ typedef struct _expr {
     EXPR_IF,
     EXPR_FOR,
     EXPR_IT,
-  } type;
+  } kind;
   union {
     ExprArrayInit expr_array_init;
     ExprArrayAccess expr_array_access;
@@ -218,10 +218,10 @@ typedef struct {
 extern const OptionalType OPT_TYPE_EMPTY;
 
 typedef struct {
-  enum _expr_var_type {
+  enum _expr_var_kind {
     EXPR_VAR_TYPE_EXPR,
     EXPR_VAR_REG_EXPR,
-  } type;
+  } kind;
   union {
     TypeExpr expr_var_type_expr;
     Expression expr_var_reg_expr;
@@ -266,19 +266,19 @@ typedef enum {
   ASSIGN_SUB,
   ASSIGN_MUL,
   ASSIGN_DIV,
-} AssignType;
+} AssignKind;
 
 typedef struct {
   enum {
     ACCESS_TYPE_IDENT,
     ACCESS_TYPE_STRUCT_ACCESS,
-  } left_ident_type;
+  } left_ident_kind;
   union {
     Ident ident;
     ExprStructAccess struct_access;
   } left_ident;
   Expression right_expr;
-  AssignType assign_type;
+  AssignKind assign_kind;
 } StmtAssign;
 
 typedef struct _stmt {
@@ -288,7 +288,7 @@ typedef struct _stmt {
     STMT_RETURN,
     STMT_FOREIGN,
     STMT_ASSIGN,
-  } type;
+  } kind;
   union {
     StmtDecl stmt_decl;
     StmtExpr stmt_expr;

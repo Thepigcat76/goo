@@ -13,6 +13,14 @@
 #define KEEPALIVE
 #endif
 
+#ifndef GOO_VERSION
+#define GOO_VERSION "0.1"
+#endif
+
+#ifndef GOO_VERSION_RELEASE_DATE
+#define GOO_VERSION_RELEASE_DATE "2026-04-26"
+#endif
+
 // #define INTERPRETER
 
 #define COMPILER
@@ -50,6 +58,8 @@ void run_program(char *buf, const char *filename, const char *output,
                  const char *raw_module_path) {
   alloc_init();
 
+  debug_flags.print_tokens = true;
+
   builtin_types_init();
 
   //  parser_test_functions();
@@ -58,10 +68,11 @@ void run_program(char *buf, const char *filename, const char *output,
 
   ModulePath module_path = parse_module_path_from_string(raw_module_path);
 
-  Lexer lexer = lexer_new();
+  Lexer lexer = {0};
+  lexer_init(&lexer);
 
   lexer_tokenize(&lexer, buf, filename);
-  array_add(lexer.tokens, (Token){.type = TOKEN_EOF});
+  array_add(lexer.tokens, (Token){.kind = TOKEN_EOF});
 
   if (debug_flags.print_tokens) {
     for (size_t i = 0; i < array_len(lexer.tokens); i++) {
@@ -71,10 +82,14 @@ void run_program(char *buf, const char *filename, const char *output,
     }
   }
 
-  Parser parser = parser_new(lexer.tokens, buf, filename, module_path);
+  Parser parser = {0};
+  parser_init(&parser, lexer.tokens, buf, filename, module_path);
   parser.lines = lexer.lines;
 
   parser_parse(&parser);
+
+  // Parsing finished, free tokens and lexer lines
+  lexer_deinit(&lexer);
 
   if (debug_flags.print_ast) {
     log_debug("AST:\n%s", ast_format(parser.statements).string);
@@ -93,7 +108,7 @@ void run_program(char *buf, const char *filename, const char *output,
 
   hashmap_foreach(
       &parser.imported_functions, ModulePath * key, FuncDescriptor * val, {
-        Expression expr = {.type = EXPR_FUNCTION,
+        Expression expr = {.kind = EXPR_FUNCTION,
                            .var = {.expr_function = {.desc = *val,
                                                      .block = NULL,
                                                      .native_function = NULL}}};
@@ -116,9 +131,12 @@ void run_program(char *buf, const char *filename, const char *output,
                      .var = {.expr_call = {.function = "main", .args = NULL}}};
   evaluator_eval_expr(&evaluator, &expr);
 #elif defined(COMPILER)
-  Compiler compiler =
-      compiler_new(parser.statements, checker.type_tables, mangled_functions, module_path);
+  Compiler compiler = compiler_new(parser.statements, checker.type_tables,
+                                   mangled_functions, module_path);
   compiler_compile(&compiler);
+
+  // Compilation is done, statements array and others can be freed
+  parser_deinit(&parser);
 
   compiler_generate(&compiler);
 
@@ -129,24 +147,9 @@ void run_program(char *buf, const char *filename, const char *output,
   fclose(out_file);
 #endif
 
-  return;
-  //  array_free(lexer.tokens);
-  //
-  //  array_free(parser.statements);
-  //  hashmap_free(&parser.custom_functions);
-  //  hashmap_free(&parser.custom_types);
-  //
-  //  array_free(&checker.generated_generic_functions);
-  //  for (size_t i = 0; i < array_len(checker.type_tables); i++) {
-  //    hashmap_free(&checker.type_tables->type_table);
-  //  }
-  //  array_free(checker.type_tables);
-  //
-  //  array_free(&evaluator.environments);
-  //  for (size_t i = 0; i < array_len(evaluator.environments); i++) {
-  //    hashmap_free(&evaluator.environments->env);
-  //  }
-  //  array_free(evaluator.environments);
+  free(lexer.arena.buffer);
+
+  hashmap_free(&mangled_functions);
 }
 
 KEEPALIVE
@@ -169,18 +172,22 @@ static bool _internal_str_cmp_or(char *base_str, char **strs) {
 }
 
 #define NEXT_ARG(i, argc)                                                      \
-  if (i < argc)                                                                \
-    i++;                                                                       \
-  else                                                                         \
+  if (++i >= argc)                                                             \
     break
 
 typedef struct {
   char *output_path;
   char *input_path;
   char *module_path;
+  bool display_help;
+  bool display_version;
 } CliArgs;
 
 static char *_corelib_path = NULL;
+
+static void display_help(void);
+
+static void display_version(void);
 
 int main(int argc, char **argv) {
   CliArgs args = {0};
@@ -194,7 +201,13 @@ int main(int argc, char **argv) {
       NEXT_ARG(i, argc);
     }
 
-    if (STR_CMP_OR(argv[i], "-o", "--output")) {
+    if (STR_CMP_OR(argv[i], "-h", "--help")) {
+      args.display_help = true;
+      break;
+    } else if (STR_CMP_OR(argv[i], "-v", "--version")) {
+      args.display_version = true;
+      break;
+    } else if (STR_CMP_OR(argv[i], "-o", "--output")) {
       NEXT_ARG(i, argc);
       args.output_path = argv[i];
     } else if (STR_CMP_OR(argv[i], "-mp", "--module-path")) {
@@ -204,6 +217,16 @@ int main(int argc, char **argv) {
       memset(&debug_flags, 1, sizeof(struct debug_flags));
     }
     NEXT_ARG(i, argc);
+  }
+
+  if (args.display_help) {
+    display_help();
+    return 0;
+  }
+
+  if (args.display_version) {
+    display_version();
+    return 0;
   }
 
   if (args.input_path == NULL) {
@@ -231,6 +254,12 @@ int main(int argc, char **argv) {
   _corelib_path = core_lib_path;
 
   FILE *file = fopen(args.input_path, "r");
+
+  if (file == NULL) {
+    log_error("Failed to find input file %s", args.input_path);
+    return 1;
+  }
+
   char file_buf[4096];
   size_t n = fread(file_buf, 1, sizeof(file_buf) - 1, file);
   file_buf[n] = '\0';
@@ -241,3 +270,23 @@ int main(int argc, char **argv) {
 
   return 0;
 }
+
+constexpr char HELP_INFO[] =
+    "Goo is a tool for compiling and managing goo source code.\n"
+    "\n"
+    "Usage: goo <input_filename> [options]\n"
+    "Options:\n"
+    "  --version     (-v)                    Display version information.\n"
+    "  --help        (-h)                    Display this information.\n"
+    "  --ouput       (-o)  <out_filename>    Specify the output path.\n"
+    "  --module-path (-mp) <module_path>     Specify the module path of the "
+    "input file. (Example: '-mp core.io.files')\n"
+    "  --debug-info  (-di)                   Enable debug information like "
+    "logs, internal warnings and errors.";
+
+static void display_help(void) { puts(HELP_INFO); }
+
+constexpr char VERSION_INFO[] =
+    "goo " GOO_VERSION " (" GOO_VERSION_RELEASE_DATE ")";
+
+static void display_version(void) { puts(VERSION_INFO); }

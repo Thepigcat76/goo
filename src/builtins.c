@@ -4,7 +4,7 @@
 
 #define BUILTIN_FUNCTION_DEFINE(_ret_type, _native_function)                   \
   (Expression) {                                                               \
-    .type = EXPR_FUNCTION, .var =                                              \
+    .kind = EXPR_FUNCTION, .var =                                              \
     {.expr_function = {.desc = {.ret_type = _ret_type,                         \
                                 .args = array_new(Argument, &HEAP_ALLOCATOR)}, \
                        .block = NULL,                                          \
@@ -16,12 +16,12 @@
     Argument *args = _expr.var.expr_function.desc.args;                        \
     Argument provided[] = {__VA_ARGS__ __VA_OPT__(, )(Argument){0}};           \
     size_t i;                                                                  \
-    for (i = 0; provided[i].type != ARG_VARARG &&                              \
+    for (i = 0; provided[i].kind != ARG_VARARG &&                              \
                 provided[i].var.typed_arg.ident != NULL;                       \
          i++) {                                                                \
       array_add(args, provided[i]);                                            \
     }                                                                          \
-    if (provided[i].type == ARG_VARARG) {                                      \
+    if (provided[i].kind == ARG_VARARG) {                                      \
       array_add(args, provided[i]);                                            \
     }                                                                          \
   } while (0)
@@ -37,14 +37,14 @@
 
 #define ARG(_ident, _type)                                                     \
   (Argument) {                                                                 \
-    .type = ARG_TYPED_ARG, .var = {                                            \
+    .kind = ARG_TYPED_ARG, .var = {                                            \
       .typed_arg = {.ident = _ident, .type = _type}                            \
     }                                                                          \
   }
 
 #define VARARG(_ident)                                                         \
   (Argument) {                                                                 \
-    .type = ARG_VARARG, .var = {.vararg = _ident }                             \
+    .kind = ARG_VARARG, .var = {.vararg = _ident }                             \
   }
 
 BuiltinFunction *BUILTIN_FUNCTIONS;

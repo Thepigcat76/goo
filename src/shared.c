@@ -2,6 +2,7 @@
 #include "lilc/array.h"
 #include "lilc/eq.h"
 #include "lilc/hash.h"
+#include "lilc/numbers.h"
 #include "stddef.h"
 #include <lilc/alloc.h>
 #include <lilc/str.h>
@@ -9,10 +10,10 @@
 
 struct debug_flags debug_flags = {0};
 
-int32_t module_path_ptrv_hash(const void *array) {
+i32 module_path_ptrv_hash(const void *array) {
   const ModulePath *path = array;
 
-  int32_t hash = 1;
+  i32 hash = 1;
   if (path != NULL) {
     size_t len = array_len(path->path);
     for (size_t i = 0; i < len; i++) {

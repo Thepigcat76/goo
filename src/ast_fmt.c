@@ -54,7 +54,7 @@ static dyn_string_t expr_list_format(Formatter *fmt, const Expression *exprs);
 static dyn_string_t expr_format(Formatter *fmt, const Expression *expr) {
   dyn_string_t str = {0};
   dyn_string_init(&str);
-  switch (expr->type) {
+  switch (expr->kind) {
   case EXPR_CAST: {
     dyn_string_printf(&str, "ExprCast{type=, expr=%s}",
                       expr_format(fmt, expr->var.expr_cast.expr).string);
@@ -196,7 +196,7 @@ static dyn_string_t stmt_format(Formatter *fmt, const Statement *stmt) {
   char indent_buf[str.term_len];
   strcpy(indent_buf, str.string);
 
-  switch (stmt->type) {
+  switch (stmt->kind) {
   case STMT_DECL: {
     dyn_string_printf(
         &str, "%sStmtDecl{name=%s, val=%s}", indent_buf, stmt->var.stmt_decl.name,

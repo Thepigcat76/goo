@@ -40,7 +40,7 @@ typedef struct {
     PP_DIR_INCLUDE,
     PP_DIR_INCLUDE_STR,
     PP_DIR_INCLUDE_BYTES,
-  } type;
+  } kind;
   union {
     PpDirIf pp_dir_if;
     PpDirImport pp_dir_import;

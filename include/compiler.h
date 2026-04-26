@@ -75,7 +75,7 @@ typedef struct {
   enum {
     GLOB_DATA_LOC_RODATA,
     GLOB_DATA_LOC_DATA,
-  } type;
+  } kind;
   DataType data_type;
   size_t data_offset;
 } GlobalDataLocation;
@@ -99,9 +99,15 @@ typedef struct {
 } CompileContext;
 
 typedef struct {
+  const Type *variable_type;
+} ExprCompileContext;
+
+typedef struct {
   const Statement *stmts;
   TypeTable *type_tables;
   CompilerStep step;
+
+  /* Type size cache*/
 
   size_t stmt_index;
   Instruction *insns;

@@ -8,17 +8,25 @@
 #include <stdio.h>
 #include <string.h>
 
-Lexer lexer_new(void) {
-  return (Lexer){
-      .tokens = array_new(Token, &HEAP_ALLOCATOR),
-      .lines = array_new(LexerLine, &HEAP_ALLOCATOR),
-      .line = 1,
-      .pos = 1,
-  };
+#define LEXER_ARENA_SIZE 16000
+
+void lexer_init(Lexer *lexer) {
+  lexer->tokens = array_new(Token, &HEAP_ALLOCATOR);
+  lexer->lines = array_new(LexerLine, &HEAP_ALLOCATOR);
+  lexer->line = 1;
+  lexer->pos = 1;
+
+  uint8_t *lexer_arena = malloc(LEXER_ARENA_SIZE);
+  bump_init(&lexer->arena, lexer_arena, LEXER_ARENA_SIZE);
+}
+
+void lexer_deinit(Lexer *lexer) {
+  array_free(lexer->tokens);
+  array_free(lexer->lines);
 }
 
 void lexer_tok_print(char *buf, const Token *tok) {
-  switch (tok->type) {
+  switch (tok->kind) {
   case TOKEN_IDENT: {
     sprintf(buf, "TOKEN_IDENT{ident=%s}", tok->var.ident);
     break;
@@ -223,14 +231,14 @@ void lexer_tokenize(Lexer *lexer, const char *src, const char *filename) {
       size_t i = 0;
       while (isalnum(*lexer->cur_char) || *lexer->cur_char == '_') {
         if (i >= cap - 1) {
-          fprintf(stderr, "Ident too long\n");
-          exit(1);
+          cap *= 2;
+          ident = realloc(ident, cap);
         }
+
         ident[i++] = *lexer->cur_char;
 
-        if (*(lexer->cur_char + 1) != '\0' &&
-            (isalnum(*(lexer->cur_char + 1)) ||
-             *(lexer->cur_char + 1) == '_')) {
+        char peek_char = *(lexer->cur_char + 1);
+        if (peek_char != '\0' && (isalnum(peek_char) || peek_char == '_')) {
           next_char(lexer);
         } else {
           break;
@@ -238,136 +246,155 @@ void lexer_tokenize(Lexer *lexer, const char *src, const char *filename) {
       }
       ident[i] = '\0';
 
+      char *arena_ident = bump_alloc(&lexer->arena, i + 1);
+      strncpy(arena_ident, ident, i + 1);
+
       if (strcmp(ident, "cast") == 0) {
-        tok.type = TOKEN_CAST;
+        tok.kind = TOKEN_CAST;
       } else if (strcmp(ident, "struct") == 0) {
-        tok.type = TOKEN_STRUCT;
+        tok.kind = TOKEN_STRUCT;
       } else if (strcmp(ident, "if") == 0) {
-        tok.type = TOKEN_IF;
+        tok.kind = TOKEN_IF;
       } else if (strcmp(ident, "comptime") == 0) {
-        tok.type = TOKEN_COMPTIME;
+        tok.kind = TOKEN_COMPTIME;
       } else if (strcmp(ident, "in") == 0) {
-        tok.type = TOKEN_IN;
+        tok.kind = TOKEN_IN;
       } else if (strcmp(ident, "it") == 0) {
-        tok.type = TOKEN_IT;
+        tok.kind = TOKEN_IT;
       } else if (strcmp(ident, "foreign") == 0) {
-        tok.type = TOKEN_FOREIGN;
+        tok.kind = TOKEN_FOREIGN;
       } else if (strcmp(ident, "for") == 0) {
-        tok.type = TOKEN_FOR;
+        tok.kind = TOKEN_FOR;
       } else if (strcmp(ident, "return") == 0) {
-        tok.type = TOKEN_RETURN;
+        tok.kind = TOKEN_RETURN;
       } else if (strcmp(ident, "true") == 0 || strcmp(ident, "false") == 0) {
-        tok.type = TOKEN_BOOL;
+        tok.kind = TOKEN_BOOL;
         tok.var.boolean = strcmp(ident, "true") == 0;
       } else {
-        tok.type = TOKEN_IDENT;
-        tok.var.ident = ident;
+        tok.kind = TOKEN_IDENT;
+        tok.var.ident = arena_ident;
       }
       tok.begin_pos = begin_pos;
       tok.line = lexer->line;
       tok.begin = begin;
       tok.len = i;
+
+      free(ident);
     } else if (*lexer->cur_char == '"') {
       const char *begin = lexer->cur_char;
       size_t begin_pos = lexer->pos;
-      char *string = malloc(256 * sizeof(char));
+      size_t cap = 256;
+      char *string = malloc(cap);
       next_char(lexer);
       size_t i = 0;
       while (*lexer->cur_char != '"') {
+        if (i >= cap - 1) {
+          cap *= 2;
+          string = realloc(string, cap);
+        }
         string[i++] = *lexer->cur_char;
         next_char(lexer);
       }
       string[i] = '\0';
-      tok = (Token){.type = TOKEN_STRING,
-                    .var = {.string = strdup(string)},
+
+      char *arena_string = bump_alloc(&lexer->arena, i + 1);
+      strncpy(arena_string, string, i + 1);
+
+      tok = (Token){.kind = TOKEN_STRING,
+                    .var = {.string = arena_string},
                     .begin = begin,
                     .begin_pos = begin_pos,
                     .line = lexer->line,
                     .len = i + 2};
+
+      free(string);
     } else if (*lexer->cur_char >= '0' && *lexer->cur_char <= '9') {
       const char *begin = lexer->cur_char;
       size_t begin_pos = lexer->pos;
       size_t cap = 32;
-      char int_lit[cap];
-      size_t i = 0;
+      char *int_lit = malloc(cap);
 
+      size_t i = 0;
       while (isdigit(*lexer->cur_char)) {
         if (i >= cap - 1) {
-          fprintf(stderr, "int too long\n");
-          exit(1);
+          cap *= 2;
+          int_lit = realloc(int_lit, cap);
         }
+
         int_lit[i++] = *lexer->cur_char;
 
-        if (isdigit(*(lexer->cur_char + 1))) {
+        char peek_char = *(lexer->cur_char + 1);
+        if (peek_char != '\0' && isdigit(peek_char)) {
           next_char(lexer);
         } else {
           break;
         }
       }
       int_lit[i] = '\0';
-      tok = (Token){.type = TOKEN_INT,
+      tok = (Token){.kind = TOKEN_INT,
                     .var = {.integer = atoi(int_lit)},
                     .begin = begin,
                     .begin_pos = begin_pos,
                     .line = lexer->line,
                     .len = i};
+      free(int_lit);
 
     } else if (*lexer->cur_char == ':') {
       if (*(lexer->cur_char + 1) == ':') {
-        tok = (Token){.type = TOKEN_DECL_CONST,
+        tok = (Token){.kind = TOKEN_DECL_CONST,
                       .begin_pos = lexer->pos,
                       .line = lexer->line,
                       .begin = lexer->cur_char,
                       .len = 2};
         next_char(lexer);
       } else if (*(lexer->cur_char + 1) == '=') {
-        tok = (Token){.type = TOKEN_DECL_VAR,
+        tok = (Token){.kind = TOKEN_DECL_VAR,
                       .begin_pos = lexer->pos,
                       .line = lexer->line,
                       .begin = lexer->cur_char,
                       .len = 2};
         next_char(lexer);
       } else {
-        tok = (Token){.type = TOKEN_COLON,
+        tok = (Token){.kind = TOKEN_COLON,
                       .begin_pos = lexer->pos,
                       .line = lexer->line,
                       .begin = lexer->cur_char,
                       .len = 1};
       }
     } else if (*lexer->cur_char == '(') {
-      tok = (Token){.type = TOKEN_LPAREN,
+      tok = (Token){.kind = TOKEN_LPAREN,
                     .begin_pos = lexer->pos,
                     .line = lexer->line,
                     .begin = lexer->cur_char,
                     .len = 1};
     } else if (*lexer->cur_char == ')') {
-      tok = (Token){.type = TOKEN_RPAREN,
+      tok = (Token){.kind = TOKEN_RPAREN,
                     .begin_pos = lexer->pos,
                     .line = lexer->line,
                     .begin = lexer->cur_char,
                     .len = 1};
     } else if (*lexer->cur_char == '{') {
-      tok = (Token){.type = TOKEN_LCURLY,
+      tok = (Token){.kind = TOKEN_LCURLY,
                     .begin_pos = lexer->pos,
                     .line = lexer->line,
                     .begin = lexer->cur_char,
                     .len = 1};
     } else if (*lexer->cur_char == '}') {
-      tok = (Token){.type = TOKEN_RCURLY,
+      tok = (Token){.kind = TOKEN_RCURLY,
                     .begin_pos = lexer->pos,
                     .line = lexer->line,
                     .begin = lexer->cur_char,
                     .len = 1};
     } else if (*lexer->cur_char == '<') {
       if (*(lexer->cur_char + 1) == '=') {
-        tok = (Token){.type = TOKEN_LTE,
+        tok = (Token){.kind = TOKEN_LTE,
                       .begin_pos = lexer->pos,
                       .line = lexer->line,
                       .begin = lexer->cur_char,
                       .len = 2};
         next_char(lexer);
       } else {
-        tok = (Token){.type = TOKEN_LANGLE,
+        tok = (Token){.kind = TOKEN_LANGLE,
                       .begin_pos = lexer->pos,
                       .line = lexer->line,
                       .begin = lexer->cur_char,
@@ -375,47 +402,47 @@ void lexer_tokenize(Lexer *lexer, const char *src, const char *filename) {
       }
     } else if (*lexer->cur_char == '>') {
       if (*(lexer->cur_char + 1) == '=') {
-        tok = (Token){.type = TOKEN_GTE,
+        tok = (Token){.kind = TOKEN_GTE,
                       .begin_pos = lexer->pos,
                       .line = lexer->line,
                       .begin = lexer->cur_char,
                       .len = 2};
         next_char(lexer);
       } else {
-        tok = (Token){.type = TOKEN_RANGLE,
+        tok = (Token){.kind = TOKEN_RANGLE,
                       .begin_pos = lexer->pos,
                       .line = lexer->line,
                       .begin = lexer->cur_char,
                       .len = 1};
       }
     } else if (*lexer->cur_char == ',') {
-      tok = (Token){.type = TOKEN_COMMA,
+      tok = (Token){.kind = TOKEN_COMMA,
                     .begin_pos = lexer->pos,
                     .line = lexer->line,
                     .begin = lexer->cur_char,
                     .len = 1};
     } else if (*lexer->cur_char == '+') {
-      tok = (Token){.type = TOKEN_PLUS,
+      tok = (Token){.kind = TOKEN_PLUS,
                     .begin_pos = lexer->pos,
                     .line = lexer->line,
                     .begin = lexer->cur_char,
                     .len = 1};
     } else if (*lexer->cur_char == '#') {
-      tok = (Token){.type = TOKEN_HASH,
+      tok = (Token){.kind = TOKEN_HASH,
                     .begin_pos = lexer->pos,
                     .line = lexer->line,
                     .begin = lexer->cur_char,
                     .len = 1};
     } else if (*lexer->cur_char == '-') {
       if (*(lexer->cur_char + 1) == '>') {
-        tok = (Token){.type = TOKEN_ARROW,
+        tok = (Token){.kind = TOKEN_ARROW,
                       .begin_pos = lexer->pos,
                       .line = lexer->line,
                       .begin = lexer->cur_char,
                       .len = 2};
         next_char(lexer);
       } else {
-        tok = (Token){.type = TOKEN_MINUS,
+        tok = (Token){.kind = TOKEN_MINUS,
                       .begin_pos = lexer->pos,
                       .line = lexer->line,
                       .begin = lexer->cur_char,
@@ -423,14 +450,14 @@ void lexer_tokenize(Lexer *lexer, const char *src, const char *filename) {
       }
     } else if (*lexer->cur_char == '.') {
       if (*(lexer->cur_char + 1) == '.') {
-        tok = (Token){.type = TOKEN_RANGE,
+        tok = (Token){.kind = TOKEN_RANGE,
                       .begin_pos = lexer->pos,
                       .line = lexer->line,
                       .begin = lexer->cur_char,
                       .len = 2};
         next_char(lexer);
       } else {
-        tok = (Token){.type = TOKEN_DOT,
+        tok = (Token){.kind = TOKEN_DOT,
                       .begin_pos = lexer->pos,
                       .line = lexer->line,
                       .begin = lexer->cur_char,
@@ -438,51 +465,51 @@ void lexer_tokenize(Lexer *lexer, const char *src, const char *filename) {
       }
     } else if (*lexer->cur_char == '=') {
       if (*(lexer->cur_char + 1) == '=') {
-        tok = (Token){.type = TOKEN_EQUALS,
+        tok = (Token){.kind = TOKEN_EQUALS,
                       .begin_pos = lexer->pos,
                       .line = lexer->line,
                       .begin = lexer->cur_char,
                       .len = 2};
         next_char(lexer);
       } else {
-        tok = (Token){.type = TOKEN_ASSIGN,
+        tok = (Token){.kind = TOKEN_ASSIGN,
                       .begin_pos = lexer->pos,
                       .line = lexer->line,
                       .begin = lexer->cur_char,
                       .len = 1};
       }
     } else if (*lexer->cur_char == '[') {
-      tok = (Token){.type = TOKEN_LSQUARE,
+      tok = (Token){.kind = TOKEN_LSQUARE,
                     .begin_pos = lexer->pos,
                     .line = lexer->line,
                     .begin = lexer->cur_char,
                     .len = 1};
     } else if (*lexer->cur_char == ']') {
-      tok = (Token){.type = TOKEN_RSQUARE,
+      tok = (Token){.kind = TOKEN_RSQUARE,
                     .begin_pos = lexer->pos,
                     .line = lexer->line,
                     .begin = lexer->cur_char,
                     .len = 1};
     } else if (*lexer->cur_char == '*') {
-      tok = (Token){.type = TOKEN_ASTERISK,
+      tok = (Token){.kind = TOKEN_ASTERISK,
                     .begin_pos = lexer->pos,
                     .line = lexer->line,
                     .begin = lexer->cur_char,
                     .len = 1};
     } else if (*lexer->cur_char == '/') {
-      tok = (Token){.type = TOKEN_SLASH,
+      tok = (Token){.kind = TOKEN_SLASH,
                     .begin_pos = lexer->pos,
                     .line = lexer->line,
                     .begin = lexer->cur_char,
                     .len = 1};
     } else if (*lexer->cur_char == '~') {
-      tok = (Token){.type = TOKEN_TILDE,
+      tok = (Token){.kind = TOKEN_TILDE,
                     .begin_pos = lexer->pos,
                     .line = lexer->line,
                     .begin = lexer->cur_char,
                     .len = 1};
     } else if (*lexer->cur_char == '&') {
-      tok = (Token){.type = TOKEN_AMPERSAND,
+      tok = (Token){.kind = TOKEN_AMPERSAND,
                     .begin_pos = lexer->pos,
                     .line = lexer->line,
                     .begin = lexer->cur_char,
@@ -490,7 +517,7 @@ void lexer_tokenize(Lexer *lexer, const char *src, const char *filename) {
     } else {
       log_error("Illegal token cur char: %c at %s:%d:%d", *lexer->cur_char,
                 filename, lexer->line, lexer->pos);
-      tok = (Token){.type = TOKEN_ILLEGAL,
+      tok = (Token){.kind = TOKEN_ILLEGAL,
                     .begin_pos = lexer->pos,
                     .line = lexer->line,
                     .begin = lexer->cur_char,

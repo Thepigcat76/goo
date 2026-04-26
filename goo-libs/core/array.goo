@@ -1,0 +1,11 @@
+array_add :: <T>(array: []T, elem: T) {
+}
+
+array_remove :: <T>(array: []T, index: usz) {
+}
+
+array_get :: <T>(array: []T, index: usz) -> Option<T> {
+}
+
+array_clear :: <T>(array: []T) {
+}

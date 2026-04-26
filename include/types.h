@@ -3,6 +3,7 @@
 #include <stdbool.h>
 #include <stdlib.h>
 #include "shared.h"
+#include "lilc/numbers.h"
 
 typedef enum {
   TYPE_ARRAY_VARIANT_DYNAMIC,
@@ -34,6 +35,11 @@ typedef struct {
   struct _typed_ident *fields;
 } TypeStruct;
 
+typedef enum {
+  TYPE_SIZE_SIZED,
+  TYPE_SIZE_UNKNOWN,
+} TypeSize;
+
 typedef struct _type {
   enum {
     TYPE_IDENT,
@@ -44,7 +50,7 @@ typedef struct _type {
     TYPE_UNIT,
     TYPE_STRUCT,
     TYPE_POINTER,
-  } type;
+  } kind;
   union {
     ModulePath type_ident;
     TypeArray type_array;
@@ -68,6 +74,7 @@ typedef struct _generic {
 } Generic;
 
 extern const Type UNIT_BUILTIN_TYPE;
+extern Type ANY_BUILTIN_TYPE;
 extern Type STRING_BUILTIN_TYPE;
 /* Integers */
 extern Type I8_BUILTIN_TYPE;

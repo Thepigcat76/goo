@@ -12,6 +12,17 @@
 
 static const CheckerContext EMPTY_CONTEXT = {0};
 
+static bool type_is_integer(const Type *type) {
+  bool is_signed_int =
+      type_eq(type, &I8_BUILTIN_TYPE) || type_eq(type, &I16_BUILTIN_TYPE) ||
+      type_eq(type, &I32_BUILTIN_TYPE) || type_eq(type, &I64_BUILTIN_TYPE);
+  bool is_unsigned_int =
+      type_eq(type, &U8_BUILTIN_TYPE) || type_eq(type, &U16_BUILTIN_TYPE) ||
+      type_eq(type, &U32_BUILTIN_TYPE) || type_eq(type, &U64_BUILTIN_TYPE);
+
+  return is_signed_int || is_unsigned_int;
+}
+
 static void checker_type_table_push(TypeChecker *checker);
 
 TypeChecker checker_new(Parser *parser) {
@@ -209,7 +220,7 @@ static Type check_call_expr(TypeChecker *checker, ExprCall *expr_call) {
     } else*/
     {
       Expression *expr = &val->expr_variant.var.expr_var_reg_expr;
-      if (expr->type == EXPR_FUNCTION) {
+      if (expr->kind == EXPR_FUNCTION) {
         expr_function = expr->var.expr_function;
       } else {
         fprintf(stderr, "Expr is not a function\n");
@@ -229,7 +240,7 @@ static Type check_call_expr(TypeChecker *checker, ExprCall *expr_call) {
 
   bool has_varargs =
       func_args_len > 0
-          ? expr_function.desc.args[func_args_len - 1].type == ARG_VARARG
+          ? expr_function.desc.args[func_args_len - 1].kind == ARG_VARARG
           : false;
 
   if (!has_varargs && args_len != func_args_len) {
@@ -243,7 +254,7 @@ static Type check_call_expr(TypeChecker *checker, ExprCall *expr_call) {
     Type arg_type = check_expr(checker, &expr_call->args[i]);
     array_add(arg_types, arg_type);
     bool generic_type = false;
-    if (expr_function.desc.args[i].var.typed_arg.type.type == TYPE_IDENT &&
+    if (expr_function.desc.args[i].var.typed_arg.type.kind == TYPE_IDENT &&
         expr_function.desc.generics != NULL) {
       for (size_t j = 0; j < array_len(expr_function.desc.generics); j++) {
         if (strcmp(expr_function.desc.args[i]
@@ -255,7 +266,7 @@ static Type check_call_expr(TypeChecker *checker, ExprCall *expr_call) {
       }
     }
     if (!(i >= func_args_len && has_varargs)) {
-      if (expr_function.desc.args[i].type != ARG_VARARG &&
+      if (expr_function.desc.args[i].kind != ARG_VARARG &&
           !type_eq(&arg_type, &expr_function.desc.args[i].var.typed_arg.type) &&
           !generic_type) {
         type_table_dump(checker->cur_type_table);
@@ -295,17 +306,13 @@ static Type check_call_expr(TypeChecker *checker, ExprCall *expr_call) {
 }
 
 static bool is_type_generic(const TypeChecker *checker, Type *type) {
-  if (type->type == TYPE_IDENT) {
+  if (type->kind == TYPE_IDENT) {
     TypeTableValue *val =
         type_table_get(checker->cur_type_table, &type->var.type_ident,
                        checker->global_type_table);
     return val != NULL && val->is_generic;
   }
   return false;
-}
-
-static bool type_is_numeric(const Type *type) {
-  return type_eq(type, &I32_BUILTIN_TYPE);
 }
 
 static Type check_block_expr(TypeChecker *checker,
@@ -324,9 +331,10 @@ static Type check_block_expr(TypeChecker *checker,
 
 // TODO: Create a type table ident -> type
 static Type check_expr(TypeChecker *checker, Expression *expr) {
-  switch (expr->type) {
+  switch (expr->kind) {
   case EXPR_ARRAY_INIT: {
     Type *expected_item_type = expr->var.expr_array_init.type.type;
+    checker->hint.hint = expected_item_type;
     size_t declared_items_len = array_len(expr->var.expr_array_init.items);
     for (size_t i = 0; i < declared_items_len; i++) {
       Type item_type = check_expr(checker, &expr->var.expr_array_init.items[i]);
@@ -339,22 +347,23 @@ static Type check_expr(TypeChecker *checker, Expression *expr) {
         exit(1);
       }
     }
-    return (Type){.type = TYPE_ARRAY,
+    checker->hint.hint = NULL;
+    return (Type){.kind = TYPE_ARRAY,
                   .var = {.type_array = expr->var.expr_array_init.type}};
   }
   case EXPR_ARRAY_ACCESS: {
     ExprArrayAccess *arr_access_expr = &expr->var.expr_array_access;
     Type array_ty = check_expr(checker, arr_access_expr->array_expr);
-    if (array_ty.type != TYPE_ARRAY) {
+    if (array_ty.kind != TYPE_ARRAY) {
       fprintf(stderr, "Type error: Only arrays can be indexed, received: %s\n",
               type_format(&TYPE_FORMATTER_DEFAULT, &array_ty).string);
       exit(1);
     }
     Type index_ty = check_expr(checker, arr_access_expr->index_expr);
-    if (!type_is_numeric(&index_ty)) {
+    if (!type_is_integer(&index_ty)) {
       fprintf(stderr,
               "Type error: Invalid type for indexing into array. Expected "
-              "numeric type, received: %s\n",
+              "integer type, received: %s\n",
               type_format(&TYPE_FORMATTER_DEFAULT, &index_ty).string);
       exit(1);
     }
@@ -389,7 +398,7 @@ static Type check_expr(TypeChecker *checker, Expression *expr) {
                   module_path_fmt(&arg_path).string);
         type_table_add(
             checker->cur_type_table, &arg_path,
-            (ExpressionVariant){.type = EXPR_VAR_REG_EXPR,
+            (ExpressionVariant){.kind = EXPR_VAR_REG_EXPR,
                                 .var = {.expr_var_reg_expr = UNIT_EXPR}},
             (OptionalType){.type = type, .present = true});
       }
@@ -428,10 +437,10 @@ static Type check_expr(TypeChecker *checker, Expression *expr) {
                       type_eq(&cast_type, &STRING_BUILTIN_TYPE);
 
     bool str_to_arr = type_eq(&expr_type, &STRING_BUILTIN_TYPE) &&
-                      cast_type.type == TYPE_ARRAY &&
+                      cast_type.kind == TYPE_ARRAY &&
                       type_eq(cast_type.var.type_array.type, &I32_BUILTIN_TYPE);
 
-    bool arr_to_str = expr_type.type == TYPE_ARRAY &&
+    bool arr_to_str = expr_type.kind == TYPE_ARRAY &&
                       type_eq(&cast_type, &STRING_BUILTIN_TYPE);
 
     bool generic_type = is_type_generic(checker, &expr_type);
@@ -451,6 +460,11 @@ static Type check_expr(TypeChecker *checker, Expression *expr) {
     return STRING_BUILTIN_TYPE;
   }
   case EXPR_INTEGER_LIT: {
+    if (checker->hint.hint != NULL) {
+      if (type_is_integer(checker->hint.hint)) {
+        return *checker->hint.hint;
+      }
+    }
     return I32_BUILTIN_TYPE;
   }
   case EXPR_BOOLEAN_LIT: {
@@ -465,7 +479,7 @@ static Type check_expr(TypeChecker *checker, Expression *expr) {
     if (val != NULL) {
       if (val->opt_type.present) {
         return val->opt_type.type;
-      } else if (val->expr_variant.type == EXPR_VAR_REG_EXPR) {
+      } else if (val->expr_variant.kind == EXPR_VAR_REG_EXPR) {
         return check_expr(checker, &val->expr_variant.var.expr_var_reg_expr);
       } else {
         fprintf(stderr, "Could not find expression with symbol: %s",
@@ -476,7 +490,7 @@ static Type check_expr(TypeChecker *checker, Expression *expr) {
   }
   case EXPR_ADDR_OF: {
     Type origin_type = check_expr(checker, expr->var.expr_addr_of.expr);
-    return (Type){.type = TYPE_POINTER,
+    return (Type){.kind = TYPE_POINTER,
                   .var = {.type_pointer = {.type = heap_clone(&origin_type)}}};
   }
   case EXPR_PTR_DEREF: {
@@ -497,11 +511,11 @@ static Type check_expr(TypeChecker *checker, Expression *expr) {
   }
   case EXPR_STRUCT_INIT: {
     ExprStructInit *expr_struct_init = &expr->var.expr_struct_init;
-    TypeTableValue *value =
-        type_table_get(checker->cur_type_table, NULL,//&expr_struct_init->struct_name,
-                       checker->global_type_table);
+    TypeTableValue *value = type_table_get(
+        checker->cur_type_table, NULL, //&expr_struct_init->struct_name,
+        checker->global_type_table);
     if (value != NULL) {
-      if (value->expr_variant.type == EXPR_VAR_TYPE_EXPR) {
+      if (value->expr_variant.kind == EXPR_VAR_TYPE_EXPR) {
         TypeExprStruct ty_expr_struct =
             value->expr_variant.var.expr_var_type_expr.var.type_expr_struct;
         for (size_t i = 0; i < array_len(expr_struct_init->field_inits); i++) {
@@ -529,7 +543,7 @@ static Type check_expr(TypeChecker *checker, Expression *expr) {
           }
         }
         return (Type){
-            .type = TYPE_STRUCT,
+            .kind = TYPE_STRUCT,
             .var = {.type_struct = {.fields = ty_expr_struct.fields}}};
       }
     }
@@ -556,7 +570,7 @@ static Type check_stmt(TypeChecker *checker, Statement *stmt,
                        CheckerContext context) {
   // char print_buf[1024];
   //  parser_stmt_print(print_buf, stmt);
-  switch (stmt->type) {
+  switch (stmt->kind) {
   case STMT_RETURN: {
     StmtReturn stmt_return = stmt->var.stmt_return;
 
@@ -583,10 +597,14 @@ static Type check_stmt(TypeChecker *checker, Statement *stmt,
   }
   case STMT_DECL: {
     OptionalType opt_type = stmt->var.stmt_decl.type;
-    if (stmt->var.stmt_decl.value.type != EXPR_VAR_TYPE_EXPR) {
+    if (stmt->var.stmt_decl.value.kind != EXPR_VAR_TYPE_EXPR) {
       Expression decl_val = stmt->var.stmt_decl.value.var.expr_var_reg_expr;
+      if (opt_type.present) {
+        checker->hint.hint = &opt_type.type;
+      }
       Type value_type = check_expr(checker, &decl_val);
-      if (decl_val.type == EXPR_FUNCTION) {
+      checker->hint.hint = NULL;
+      if (decl_val.kind == EXPR_FUNCTION) {
         Generic *generics = decl_val.var.expr_function.desc.generics;
         if (is_generic_function(&decl_val.var.expr_function)) {
           GenericFunction func = {
@@ -609,11 +627,11 @@ static Type check_stmt(TypeChecker *checker, Statement *stmt,
               type_format(&TYPE_FORMATTER_DEFAULT, &value_type).string;
           char *decl_type_buf =
               type_format(&TYPE_FORMATTER_DEFAULT, &opt_type.type).string;
-          fprintf(stderr,
-                  "Type error: Type of declaration (%s) and value (%s) do not "
-                  "match, decl "
-                  "name: %s\n",
-                  decl_type_buf, value_type_buf, stmt->var.stmt_decl.name);
+          log_error(
+              "Type error: Type of declaration (%s) and value (%s) do not "
+              "match, decl "
+              "name: %s",
+              decl_type_buf, value_type_buf, stmt->var.stmt_decl.name);
           exit(1);
         }
       } else {
@@ -622,7 +640,7 @@ static Type check_stmt(TypeChecker *checker, Statement *stmt,
       }
     }
 
-    if (stmt->var.stmt_decl.value.type == EXPR_VAR_REG_EXPR) {
+    if (stmt->var.stmt_decl.value.kind == EXPR_VAR_REG_EXPR) {
       ModulePath decl_path = module_path_root(stmt->var.stmt_decl.name);
       type_table_add(
           checker->cur_type_table, &decl_path,
@@ -630,23 +648,23 @@ static Type check_stmt(TypeChecker *checker, Statement *stmt,
           opt_type);
     } else {
       TypeExpr type_expr = stmt->var.stmt_decl.value.var.expr_var_type_expr;
-      if (type_expr.type == TYPE_EXPR_STRUCT) {
+      if (type_expr.kind == TYPE_EXPR_STRUCT) {
         TypeExprStruct *ty_expr_struct = &type_expr.var.type_expr_struct;
         for (size_t i = 0; i < array_len(ty_expr_struct->fields); i++) {
           TypedIdent *field = &ty_expr_struct->fields[i];
-          if (field->type.type == TYPE_IDENT &&
+          if (field->type.kind == TYPE_IDENT &&
               !type_eq(&field->type, &I32_BUILTIN_TYPE) &&
               !type_eq(&field->type, &STRING_BUILTIN_TYPE)) {
             ModulePath *ty_ident = &field->type.var.type_ident;
             TypeTableValue *actual_type = type_table_get(
                 checker->cur_type_table, ty_ident, checker->global_type_table);
             if (actual_type != NULL) {
-              if (actual_type->expr_variant.type == EXPR_VAR_TYPE_EXPR) {
+              if (actual_type->expr_variant.kind == EXPR_VAR_TYPE_EXPR) {
                 TypeExpr resolved_ty_expr =
                     actual_type->expr_variant.var.expr_var_type_expr;
-                if (resolved_ty_expr.type == TYPE_EXPR_STRUCT) {
+                if (resolved_ty_expr.kind == TYPE_EXPR_STRUCT) {
                   field->type = (Type){
-                      .type = TYPE_STRUCT,
+                      .kind = TYPE_STRUCT,
                       .var = {.type_struct = create_struct_from_expr(
                                   &resolved_ty_expr.var.type_expr_struct)}};
                 }
@@ -655,7 +673,7 @@ static Type check_stmt(TypeChecker *checker, Statement *stmt,
           }
         }
       }
-      type_table_add(checker->cur_type_table, NULL,//&stmt->var.stmt_decl.name,
+      type_table_add(checker->cur_type_table, NULL, //&stmt->var.stmt_decl.name,
                      EXPR_VAR_TYPE(type_expr), opt_type);
     }
 
@@ -665,7 +683,7 @@ static Type check_stmt(TypeChecker *checker, Statement *stmt,
     StmtForeign stmt_foreign = stmt->var.stmt_foreign;
     ExprFunction expr_function = {
         .desc = stmt_foreign.desc, .native_function = NULL, .block = NULL};
-    Expression expr = {.type = EXPR_FUNCTION,
+    Expression expr = {.kind = EXPR_FUNCTION,
                        .var = {.expr_function = expr_function}};
     type_table_add(checker->global_type_table, &stmt_foreign.name,
                    EXPR_VAR_EXPR(expr), OPT_TYPE_EMPTY);

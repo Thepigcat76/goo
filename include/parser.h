@@ -14,12 +14,12 @@ void *_internal_heap_clone(void *ptr, size_t size);
 
 #define EXPR_VAR_TYPE(expr)                                                    \
   (ExpressionVariant) {                                                        \
-    .type = EXPR_VAR_TYPE_EXPR, .var = {.expr_var_type_expr = expr }           \
+    .kind = EXPR_VAR_TYPE_EXPR, .var = {.expr_var_type_expr = expr }           \
   }
 
 #define EXPR_VAR_EXPR(expr)                                                    \
   (ExpressionVariant) {                                                        \
-    .type = EXPR_VAR_REG_EXPR, .var = {.expr_var_reg_expr = expr }             \
+    .kind = EXPR_VAR_REG_EXPR, .var = {.expr_var_reg_expr = expr }             \
   }
 
 extern Hashmap(ModulePath, Ident) mangled_functions;
@@ -45,9 +45,14 @@ typedef struct {
   // Module
   Module module;
   ModulePath path;
+
+  // Stores additional ast data like arrays
+  Bump ast_arena;
 } Parser;
 
-Parser parser_new(Token *tokens, const char *source, const char *filename, ModulePath path);
+void parser_init(Parser *parser, Token *tokens, const char *source, const char *filename, ModulePath path);
+
+void parser_deinit(Parser *parser);
 
 void parser_parse(Parser *parser);
 

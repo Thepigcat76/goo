@@ -1,8 +1,8 @@
-foreign print_int(i: i32)
+foreign print_int(i: u8)
 
 main :: () {
-  x := []i32{90, 80, 70, 60, 50, 40, 30, 20, 10, 3}
-  for i in 0..10 {
-    print_int(x[i])
-  }
+  x := []u8{90, 80, 70, 60, 50, 40, 30, 20, 10, 3}
+  i: u8 = 5
+  print_int(x[i])
+  
 }

@@ -6,7 +6,7 @@ dyn_string_t type_format(const TypeFormatter *fmt, const Type *type) {
   dyn_string_t str = {0};
   dyn_string_init(&str);
 
-  switch (type->type) {
+  switch (type->kind) {
   case TYPE_IDENT: {
     dyn_string_t path = module_path_fmt(&type->var.type_ident);
     if (fmt->debug) {

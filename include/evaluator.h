@@ -11,12 +11,12 @@
 
 #define OBJ_STR(_str)                                                          \
   (Object) {                                                                   \
-    .type = OBJECT_STRING, .var = {.obj_string = _str }                        \
+    .kind = OBJECT_STRING, .var = {.obj_string = _str }                        \
   }
 
 #define OBJ_INT(_int)                                                          \
   (Object) {                                                                   \
-    .type = OBJECT_INT, .var = {.obj_int = _int }                              \
+    .kind = OBJECT_INT, .var = {.obj_int = _int }                              \
   }
 
 #if defined(__GNUC__) || defined(__clang__)
@@ -31,7 +31,7 @@ static int exit_with_msg(int exit_code, const char *format, ...) {
 }
 
 #define obj_try_cast_int(obj_ptr, err_msg, ...)                                \
-  ((obj_ptr)->type == OBJECT_INT)                                              \
+  ((obj_ptr)->kind == OBJECT_INT)                                              \
       ? (obj_ptr)->var.obj_int                                                 \
       : exit_with_msg(1, err_msg __VA_OPT__(, ) __VA_ARGS__)
 
@@ -59,7 +59,7 @@ typedef struct _obj {
     OBJECT_STRUCT,
     OBJECT_ARRAY,
     OBJECT_PTR,
-  } type;
+  } kind;
   union {
     int obj_int;
     char *obj_string;

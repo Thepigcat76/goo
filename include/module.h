@@ -13,3 +13,8 @@ typedef struct {
   Hashmap(ModulePath, FuncDescriptor) functions;
   TypedIdent *decls;
 } Module;
+
+
+void module_init(Module *module, const char *filename, const char *source);
+
+void module_deinit(Module *module);

@@ -1,4 +1,4 @@
-open :: (path: string) {
+file_open :: (path: string) {
   println("Opened file")
   println(path)
 }

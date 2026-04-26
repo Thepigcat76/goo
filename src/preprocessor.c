@@ -1,4 +1,5 @@
 #include "../include/preprocess.h"
+#include "../include/types.h"
 #include "lilc/log.h"
 #include <lilc/alloc.h>
 #include <lilc/array.h>
@@ -18,15 +19,15 @@ static Expression println_execute(Expression *args) {
     exit(1);
   }
 
-  if (args[0].type != EXPR_STRING_LIT) {
+  if (args[0].kind != EXPR_STRING_LIT) {
     log_error("Expected a string as the arg for println, received expression "
-              "of type %d",
-              args[0].type);
+              "of kind %d",
+              args[0].kind);
     exit(1);
   }
 
   puts(args[0].var.expr_string_literal.string);
-  return (Expression){.type = EXPR_UNIT};
+  return (Expression){.kind = EXPR_UNIT};
 }
 
 PreProcessor preprocessor_new(Statement *stmts, PpDirective *pp_dirs) {
@@ -78,7 +79,7 @@ static Expression expr_eval_comptime(PreProcessor *preprocessor,
 static void expr_block_eval_comptime(PreProcessor *preprocessor,
                                      const ExprBlock *expr) {
   for (size_t i = 0; i < array_len(expr->statements); i++) {
-    if (expr->statements[i].type == STMT_EXPR) {
+    if (expr->statements[i].kind == STMT_EXPR) {
       expr_eval_comptime(preprocessor, &expr->statements[i].var.stmt_expr.expr,
                          (PreprocessorExprContext){});
     }
@@ -88,7 +89,7 @@ static void expr_block_eval_comptime(PreProcessor *preprocessor,
 static Expression expr_eval_comptime(PreProcessor *preprocessor,
                                      const Expression *expr,
                                      PreprocessorExprContext context) {
-  switch (expr->type) {
+  switch (expr->kind) {
   case EXPR_BIN_OP: {
     ExprBinOp expr_bin_op = expr->var.expr_bin_op;
     uint32_t a = expr_eval_comptime(preprocessor, expr_bin_op.left,
@@ -99,7 +100,7 @@ static Expression expr_eval_comptime(PreProcessor *preprocessor,
                      .var.expr_integer_literal.integer;
 
     return (Expression){
-        .type = EXPR_INTEGER_LIT,
+        .kind = EXPR_INTEGER_LIT,
         .var = {.expr_integer_literal = {
                     .integer = apply_lit_bin_op(a, b, expr_bin_op.op)}}};
   }
@@ -184,20 +185,20 @@ static Expression expr_eval_comptime(PreProcessor *preprocessor,
     break;
   }
   }
-  log_error("Failed to evaluate comptime expression %d, nyi", expr->type);
+  log_error("Failed to evaluate comptime expression %d, nyi", expr->kind);
   exit(1);
 }
 
 static void pp_dir_process(PreProcessor *preprocessor, PpDirective *pp_dir) {
-  switch (pp_dir->type) {
+  switch (pp_dir->kind) {
   case PP_DIR_IF: {
     PpDirIf pp_dir_if = pp_dir->var.pp_dir_if;
     Expression cond_expr = expr_eval_comptime(
         preprocessor, &pp_dir_if.condition, (PreprocessorExprContext){});
     bool evaluated_cond_expr = false;
-    if (cond_expr.type == EXPR_INTEGER_LIT) {
+    if (cond_expr.kind == EXPR_INTEGER_LIT) {
       evaluated_cond_expr = cond_expr.var.expr_integer_literal.integer;
-    } else if (cond_expr.type == EXPR_BOOLEAN_LIT) {
+    } else if (cond_expr.kind == EXPR_BOOLEAN_LIT) {
       evaluated_cond_expr = cond_expr.var.expr_boolean_literal.boolean;
     }
     log_debug("[PREPROCESSOR] Evaluated conditional preprocessor directive, "
@@ -212,7 +213,7 @@ static void pp_dir_process(PreProcessor *preprocessor, PpDirective *pp_dir) {
   }
   case PP_DIR_COMPTIME: {
     PpDirComptime pp_dir_comptime = pp_dir->var.pp_dir_comptime;
-    if (pp_dir_comptime.stmt.type == STMT_EXPR) {
+    if (pp_dir_comptime.stmt.kind == STMT_EXPR) {
       expr_eval_comptime(preprocessor, &pp_dir_comptime.stmt.var.stmt_expr.expr,
                          (PreprocessorExprContext){});
     }
@@ -227,7 +228,7 @@ static bool stmt_process(PreProcessor *preprocessor, Statement *stmt,
                          Statement *new_stmt);
 
 static void expr_process(PreProcessor *preprocessor, Expression *expr) {
-  switch (expr->type) {
+  switch (expr->kind) {
   case EXPR_CAST: {
     break;
   }
@@ -318,7 +319,7 @@ static void expr_process(PreProcessor *preprocessor, Expression *expr) {
 static bool stmt_process(PreProcessor *preprocessor, Statement *stmt,
                          Statement *new_stmt) {
   // if (stmt.)
-  switch (stmt->type) {
+  switch (stmt->kind) {
   case STMT_DECL: {
     StmtDecl *stmt_decl = &stmt->var.stmt_decl;
     Expression *expr_value = &stmt_decl->value.var.expr_var_reg_expr;

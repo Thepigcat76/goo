@@ -10,6 +10,9 @@
 #define DEBUG true
 #define OUT_NAME "build/goo"
 
+#define GOO_VERSION "\\\"0.1\\\""
+#define GOO_VERSION_RELEASE_DATE "\\\"2026-04-26\\\""
+
 #define LIB_LILC "lilc"
 
 static Cmd cmd = {0};
@@ -27,10 +30,13 @@ int main(int argc, char **argv) {
   // Output location
   cmd_appendf(&cmd, "-o");
   cmd_appendf(&cmd, OUT_NAME);
+  // Goo Version info
+  cmd_appendf(&cmd, "-DGOO_VERSION=" GOO_VERSION);
+  cmd_appendf(&cmd, "-DGOO_VERSION_RELEASE_DATE=" GOO_VERSION_RELEASE_DATE);
 
   // Adding src files
   walk_dir("src", visit_entry);
-  
+
   // Libraries
   cmd_appendf(&cmd, "-l%s", LIB_LILC);
 
@@ -43,7 +49,18 @@ int main(int argc, char **argv) {
 
   if (argc > 1) {
     if (strcmp(argv[1], "r") == 0) {
-      systemf("./%s", OUT_NAME);
+      if (argc > 2) {
+        char args[1024];
+        for (int i = 2; i < argc; i++) {
+          strcat(args, argv[i]);
+          if (i - 1 == argc) {
+            strcat(args, " ");
+          }
+        }
+        systemf("./%s %s", OUT_NAME, args);
+      } else {
+        systemf("./%s", OUT_NAME);
+      }
     }
   }
 }
@@ -95,7 +112,8 @@ int main(int argc, char **argv) {
 //     chdir("/home/thepigcat/coding/c/emsdk/");
 //     compile("emcc %s -o ../goo/%s/%s.js"
 //             " -sEXPORTED_RUNTIME_METHODS=ccall,cwrap,FS,UTF8ToString"
-//             " -sEXPORTED_FUNCTIONS=_run_program,_function_println_buffer_clear,_"
+//             "
+//             -sEXPORTED_FUNCTIONS=_run_program,_function_println_buffer_clear,_"
 //             "function_println_buffer"
 //             " -sALLOW_MEMORY_GROWTH=1"
 //             " -sENVIRONMENT=web"
@@ -118,7 +136,8 @@ int main(int argc, char **argv) {
 //       dbg(OPTS.out_dir, out_name, OPTS.debug);
 //       return 0;
 //     } else if (STR_CMP_OR(argv[1], "v", "vg")) {
-//       system(str_fmt("valgrind --leak-check=full --show-leak-kinds=all ./%s/%s",
+//       system(str_fmt("valgrind --leak-check=full --show-leak-kinds=all
+//       ./%s/%s",
 //                      OPTS.out_dir, out_name));
 //       return 0;
 //     } else {

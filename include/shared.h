@@ -1,7 +1,14 @@
 #pragma once
 
 #include <stdint.h>
+#include <stdbool.h>
 #include "lilc/str.h"
+
+#if !defined(__STDC_VERSION__)
+  #define constexpr const
+#elif __STDC_VERSION__ < 202311L
+  #define constexpr const
+#endif
 
 typedef char *Ident;
 
@@ -27,6 +34,10 @@ extern struct debug_flags debug_flags;
 
 #define CORE_LIB_PATH "CORE_LIB_PATH"
 #define DEFAULT_CORE_LIB_PATH "./goo-libs/core"
+
+#define POINTER_SIZE 8
+
+#define DATA_SECTION_SIZE 8
 
 int32_t module_path_ptrv_hash(const void *array);
 
