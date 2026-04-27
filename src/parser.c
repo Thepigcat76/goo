@@ -9,6 +9,7 @@
 #include <lilc/hashmap.h>
 #include <lilc/log.h>
 #include <lilc/str.h>
+#include <lilc/todo.h>
 #include <stdarg.h>
 #include <stdatomic.h>
 #include <stdbool.h>
@@ -56,6 +57,8 @@ typedef struct {
 const Expression UNIT_EXPR = {.kind = EXPR_UNIT};
 const OptionalType OPT_TYPE_EMPTY = {.present = false};
 
+#define AST_ARENA_SIZE 160000
+
 void parser_init(Parser *parser, Token *tokens, const char *source,
                  const char *filename, ModulePath path) {
   if (mangled_functions.keys == NULL) {
@@ -81,6 +84,9 @@ void parser_init(Parser *parser, Token *tokens, const char *source,
                   module_path_ptrv_hash, module_path_ptrv_eq, NULL);
   parser->module = (Module){0};
   module_init(&parser->module, filename, source);
+
+  bump_init(&parser->ast_arena, AST_ARENA_SIZE);
+  bump_allocator_init(&parser->ast_arena_allocator, &parser->ast_arena);
 }
 
 void parser_deinit(Parser *parser) {
@@ -88,10 +94,10 @@ void parser_deinit(Parser *parser) {
   hashmap_free(&parser->custom_functions);
 
   module_deinit(&parser->module);
-  //array_free(&parser->pp_dirs);
-  //array_free(&parser->pp_dir_conditionals);
-//  array_free(&parser->foreign_functions);
-//  array_free(&parser->imported_modules);
+  array_free(parser->pp_dirs);
+  array_free(parser->pp_dir_conditionals);
+  array_free(parser->foreign_functions);
+  array_free(parser->imported_modules);
   hashmap_free(&parser->imported_functions);
   array_free(parser->statements);
 }
@@ -104,7 +110,7 @@ static void next_token(Parser *parser) {
 // first: first ident of module path
 // end: last ident of the module path
 static ModulePath parse_module_path(Parser *parser) {
-  ModulePath path = {.path = array_new(Ident, &HEAP_ALLOCATOR)};
+  ModulePath path = {.path = array_new(Ident, &parser->ast_arena_allocator)};
   while (parser->cur_tok->kind != TOKEN_EOF) {
     if (parser->cur_tok->kind == TOKEN_IDENT) {
       array_add(path.path, parser->cur_tok->var.ident);
@@ -189,9 +195,8 @@ static Type parse_type(Parser *parser) {
     next_token(parser);
     // cur_tok is first token of type
     next_token(parser);
-    type_array.type = malloc(sizeof(Type));
     Type type = parse_type(parser);
-    memcpy(type_array.type, &type, sizeof(Type));
+    type_array.type = bump_clone(&parser->ast_arena, &type);
     return (Type){.kind = TYPE_ARRAY, .var = {.type_array = type_array}};
   }
   // case TOKEN_LANGLE: {
@@ -212,7 +217,7 @@ static Type parse_type(Parser *parser) {
 // begin: cur_tok must be first ident or end
 // end: cur_tok is end
 static TypedIdent *parse_typed_ident_list(Parser *parser, TokenKind end) {
-  TypedIdent *idents = array_new_capacity(TypedIdent, 8, &HEAP_ALLOCATOR);
+  TypedIdent *idents = array_new_capacity(TypedIdent, 8, &parser->ast_arena_allocator);
   while (parser->cur_tok->kind != end) {
     TypedIdent ti;
     if (parser->cur_tok->kind == TOKEN_IDENT) {
@@ -317,7 +322,7 @@ static Type *parse_type_list(Parser *parser, TokenKind end) {
 // begin: cur_tok must be first token of first statement
 // end: cur_tok is end
 static Statement *parse_block_statements(Parser *parser, TokenKind end) {
-  Statement *stmts = array_new_capacity(Statement, 16, &HEAP_ALLOCATOR);
+  Statement *stmts = array_new_capacity(Statement, 16, &parser->ast_arena_allocator);
   while (parser->cur_tok->kind != end) {
     Statement stmt = parse_stmt(parser);
     array_add(stmts, stmt);
@@ -426,7 +431,7 @@ static ParseResult parse_func_desc(Parser *parser, FuncDescriptor *desc) {
   next_token(parser);
   TypedIdent *typed_ident_args = parse_typed_ident_list(parser, TOKEN_RPAREN);
   desc->args = array_new_capacity(Argument, array_len(typed_ident_args),
-                                  &HEAP_ALLOCATOR);
+                                  &parser->ast_arena_allocator);
   for (size_t i = 0; i < array_len(typed_ident_args); i++) {
     array_add(desc->args,
               (Argument){.kind = ARG_TYPED_ARG,
@@ -521,14 +526,14 @@ typedef struct {
 static dyn_string_t error_msg_fmt(const Parser *parser,
                                   const ErrorMessage *msg) {
   dyn_string_t str = {0};
-  dyn_string_init(&str);
+  dyn_string_init(&str, &HEAP_ALLOCATOR);
 
   size_t first_line_idx = msg->ctx_first_line - 1;
 
   size_t ctx_last_line = msg->ctx_first_line + msg->ctx_lines_amount;
 
   dyn_string_t str0 = {0};
-  dyn_string_init(&str0);
+  dyn_string_init(&str0, &HEAP_ALLOCATOR);
   size_t line_number_max_len = snprintf(NULL, 0, "%zu", ctx_last_line);
   for (size_t i = 0; i < msg->ctx_lines_amount; i++) {
     size_t actual_line_idx = first_line_idx + i;
@@ -591,7 +596,7 @@ static dyn_string_t error_msg_deco_fmt(const Parser *parser,
                                        const char *error_msg_text, size_t line,
                                        size_t pos) {
   dyn_string_t str = {0};
-  dyn_string_init(&str);
+  dyn_string_init(&str, &HEAP_ALLOCATOR);
 
   dyn_string_printf(&str, "%s:%zu:%zu: " ANSI_RED "error:" ANSI_RESET " %s\n",
                     parser->filename, line, pos, error_msg_text);
@@ -614,7 +619,7 @@ static ModulePath module_path_resolve(Parser *parser, const ModulePath *path) {
     Ident last_path_segment = imported_path.path[path_len - 1];
 
     if (strv_eq(path->path[0], last_path_segment)) {
-      ModulePath new_path = module_path_copy(&imported_path);
+      ModulePath new_path = module_path_copy(&imported_path, &HEAP_ALLOCATOR);
       for (size_t i = 1; i < array_len(path->path); i++) {
         array_add(new_path.path, path->path[i]);
       }
@@ -642,7 +647,7 @@ static ParseResult parse_expr(Parser *parser, Expression *expr) {
     if (is_func_desc(parser)) {
       FuncDescriptor desc = {0};
       parse_func_desc(parser, &desc);
-      ExprBlock *block_expr = malloc(sizeof(ExprBlock));
+      ExprBlock *block_expr = bump_alloc(&parser->ast_arena, sizeof(ExprBlock));
 
       if (parser->peek_tok->kind == TOKEN_LCURLY) {
         // cur_tok is left curly
@@ -699,7 +704,7 @@ static ParseResult parse_expr(Parser *parser, Expression *expr) {
       // cur_tok is first expr
       next_token(parser);
 
-      Expression *exprs = array_new_capacity(Expression, 8, &HEAP_ALLOCATOR);
+      Expression *exprs = array_new_capacity(Expression, 8, &parser->ast_arena_allocator);
       ParseResult result = parse_expr_list(parser, exprs, TOKEN_RPAREN);
       if (!result.success) {
         size_t first_line = first_token.line;
@@ -862,7 +867,7 @@ static ParseResult parse_expr(Parser *parser, Expression *expr) {
     // cur_tok is first token of expr
     next_token(parser);
     // TODO: Use expr list?
-    Expression *exprs = array_new(Expression, &HEAP_ALLOCATOR);
+    Expression *exprs = array_new(Expression, &parser->ast_arena_allocator);
     while (parser->cur_tok->kind != TOKEN_RCURLY) {
       Expression expr;
       ParseResult result = parse_expr1(parser, &expr, PREC_LOWEST);
@@ -1185,6 +1190,12 @@ void *_internal_heap_clone(void *ptr, size_t size) {
   return new_ptr;
 }
 
+void *_internal_bump_clone(Bump *bump, void *ptr, size_t size) {
+  void *new_ptr = bump_alloc(bump, size);
+  memcpy(new_ptr, ptr, size);
+  return new_ptr;
+}
+
 static Precedence op_to_prec(BinOperator op) {
   switch (op) {
   case BIN_OP_ADD:
@@ -1301,8 +1312,8 @@ static Expression parse_array_access(Parser *parser, Expression expr) {
   if (result.success) {
     return (Expression){
         .kind = EXPR_ARRAY_ACCESS,
-        .var = {.expr_array_access = {.array_expr = heap_clone(&expr),
-                                      .index_expr = heap_clone(&index_expr)}}};
+        .var = {.expr_array_access = {.array_expr = bump_clone(&parser->ast_arena, &expr),
+                                      .index_expr = bump_clone(&parser->ast_arena, &index_expr)}}};
   }
   fprintf(stderr,
           "Failed to parse expression for array access, Error message: %s",
@@ -1460,7 +1471,7 @@ static StmtDecl parse_decl_stmt(Parser *parser, bool typed) {
     }
     case EXPR_VAR_REG_EXPR: {
       if (expr_var.var.expr_var_reg_expr.kind == EXPR_FUNCTION) {
-        ModulePath module_path = module_path_copy(&parser->path);
+        ModulePath module_path = module_path_copy(&parser->path, &parser->ast_arena_allocator);
         array_add(module_path.path, stmt_decl.name);
 
         if (debug_flags.print_parse_info) {
@@ -1705,7 +1716,7 @@ static Statement parse_stmt(Parser *parser) {
         char *module_name = parser->cur_tok->var.string;
         char *exec_file_dir_path = get_exec_dir(parser->filename);
         dyn_string_t path = {0};
-        dyn_string_init(&path);
+        dyn_string_init(&path, &HEAP_ALLOCATOR);
 
         if (strncmp(module_name, "core/", 5) == 0) {
           dyn_string_printf(&path, "%s/%s.goo", getenv(CORE_LIB_PATH),

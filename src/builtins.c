@@ -137,6 +137,8 @@ static Object execute_format(Object *objects) {
   return OBJ_STR(new_string);
 }
 
+static ModulePath PRINTLN_PATH;
+
 void builtin_functions_init(TypeTable *type_table) {
   BUILTIN_FUNCTIONS = array_new(BuiltinFunction, &HEAP_ALLOCATOR);
 
@@ -155,9 +157,9 @@ void builtin_functions_init(TypeTable *type_table) {
   BUILTIN_FUNCTION(EXIT_FUNCTION, "exit", execute_exit, UNIT_BUILTIN_TYPE,
                    ARG("code", I32_BUILTIN_TYPE));
 
-  ModulePath println_path = {.path = array_new(Ident, &HEAP_ALLOCATOR)};
-  array_add(println_path.path, "println");
-  type_table_add(type_table, &println_path,
+  PRINTLN_PATH = (ModulePath){.path = array_new(Ident, &HEAP_ALLOCATOR)};
+  array_add(PRINTLN_PATH.path, "println");
+  type_table_add(type_table, &PRINTLN_PATH,
                  EXPR_VAR_EXPR(PRINTLN_FUNCTION.expr), OPT_TYPE_EMPTY);
   /*
   type_table_add(type_table, &PRINTFN_FUNCTION.name,
@@ -171,4 +173,18 @@ void builtin_functions_init(TypeTable *type_table) {
   type_table_add(type_table, &FORMAT_FUNCTION.name,
                  EXPR_VAR_EXPR(FORMAT_FUNCTION.expr), OPT_TYPE_EMPTY);
                  */
+}
+
+void builtin_functions_deinit(TypeTable *global_type_table) {
+  BuiltinFunction *func;
+  array_foreach(BUILTIN_FUNCTIONS, func) {
+    ExprFunction expr_func = func->expr.var.expr_function;
+    if (expr_func.desc.generics != NULL) {
+      array_free(expr_func.desc.generics);
+    }
+    array_free(expr_func.desc.args);
+  }
+
+  array_free(BUILTIN_FUNCTIONS);
+  array_free(PRINTLN_PATH.path);
 }

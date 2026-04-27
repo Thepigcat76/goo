@@ -12,6 +12,10 @@ void *_internal_heap_clone(void *ptr, size_t size);
 
 #define heap_clone(ptr) _internal_heap_clone(ptr, sizeof(typeof(*(ptr))))
 
+void *_internal_bump_clone(Bump *bump, void *ptr, size_t size);
+
+#define bump_clone(bump, ptr) _internal_bump_clone(bump, ptr, sizeof(typeof(*(ptr))))
+
 #define EXPR_VAR_TYPE(expr)                                                    \
   (ExpressionVariant) {                                                        \
     .kind = EXPR_VAR_TYPE_EXPR, .var = {.expr_var_type_expr = expr }           \
@@ -48,6 +52,7 @@ typedef struct {
 
   // Stores additional ast data like arrays
   Bump ast_arena;
+  Allocator ast_arena_allocator;
 } Parser;
 
 void parser_init(Parser *parser, Token *tokens, const char *source, const char *filename, ModulePath path);

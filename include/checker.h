@@ -28,13 +28,18 @@ typedef struct {
   ModulePath *imported_modules;
   
   TypeFormatter type_fmt;
+
+  Bump checker_arena;
+  Allocator checker_arena_allocator;
 } TypeChecker;
 
 typedef struct {
   FuncDescriptor *cur_func_desc;
 } CheckerContext;
 
-TypeChecker checker_new(Parser *parser);
+void checker_init(TypeChecker *checker, Parser *parser);
+
+void checker_deinit(TypeChecker *checker);
 
 void checker_check(TypeChecker *checker);
 

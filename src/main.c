@@ -95,12 +95,15 @@ void run_program(char *buf, const char *filename, const char *output,
     log_debug("AST:\n%s", ast_format(parser.statements).string);
   }
 
-  PreProcessor preprocessor =
-      preprocessor_new(parser.statements, parser.pp_dirs);
+  PreProcessor preprocessor = {0};
+  preprocessor_init(&preprocessor, parser.statements, parser.pp_dirs);
 
   preprocessor_process(&preprocessor);
 
-  TypeChecker checker = checker_new(&parser);
+  preprocessor_deinit(&preprocessor);
+
+  TypeChecker checker = {0};
+  checker_init(&checker, &parser);
 #ifdef TARGET_WEB
   function_println_use_buffer();
 #endif
@@ -131,12 +134,16 @@ void run_program(char *buf, const char *filename, const char *output,
                      .var = {.expr_call = {.function = "main", .args = NULL}}};
   evaluator_eval_expr(&evaluator, &expr);
 #elif defined(COMPILER)
-  Compiler compiler = compiler_new(parser.statements, checker.type_tables,
-                                   mangled_functions, module_path);
+  Compiler compiler = {0};
+  compiler_init(&compiler, parser.statements, checker.type_tables,
+                mangled_functions, module_path);
   compiler_compile(&compiler);
 
   // Compilation is done, statements array and others can be freed
   parser_deinit(&parser);
+  builtin_functions_deinit(checker.global_type_table);
+  // Type checking information like type tables... can also be freed
+  checker_deinit(&checker);
 
   compiler_generate(&compiler);
 
@@ -144,12 +151,21 @@ void run_program(char *buf, const char *filename, const char *output,
 
   compiler_write(&compiler, out_file);
 
+  compiler_deinit(&compiler);
+
   fclose(out_file);
 #endif
 
-  free(lexer.arena.buffer);
+  bump_free(&lexer.tok_arena);
+  bump_free(&parser.ast_arena);
+  bump_free(&checker.checker_arena);
+  bump_free(&compiler.compiler_arena);
 
   hashmap_free(&mangled_functions);
+
+  builtin_types_deinit();
+
+  array_free(module_path.path);
 }
 
 KEEPALIVE
@@ -173,7 +189,7 @@ static bool _internal_str_cmp_or(char *base_str, char **strs) {
 
 #define NEXT_ARG(i, argc)                                                      \
   if (++i >= argc)                                                             \
-    break
+  break
 
 typedef struct {
   char *output_path;

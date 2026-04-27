@@ -1,5 +1,6 @@
 #include "../include/types.h"
 #include "lilc/array.h"
+#include "lilc/todo.h"
 #include "lilc/eq.h"
 #include <lilc/alloc.h>
 #include <stdio.h>
@@ -38,7 +39,21 @@ Type ANY_BUILTIN_TYPE;
 Type STRING_BUILTIN_TYPE;
 Type BOOL_BUILTIN_TYPE;
 
-void builtin_types_init() {
+static void type_deinit(Type *type) {
+  switch (type->kind) {
+  case TYPE_IDENT: {
+    array_free(type->var.type_ident.path);
+  } break;
+  case TYPE_ARRAY: {
+  } break;
+  default: {
+    TODO("Cannot free type: %d", type->kind);
+    break;
+  }
+  }
+}
+
+void builtin_types_init(void) {
   I8_BUILTIN_TYPE = BUILTIN_TYPE_IDENT("i8");
   I16_BUILTIN_TYPE = BUILTIN_TYPE_IDENT("i16");
   I32_BUILTIN_TYPE = BUILTIN_TYPE_IDENT("i32");
@@ -52,6 +67,23 @@ void builtin_types_init() {
   STRING_BUILTIN_TYPE = BUILTIN_TYPE_ARRAY(
       "string", TYPE_ARRAY_VARIANT_SIZE_UNKNOWN, &U8_BUILTIN_TYPE);
   BOOL_BUILTIN_TYPE = BUILTIN_TYPE_IDENT("bool");
+}
+
+void builtin_types_deinit(void) {
+  type_deinit(&I8_BUILTIN_TYPE);
+  type_deinit(&I16_BUILTIN_TYPE);
+  type_deinit(&I32_BUILTIN_TYPE);
+  type_deinit(&I64_BUILTIN_TYPE);
+
+  type_deinit(&U8_BUILTIN_TYPE);
+  type_deinit(&U16_BUILTIN_TYPE);
+  type_deinit(&U32_BUILTIN_TYPE);
+  type_deinit(&U64_BUILTIN_TYPE);
+
+  type_deinit(&ANY_BUILTIN_TYPE);
+  type_deinit(&BOOL_BUILTIN_TYPE);
+
+  type_deinit(&STRING_BUILTIN_TYPE);
 }
 
 bool type_eq(const Type *a, const Type *b) {

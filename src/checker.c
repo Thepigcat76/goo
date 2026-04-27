@@ -25,19 +25,30 @@ static bool type_is_integer(const Type *type) {
 
 static void checker_type_table_push(TypeChecker *checker);
 
-TypeChecker checker_new(Parser *parser) {
-  TypeChecker checker = {.stmts = parser->statements,
-                         .type_tables = array_new(TypeTable, &HEAP_ALLOCATOR),
-                         .generic_functions_table = gft_new(),
-                         .imported_modules = parser->imported_modules,
-                         .generated_generic_functions =
-                             hashmap_new(Ident *, Type, &HEAP_ALLOCATOR,
-                                         str_ptrv_hash, str_ptrv_eq, NULL)};
-  checker_type_table_push(&checker);
-  checker.global_type_table = &checker.type_tables[0];
-  checker.cur_type_table = checker.global_type_table;
+void checker_init(TypeChecker *checker, Parser *parser) {
+  checker->stmts = parser->statements;
+  checker->type_tables = array_new(TypeTable, &HEAP_ALLOCATOR);
+  checker->generic_functions_table = gft_new();
+  checker->imported_modules = parser->imported_modules;
+  checker->generated_generic_functions = hashmap_new(
+      Ident *, Type, &HEAP_ALLOCATOR, str_ptrv_hash, str_ptrv_eq, NULL);
+  checker_type_table_push(checker);
+  checker->global_type_table = &checker->type_tables[0];
+  checker->cur_type_table = checker->global_type_table;
 
-  return checker;
+  bump_init(&checker->checker_arena, 8000);
+  bump_allocator_init(&checker->checker_arena_allocator,
+                      &checker->checker_arena);
+}
+
+void checker_deinit(TypeChecker *checker) {
+  TypeTable *table;
+  array_foreach(checker->type_tables, table) {
+    hashmap_free(&table->type_table);
+  }
+  array_free(checker->type_tables);
+  hashmap_free(&checker->generic_functions_table.table);
+  hashmap_free(&checker->generated_generic_functions);
 }
 
 void type_table_add(TypeTable *table, ModulePath *path,
@@ -98,7 +109,7 @@ static ModulePath module_path_resolve(TypeChecker *checker,
     size_t path_len = array_len(imported_path.path);
     Ident last_path_segment = imported_path.path[path_len - 1];
     if (strv_eq(path->path[0], last_path_segment)) {
-      ModulePath new_path = module_path_copy(&imported_path);
+      ModulePath new_path = module_path_copy(&imported_path, &checker->checker_arena_allocator);
       for (size_t i = 1; i < array_len(path->path); i++) {
         array_add(new_path.path, path->path[i]);
       }
@@ -249,7 +260,7 @@ static Type check_call_expr(TypeChecker *checker, ExprCall *expr_call) {
               func_args_len, mod_path_call.string, args_len);
     exit(1);
   }
-  Type *arg_types = array_new(Type, &HEAP_ALLOCATOR);
+  Type *arg_types = array_new(Type, &checker->checker_arena_allocator);
   for (size_t i = 0; i < args_len; i++) {
     Type arg_type = check_expr(checker, &expr_call->args[i]);
     array_add(arg_types, arg_type);
@@ -285,6 +296,8 @@ static Type check_call_expr(TypeChecker *checker, ExprCall *expr_call) {
       }
     }
   }
+
+  dyn_string_free(&mod_path_call);
 
   // TODO: Reimplement generic functions
   /*
@@ -474,8 +487,8 @@ static Type check_expr(TypeChecker *checker, Expression *expr) {
     TypeTableValue *val =
         type_table_get(checker->cur_type_table, &expr->var.expr_ident.ident,
                        checker->global_type_table);
-    log_debug("Looking up val by name: %s",
-              module_path_fmt(&expr->var.expr_ident.ident).string);
+    scoped_dyn_string(module_path_fmt(&expr->var.expr_ident.ident), char *str,
+                      { log_debug("Looking up val by name: %s", str); });
     if (val != NULL) {
       if (val->opt_type.present) {
         return val->opt_type.type;
@@ -641,7 +654,7 @@ static Type check_stmt(TypeChecker *checker, Statement *stmt,
     }
 
     if (stmt->var.stmt_decl.value.kind == EXPR_VAR_REG_EXPR) {
-      ModulePath decl_path = module_path_root(stmt->var.stmt_decl.name);
+      ModulePath decl_path = module_path_root(stmt->var.stmt_decl.name, &checker->checker_arena_allocator);
       type_table_add(
           checker->cur_type_table, &decl_path,
           EXPR_VAR_EXPR(stmt->var.stmt_decl.value.var.expr_var_reg_expr),

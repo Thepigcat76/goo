@@ -1,5 +1,6 @@
 #include "../include/ast.h"
 #include "lilc/str.h"
+#include <lilc/alloc.h>
 #include <lilc/array.h>
 #include <string.h>
 #include <lilc/log.h>
@@ -12,7 +13,7 @@ static dyn_string_t stmt_format(Formatter *fmt, const Statement *stmt);
 
 static dyn_string_t expr_block_format(Formatter *fmt, const ExprBlock *block) {
   dyn_string_t str = {0};
-  dyn_string_init(&str);
+  dyn_string_init(&str, &HEAP_ALLOCATOR);
   fmt->stmt_indent += 2;
 
   if (block->statements == NULL) {
@@ -27,7 +28,7 @@ static dyn_string_t expr_block_format(Formatter *fmt, const ExprBlock *block) {
   }
 
   dyn_string_t wrapped_string = {0};
-  dyn_string_init(&wrapped_string);
+  dyn_string_init(&wrapped_string, &HEAP_ALLOCATOR);
 
   dyn_string_printf(&wrapped_string, "ExprBlock{stmts=[\n%s]}", str.string);
 
@@ -38,7 +39,7 @@ static dyn_string_t expr_block_format(Formatter *fmt, const ExprBlock *block) {
 
 static dyn_string_t module_path_format(Formatter *fmt, const ModulePath *path) {
   dyn_string_t str = {0};
-  dyn_string_init(&str);
+  dyn_string_init(&str, &HEAP_ALLOCATOR);
 
   for (size_t i = 0; i < array_len(path->path); i++) {
     dyn_string_add_str(&str, path->path[i]);
@@ -53,7 +54,7 @@ static dyn_string_t expr_list_format(Formatter *fmt, const Expression *exprs);
 
 static dyn_string_t expr_format(Formatter *fmt, const Expression *expr) {
   dyn_string_t str = {0};
-  dyn_string_init(&str);
+  dyn_string_init(&str, &HEAP_ALLOCATOR);
   switch (expr->kind) {
   case EXPR_CAST: {
     dyn_string_printf(&str, "ExprCast{type=, expr=%s}",
@@ -172,7 +173,7 @@ static dyn_string_t expr_format(Formatter *fmt, const Expression *expr) {
 
 static dyn_string_t expr_list_format(Formatter *fmt, const Expression *exprs) {
   dyn_string_t str = {0};
-  dyn_string_init(&str);
+  dyn_string_init(&str, &HEAP_ALLOCATOR);
 
   for (size_t i = 0; i < array_len(exprs); i++) {
     dyn_string_add_str(&str, expr_format(fmt, &exprs[i]).string);
@@ -191,7 +192,7 @@ static void dyn_string_add_ident(dyn_string_t *str, size_t indent) {
 
 static dyn_string_t stmt_format(Formatter *fmt, const Statement *stmt) {
   dyn_string_t str = {0};
-  dyn_string_init(&str);
+  dyn_string_init(&str, &HEAP_ALLOCATOR);
   dyn_string_add_ident(&str, fmt->stmt_indent);
   char indent_buf[str.term_len];
   strcpy(indent_buf, str.string);
@@ -231,7 +232,7 @@ static dyn_string_t stmt_format(Formatter *fmt, const Statement *stmt) {
 
 dyn_string_t ast_format(const Statement *stmts) {
   dyn_string_t string = {0};
-  dyn_string_init(&string);
+  dyn_string_init(&string, &HEAP_ALLOCATOR);
   Formatter fmt = {0};
   for (size_t i = 0; i < array_len(stmts); i++) {
     char *str = stmt_format(&fmt, stmts + i).string;

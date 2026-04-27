@@ -26,6 +26,7 @@ int main(int argc, char **argv) {
   cmd_appendf(&cmd, COMPILER);
   // Flags
   cmd_appendf(&cmd, "-g");
+  cmd_appendf(&cmd, "-rdynamic");
   cmd_appendf(&cmd, "-std=%s", STANDARD);
   // Output location
   cmd_appendf(&cmd, "-o");

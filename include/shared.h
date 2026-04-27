@@ -1,13 +1,13 @@
 #pragma once
 
-#include <stdint.h>
-#include <stdbool.h>
 #include "lilc/str.h"
+#include <stdbool.h>
+#include <stdint.h>
 
 #if !defined(__STDC_VERSION__)
-  #define constexpr const
+#define constexpr const
 #elif __STDC_VERSION__ < 202311L
-  #define constexpr const
+#define constexpr const
 #endif
 
 typedef char *Ident;
@@ -30,7 +30,8 @@ struct debug_flags {
 
 extern struct debug_flags debug_flags;
 
-#define MODULE_PATH_ROOT (ModulePath){.path = NULL}
+#define MODULE_PATH_ROOT                                                       \
+  (ModulePath) { .path = NULL }
 
 #define CORE_LIB_PATH "CORE_LIB_PATH"
 #define DEFAULT_CORE_LIB_PATH "./goo-libs/core"
@@ -39,13 +40,21 @@ extern struct debug_flags debug_flags;
 
 #define DATA_SECTION_SIZE 8
 
+#define scoped_dyn_string(_dyn_string, str, ...)                               \
+  do {                                                                         \
+    dyn_string_t evaled_dyn_str = _dyn_string;                                 \
+    str = evaled_dyn_str.string;                                               \
+    __VA_ARGS__                                                                \
+    dyn_string_free(&evaled_dyn_str);                                          \
+  } while (0)
+
 int32_t module_path_ptrv_hash(const void *array);
 
 bool module_path_ptrv_eq(const void *array0, const void *array1);
 
-ModulePath module_path_copy(const ModulePath *path);
+ModulePath module_path_copy(const ModulePath *path, Allocator *allocator);
 
-ModulePath module_path_root(const char *str);
+ModulePath module_path_root(const char *str, Allocator *allocator);
 
 Ident mangle_function_name(const ModulePath *module_path);
 

@@ -30,23 +30,28 @@ static Expression println_execute(Expression *args) {
   return (Expression){.kind = EXPR_UNIT};
 }
 
-PreProcessor preprocessor_new(Statement *stmts, PpDirective *pp_dirs) {
-  PreProcessor pp = {
-      .stmts = stmts,
-      .pp_dirs = pp_dirs,
-      .pp_dir_cond_line = -1,
-      .comptime_functions =
-          hashmap_new(Ident *, ComptimeBuiltinFunction, &HEAP_ALLOCATOR,
-                      str_ptrv_hash, str_ptrv_eq, NULL),
-      .valid_lines = hashmap_new(size_t, size_t, &HEAP_ALLOCATOR, size_tv_hash,
-                                 size_tv_eq, NULL),
-      .comptime_constants = hashmap_new(Ident *, Expression, &HEAP_ALLOCATOR,
-                                        str_ptrv_hash, str_ptrv_eq, NULL)};
+void preprocessor_init(PreProcessor *pp, Statement *stmts,
+                       PpDirective *pp_dirs) {
+  pp->stmts = stmts;
+  pp->pp_dirs = pp_dirs;
+  pp->pp_dir_cond_line = -1;
+  pp->comptime_functions =
+      hashmap_new(Ident *, ComptimeBuiltinFunction, &HEAP_ALLOCATOR,
+                  str_ptrv_hash, str_ptrv_eq, NULL);
+  pp->valid_lines = hashmap_new(size_t, size_t, &HEAP_ALLOCATOR, size_tv_hash,
+                                size_tv_eq, NULL);
+  pp->comptime_constants = hashmap_new(Ident *, Expression, &HEAP_ALLOCATOR,
+                                       str_ptrv_hash, str_ptrv_eq, NULL);
   char *println_name = "println";
   hashmap_insert(
-      &pp.comptime_functions, &println_name,
+      &pp->comptime_functions, &println_name,
       &(ComptimeBuiltinFunction){.execute = println_execute, .builtin = true});
-  return pp;
+}
+
+void preprocessor_deinit(PreProcessor *pp) {
+  hashmap_free(&pp->comptime_functions);
+  hashmap_free(&pp->valid_lines);
+  hashmap_free(&pp->comptime_constants);
 }
 
 static uint32_t apply_lit_bin_op(uint32_t a, uint32_t b, BinOperator op) {

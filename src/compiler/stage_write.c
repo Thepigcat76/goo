@@ -1,7 +1,9 @@
 #include "../../include/compiler.h"
 #include "lilc/log.h"
 #include <elf.h>
+#include <lilc/alloc.h>
 #include <lilc/array.h>
+#include <lilc/bump.h>
 
 #define WRITE(fp, ptr) fwrite(ptr, 1, sizeof(*ptr), fp)
 
@@ -87,25 +89,30 @@ static inline void data_section_write_bytes(const DataSection *section,
   memcpy(bytes, section->data_bytes, section->data_len);
 }
 
-static void obj_add_data(Object *obj, const Compiler *compiler) {
+static void obj_add_data(Object *obj, const Compiler *compiler,
+                         Bump *obj_bump) {
   obj->text_section_data = compiler->program_data;
   obj->text_section_size = compiler->program_data_size;
 
-  obj->data_section_data = malloc(compiler->data_section.data_len);
+  obj->data_section_data =
+      bump_alloc(obj_bump, compiler->data_section.data_len);
   obj->data_section_size = compiler->data_section.data_len;
   data_section_write_bytes(&compiler->data_section, obj->data_section_data);
 
-  obj->rodata_section_data = malloc(compiler->rodata_section.data_len);
+  obj->rodata_section_data =
+      bump_alloc(obj_bump, compiler->rodata_section.data_len);
   obj->rodata_section_size = compiler->rodata_section.data_len;
   data_section_write_bytes(&compiler->rodata_section, obj->rodata_section_data);
 }
 
-static size_t obj_string_table_add(Object *obj, char *symbol) {
+static size_t obj_string_table_add(Object *obj, char *symbol,
+                                   Allocator *allocator) {
   size_t symbol_len = strlen(symbol);
   if (obj->strtab_section_capacity <= obj->strtab_section_size + symbol_len) {
     obj->strtab_section_capacity *= 2;
-    obj->strtab_section_data =
-        realloc(obj->strtab_section_data, obj->strtab_section_capacity + 1);
+    obj->strtab_section_data = allocator_realloc(
+        allocator, obj->strtab_section_data, obj->strtab_section_size,
+        obj->strtab_section_capacity + 1);
   }
   memcpy(obj->strtab_section_data + obj->strtab_section_size, symbol,
          symbol_len + 1);
@@ -116,8 +123,8 @@ static size_t obj_string_table_add(Object *obj, char *symbol) {
   return old_size;
 }
 
-static void obj_symbol_table_add_foreign_func(Object *obj, char *func_name) {
-  size_t name_idx = obj_string_table_add(obj, func_name);
+static void obj_symbol_table_add_foreign_func(Object *obj, char *func_name, Allocator *obj_bump_alloc) {
+  size_t name_idx = obj_string_table_add(obj, func_name, obj_bump_alloc);
 
   Elf64_Sym foreign_func_sym = {0};
   foreign_func_sym.st_name = name_idx;
@@ -135,18 +142,23 @@ void compiler_write(Compiler *compiler, FILE *file) {
     log_info("[COMPILER] Start writing object file");
   }
 
+  Bump obj_bump = {0};
+  bump_init(&obj_bump, 16000);
+  Allocator obj_bump_alloc = {0};
+  bump_allocator_init(&obj_bump_alloc, &obj_bump);
+
   Object obj = {0};
 
-  obj.strtab_section_data = malloc(512 + 1);
+  obj.strtab_section_data = bump_alloc(&obj_bump, 512 + 1);
   memcpy(obj.strtab_section_data, "\0", 2);
   obj.strtab_section_size = 1;
   obj.strtab_section_capacity = 512;
 
-  obj.symbols = array_new(Elf64_Sym, &HEAP_ALLOCATOR);
-  obj.relocations = array_new(Elf64_Rela, &HEAP_ALLOCATOR);
+  obj.symbols = array_new(Elf64_Sym, &obj_bump_alloc);
+  obj.relocations = array_new(Elf64_Rela, &obj_bump_alloc);
 
   /* Section contents */
-  obj_add_data(&obj, compiler);
+  obj_add_data(&obj, compiler, &obj_bump);
 
   /* --- Symbols --- */
   Elf64_Sym sym_null = {0};
@@ -169,7 +181,7 @@ void compiler_write(Compiler *compiler, FILE *file) {
 
   /* Symbols */
   hashmap_foreach(&compiler->symbols, Ident * key, size_t *val, {
-    size_t name_idx = obj_string_table_add(&obj, *key);
+    size_t name_idx = obj_string_table_add(&obj, *key, &obj_bump_alloc);
 
     Elf64_Sym sym = {0};
     sym.st_name = name_idx;
@@ -189,7 +201,7 @@ void compiler_write(Compiler *compiler, FILE *file) {
     switch (reloc.rel_type) {
     case RELOCATION_FUNCTION: {
       size_t sym_idx = array_len(obj.symbols);
-      obj_symbol_table_add_foreign_func(&obj, reloc.symbol);
+      obj_symbol_table_add_foreign_func(&obj, reloc.symbol, &obj_bump_alloc);
       /* Uses 1 as an additional offset because thats the opcode length of the
        * call instruction */
       rela.r_offset = reloc.program_offset + 1;
@@ -302,7 +314,7 @@ void compiler_write(Compiler *compiler, FILE *file) {
   sh_symtab->sh_size = sizeof(Elf64_Sym) * array_len(obj.symbols);
   sh_symtab->sh_link = STRTAB_INDEX;
   sh_symtab->sh_info = 4; // 5 because that is the index of the main symbol. All
-                          // symbols >= 4 are global
+                          // symbols >= 4 are globalü
   sh_symtab->sh_addralign = 8;
   sh_symtab->sh_entsize = sizeof(Elf64_Sym);
 
@@ -326,4 +338,8 @@ void compiler_write(Compiler *compiler, FILE *file) {
   sh_shstrtab->sh_addralign = 1;
 
   obj_write(&obj, file);
+
+  bump_free(&obj_bump);
+
+  free(compiler->program_data);
 }

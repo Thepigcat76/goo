@@ -1,10 +1,11 @@
 #include "../include/types.h"
+#include <lilc/alloc.h>
 #include <lilc/str.h>
 #include <stdbool.h>
 
 dyn_string_t type_format(const TypeFormatter *fmt, const Type *type) {
   dyn_string_t str = {0};
-  dyn_string_init(&str);
+  dyn_string_init(&str, &HEAP_ALLOCATOR);
 
   switch (type->kind) {
   case TYPE_IDENT: {

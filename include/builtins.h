@@ -18,3 +18,5 @@ extern BuiltinFunction FORMAT_FUNCTION;
 extern BuiltinFunction EXIT_FUNCTION;
 
 void builtin_functions_init(TypeTable *global_table);
+
+void builtin_functions_deinit(TypeTable *global_type_table);

@@ -93,7 +93,9 @@ typedef struct _typed_ident {
   Type type;
 } TypedIdent;
 
-void builtin_types_init();
+void builtin_types_init(void);
+
+void builtin_types_deinit(void);
 
 bool type_eq(const Type *a, const Type *b);
 

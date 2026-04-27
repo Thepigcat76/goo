@@ -2,6 +2,7 @@
 #include "lilc/eq.h"
 #include "lilc/hash.h"
 #include "lilc/log.h"
+#include <lilc/alloc.h>
 #include <lilc/hashmap.h>
 #include <threads.h>
 
@@ -987,7 +988,7 @@ static void stmt_compile(Compiler *compiler, const Statement *stmt) {
         DataSection *data_section =
             stmt_decl.mut ? &compiler->data_section : &compiler->rodata_section;
         if (expr.kind == EXPR_FUNCTION) {
-          ModulePath func_name_mod_path = module_path_copy(&compiler->mod_path);
+          ModulePath func_name_mod_path = module_path_copy(&compiler->mod_path, &compiler->compiler_arena_allocator);
           array_add(func_name_mod_path.path, stmt_decl.name);
           Ident *module_func_name =
               hashmap_value(&compiler->mangled_functions, &func_name_mod_path);
@@ -1086,7 +1087,7 @@ static void stmt_compile(Compiler *compiler, const Statement *stmt) {
   case STMT_RETURN: {
     StmtReturn stmt_return = stmt->var.stmt_return;
     if (stmt_return.has_ret_val) {
-      ModulePath func_name = module_path_root(compiler->context.function_name);
+      ModulePath func_name = module_path_root(compiler->context.function_name, &HEAP_ALLOCATOR);
       TypeTableValue *type_table_val =
           hashmap_value(&compiler->type_tables[0].type_table, &func_name);
 
@@ -1130,7 +1131,7 @@ static void stmt_compile(Compiler *compiler, const Statement *stmt) {
     StackObject *stack_obj = hashmap_value(&compiler->cur_frame.symbol_table,
                                            &stmt_assign.left_ident.ident);
     if (stack_obj != NULL) {
-      ModulePath mod_path = module_path_root(stmt_assign.left_ident.ident);
+      ModulePath mod_path = module_path_root(stmt_assign.left_ident.ident, &HEAP_ALLOCATOR);
       
       ExprCompileResult expr_compile_res =
           expr_compile(compiler, &stmt_assign.right_expr, EXPR_COMPILE_CTX());

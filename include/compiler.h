@@ -3,6 +3,7 @@
 #include "ast.h"
 #include "ins.h"
 #include "shared.h"
+#include <lilc/alloc.h>
 #include <stdio.h>
 
 typedef struct {
@@ -133,11 +134,17 @@ typedef struct {
 
   /* Context */
   CompileContext context;
+
+  Bump compiler_arena;
+  Allocator compiler_arena_allocator;
 } Compiler;
 
-Compiler compiler_new(const Statement *stmts, TypeTable *type_tables,
-                      Hashmap(ModulePath, Ident) mangled_functions,
-                      ModulePath mod_path);
+void compiler_init(Compiler *compiler, const Statement *stmts,
+                   TypeTable *type_tables,
+                   Hashmap(ModulePath, Ident) mangled_functions,
+                   ModulePath mod_path);
+
+void compiler_deinit(Compiler *compiler);
 
 void compiler_compile(Compiler *compiler);
 

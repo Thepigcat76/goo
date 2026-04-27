@@ -8,16 +8,14 @@
 #include <stdio.h>
 #include <string.h>
 
-#define LEXER_ARENA_SIZE 16000
-
 void lexer_init(Lexer *lexer) {
   lexer->tokens = array_new(Token, &HEAP_ALLOCATOR);
   lexer->lines = array_new(LexerLine, &HEAP_ALLOCATOR);
   lexer->line = 1;
   lexer->pos = 1;
 
-  uint8_t *lexer_arena = malloc(LEXER_ARENA_SIZE);
-  bump_init(&lexer->arena, lexer_arena, LEXER_ARENA_SIZE);
+  bump_init(&lexer->tok_arena, 16000);
+  bump_allocator_init(&lexer->tok_arena_allocator, &lexer->tok_arena);
 }
 
 void lexer_deinit(Lexer *lexer) {
@@ -226,16 +224,11 @@ void lexer_tokenize(Lexer *lexer, const char *src, const char *filename) {
       const char *begin = lexer->cur_char;
       size_t begin_pos = lexer->pos;
       size_t cap = 256;
-      char *ident = malloc(cap);
+      dyn_string_t ident = {0};
+      dyn_string_init(&ident, &lexer->tok_arena_allocator);
 
-      size_t i = 0;
       while (isalnum(*lexer->cur_char) || *lexer->cur_char == '_') {
-        if (i >= cap - 1) {
-          cap *= 2;
-          ident = realloc(ident, cap);
-        }
-
-        ident[i++] = *lexer->cur_char;
+        dyn_string_add_char(&ident, *lexer->cur_char);
 
         char peek_char = *(lexer->cur_char + 1);
         if (peek_char != '\0' && (isalnum(peek_char) || peek_char == '_')) {
@@ -244,42 +237,38 @@ void lexer_tokenize(Lexer *lexer, const char *src, const char *filename) {
           break;
         }
       }
-      ident[i] = '\0';
 
-      char *arena_ident = bump_alloc(&lexer->arena, i + 1);
-      strncpy(arena_ident, ident, i + 1);
+      char *ident_str = ident.string;
 
-      if (strcmp(ident, "cast") == 0) {
+      if (strcmp(ident_str, "cast") == 0) {
         tok.kind = TOKEN_CAST;
-      } else if (strcmp(ident, "struct") == 0) {
+      } else if (strcmp(ident_str, "struct") == 0) {
         tok.kind = TOKEN_STRUCT;
-      } else if (strcmp(ident, "if") == 0) {
+      } else if (strcmp(ident_str, "if") == 0) {
         tok.kind = TOKEN_IF;
-      } else if (strcmp(ident, "comptime") == 0) {
+      } else if (strcmp(ident_str, "comptime") == 0) {
         tok.kind = TOKEN_COMPTIME;
-      } else if (strcmp(ident, "in") == 0) {
+      } else if (strcmp(ident_str, "in") == 0) {
         tok.kind = TOKEN_IN;
-      } else if (strcmp(ident, "it") == 0) {
+      } else if (strcmp(ident_str, "it") == 0) {
         tok.kind = TOKEN_IT;
-      } else if (strcmp(ident, "foreign") == 0) {
+      } else if (strcmp(ident_str, "foreign") == 0) {
         tok.kind = TOKEN_FOREIGN;
-      } else if (strcmp(ident, "for") == 0) {
+      } else if (strcmp(ident_str, "for") == 0) {
         tok.kind = TOKEN_FOR;
-      } else if (strcmp(ident, "return") == 0) {
+      } else if (strcmp(ident_str, "return") == 0) {
         tok.kind = TOKEN_RETURN;
-      } else if (strcmp(ident, "true") == 0 || strcmp(ident, "false") == 0) {
+      } else if (strcmp(ident_str, "true") == 0 || strcmp(ident_str, "false") == 0) {
         tok.kind = TOKEN_BOOL;
-        tok.var.boolean = strcmp(ident, "true") == 0;
+        tok.var.boolean = strcmp(ident_str, "true") == 0;
       } else {
         tok.kind = TOKEN_IDENT;
-        tok.var.ident = arena_ident;
+        tok.var.ident = ident_str;
       }
       tok.begin_pos = begin_pos;
       tok.line = lexer->line;
       tok.begin = begin;
-      tok.len = i;
-
-      free(ident);
+      tok.len = ident.len;
     } else if (*lexer->cur_char == '"') {
       const char *begin = lexer->cur_char;
       size_t begin_pos = lexer->pos;
@@ -297,7 +286,7 @@ void lexer_tokenize(Lexer *lexer, const char *src, const char *filename) {
       }
       string[i] = '\0';
 
-      char *arena_string = bump_alloc(&lexer->arena, i + 1);
+      char *arena_string = bump_alloc(&lexer->tok_arena, i + 1);
       strncpy(arena_string, string, i + 1);
 
       tok = (Token){.kind = TOKEN_STRING,

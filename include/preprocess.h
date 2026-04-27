@@ -67,6 +67,8 @@ typedef struct {
   Hashmap(char *, ComptimeBuiltinFunction) comptime_functions;
 } PreProcessor;
 
-PreProcessor preprocessor_new(Statement *stmts, PpDirective *pp_dirs);
+void preprocessor_init(PreProcessor *preprocessor, Statement *stmts, PpDirective *pp_dirs);
+
+void preprocessor_deinit(PreProcessor *pp);
 
 void preprocessor_process(PreProcessor *preprocessor);

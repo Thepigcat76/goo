@@ -99,10 +99,11 @@ static ExprBlock *transform_generic_block(TypeChecker *checker,
                                           ExprBlock *block,
                                           Hashmap(Ident *, Type)
                                               generics_lookup) {
-  array_foreach(block->statements, Statement, stmt, {
-    switch (stmt.kind) {
+  Statement *stmt;
+  array_foreach(block->statements, stmt) {
+    switch (stmt->kind) {
     case STMT_DECL: {
-      StmtDecl *stmt_decl = &stmt.var.stmt_decl;
+      StmtDecl *stmt_decl = &stmt->var.stmt_decl;
       if (stmt_decl->type.present) {
         stmt_decl->type.type =
             try_transform_generic_type(&stmt_decl->type.type, generics_lookup);
@@ -112,7 +113,7 @@ static ExprBlock *transform_generic_block(TypeChecker *checker,
       break;
     }
     case STMT_EXPR: {
-      transform_generic_expr(checker, &stmt.var.stmt_expr.expr,
+      transform_generic_expr(checker, &stmt->var.stmt_expr.expr,
                              generics_lookup);
       break;
     }
@@ -120,7 +121,7 @@ static ExprBlock *transform_generic_block(TypeChecker *checker,
       break;
     }
     }
-  });
+  }
   return block;
 }
 

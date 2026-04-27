@@ -80,7 +80,8 @@ typedef struct {
   LexerLine *lines;
   int line;
   int pos;
-  Bump arena;
+  Bump tok_arena;
+  Allocator tok_arena_allocator;
 } Lexer;
 
 extern Allocator LEXER_ARENA_ALLOCATOR;
