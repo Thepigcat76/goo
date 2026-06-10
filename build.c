@@ -4,6 +4,7 @@
 
 #include "gurd.h"
 #include <stdio.h>
+#include <string.h>
 
 #define COMPILER "clang"
 #define STANDARD "gnu23"
@@ -48,21 +49,37 @@ int main(int argc, char **argv) {
   // Run the command
   cmd_execute(&cmd);
 
-  if (argc > 1) {
-    if (strcmp(argv[1], "r") == 0) {
-      if (argc > 2) {
-        char args[1024];
-        for (int i = 2; i < argc; i++) {
-          strcat(args, argv[i]);
-          if (i - 1 == argc) {
-            strcat(args, " ");
-          }
+  bool run = arg_eq(argc, argv, 1, "r");
+
+  bool debug = run && (args_contains(argc, argv, "--debug") != -1 ||
+                       args_contains(argc, argv, "-d") != -1);
+
+  int args_arg_idx = args_contains(argc, argv, "--args");
+
+  if (run) {
+    char args[1024] = {'\0'};
+
+    if (args_arg_idx != -1 && args_arg_idx + 1 < argc) {
+      for (int i = args_arg_idx + 1; i < argc; i++) {
+        printf("ARG ADDED: %s\n", argv[i]);
+        strcat(args, argv[i]);
+        if (i + 1 < argc) {
+          strcat(args, " ");
         }
-        systemf("./%s %s", OUT_NAME, args);
-      } else {
-        systemf("./%s", OUT_NAME);
       }
     }
+
+    char exec_cmd[256];
+    sprintf(exec_cmd, "./%s", OUT_NAME);
+
+    if (debug) {
+      sprintf(exec_cmd, "gdb --args ./%s", OUT_NAME);
+    }
+
+    printf("%s\n", args);
+
+    systemf("%s %s", exec_cmd, args);
+    printf("%s %s\n", exec_cmd, args);
   }
 }
 

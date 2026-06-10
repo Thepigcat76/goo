@@ -1,5 +1,5 @@
-#include "../include/checker.h"
-#include "../include/types.h"
+#include "../../include/checker.h"
+#include "../../include/types.h"
 #include "lilc/array.h"
 #include "lilc/eq.h"
 #include "lilc/hash.h"

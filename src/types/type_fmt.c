@@ -1,4 +1,4 @@
-#include "../include/types.h"
+#include "../../include/types.h"
 #include <lilc/alloc.h>
 #include <lilc/str.h>
 #include <stdbool.h>

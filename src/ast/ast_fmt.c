@@ -1,4 +1,4 @@
-#include "../include/ast.h"
+#include "../../include/ast.h"
 #include "lilc/str.h"
 #include <lilc/alloc.h>
 #include <lilc/array.h>

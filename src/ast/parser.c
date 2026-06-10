@@ -1,5 +1,5 @@
-#include "../include/parser.h"
-#include "../include/preprocess.h"
+#include "../../include/parser.h"
+#include "../../include/preprocess.h"
 #include "lilc/alloc.h"
 #include "lilc/array.h"
 #include "lilc/eq.h"

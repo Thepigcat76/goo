@@ -5,6 +5,6 @@
 #gcc output/modules.o output/files.o output/io.o -o output/bin
 #./output/bin
 
-gurd r tests/modules.goo
-#gcc output/out.o -lraylib print_int.a -o ./output/bin # This just links the program, it doesnt have anything to do with compilation
-#./output/bin
+gurd r --args tests/modules.goo -o output/modules.o
+gcc output/modules.o -lraylib print_int.a -o ./output/bin # This just links the program, it doesnt have anything to do with compilation
+./output/bin

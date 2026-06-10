@@ -1,4 +1,4 @@
-#include "../include/types.h"
+#include "../../include/types.h"
 #include "lilc/array.h"
 #include "lilc/todo.h"
 #include "lilc/eq.h"

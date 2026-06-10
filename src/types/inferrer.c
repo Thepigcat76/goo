@@ -1,4 +1,4 @@
-#include "../include/inferrer.h"
+#include "../../include/inferrer.h"
 
 static void infer_expr(Expression *expr) {
   switch (expr->kind) {
