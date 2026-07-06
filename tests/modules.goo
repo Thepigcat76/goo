@@ -1,8 +1,23 @@
-foreign print_int(i: u8)
+foreign print_u16(byte: u16)
+foreign print_int(i: i32)
+foreign print_bool(b: bool)
+
+add_random_num :: (num: *i32) {
+  ~num = 20
+}
 
 main :: () {
-  x := []u8{90, 80, 70, 60, 50, 40, 30, 20, 10, 3}
-  i: u8 = 5
-  print_int(x[i])
-  
+  byte := false
+  print_bool(byte)
+
+  i = 10
+  add_random_num(&i)
+  print_int(i)
+
+  i_ptr = &i
+
+  ~i_ptr = 400
+
+  print_int(i)
+
 }

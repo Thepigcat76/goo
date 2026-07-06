@@ -1,12 +1,21 @@
 #include "../include/shared.h"
 #include "lilc/log.h"
-#include "lilc/panic.h"
-#include <ctype.h>
 #include <lilc/alloc.h>
 #include <lilc/dynstr.h>
 #include <lilc/file.h>
 #include <stdio.h>
 #include <string.h>
+
+// clang-format off
+// full-option, short-option, desc for option
+const char *CLI_OPTIONS[] = {
+  "--version", "-v", "Display version information (does not require input file)",
+  "--help", "-h", "Display help information (this information) (does not require input file)",
+  "--output", "-o", "Specify the output path",
+  "--module-path", "-mp", "Specify the module path of the input file. (Example: '-mp core.io.files')",
+  "--debug-info=<option>", "-di=<option>", "Enable a specific type of debug information like logs, internal warnings and errors"
+};
+// clang-format on
 
 typedef struct {
   enum {
@@ -50,12 +59,8 @@ static void args_parse(CliArgs *args, char **argv, size_t argc) {
 
   struct compile_file *compile_file = &args->compile_file;
 
-  log_debug("Parsing args");
-
-  int i = 1;
+  size_t i = 1;
   while (i < argc) {
-    log_debug("ARG: %s", argv[i]);
-
     if (i == 1) {
       if (argv[i][0] != '-') {
         args->kind = ARG_COMPILE_FILE;
@@ -195,22 +200,49 @@ void cli_run(char **argv, size_t argc) {
 #define GOO_VERSION_RELEASE_DATE "2026-04-26"
 #endif
 
-constexpr char HELP_INFO[] =
-    "Goo is a tool for compiling and managing goo source code.\n"
-    "\n"
-    "Usage: goo <input_filename> [options]\n"
-    "Options:\n"
-    "  --version     (-v)                    Display version information (does not require an input file).\n"
-    "  --help        (-h)                    Display this information (does not require an input file).\n"
-    "  --ouput       (-o)  <out_filename>    Specify the output path.\n"
-    "  --module-path (-mp) <module_path>     Specify the module path of the "
-    "input file. (Example: '-mp core.io.files')\n"
-    "  --debug-info  (-di)                   Enable debug information like "
-    "logs, internal warnings and errors.";
+static void print_help(FILE *out) {
+  dyn_string_t str = {0};
+  dyn_string_init(&str, &HEAP_ALLOCATOR);
 
-static void print_help(FILE *out) { fputs(HELP_INFO, out); }
+  size_t CLI_OPTIONS_len = sizeof(CLI_OPTIONS) / sizeof(char *);
+
+  size_t full_opt_max_len = 0;
+  size_t short_opt_max_len = 0;
+  size_t info_max_len = 0;
+
+  for (size_t i = 0; i < CLI_OPTIONS_len;) {
+    full_opt_max_len = max(full_opt_max_len, strlen(CLI_OPTIONS[i]));
+    short_opt_max_len = max(short_opt_max_len, strlen(CLI_OPTIONS[i + 1]));
+    info_max_len = max(info_max_len, strlen(CLI_OPTIONS[i + 2]));
+    i += 3;
+  }
+
+  dyn_string_add_str(&str, "Goo is a tool for compiling and managing goo source code\n");
+  dyn_string_add_str(&str, "Options:\n");
+
+  for (size_t i = 0; i < CLI_OPTIONS_len;) {
+    dyn_string_add_str(&str, "  ");
+    dyn_string_add_str(&str, CLI_OPTIONS[i]);
+    size_t full_opt_len = strlen(CLI_OPTIONS[i]);
+    size_t whitespace0 = full_opt_max_len - full_opt_len + 1;
+    for (size_t j = 0; j < whitespace0; j++) {
+      dyn_string_add_char(&str, ' ');
+    }
+    dyn_string_add_str(&str, CLI_OPTIONS[i + 1]);
+    size_t short_opt_len = strlen(CLI_OPTIONS[i + 1]);
+    size_t whitespace1 = short_opt_max_len - short_opt_len + 1;
+    for (size_t j = 0; j < whitespace1; j++) {
+      dyn_string_add_char(&str, ' ');
+    }
+    dyn_string_add_str(&str, CLI_OPTIONS[i + 2]);
+    dyn_string_add_char(&str, '\n');
+    i += 3;
+  }
+
+  fputs(str.string, out);
+}
 
 constexpr char VERSION_INFO[] =
-    "goo " GOO_VERSION " (" GOO_VERSION_RELEASE_DATE ")";
+    "goo " GOO_VERSION " (" GOO_VERSION_RELEASE_DATE ")\n";
 
 static void print_version(FILE *out) { fputs(VERSION_INFO, out); }

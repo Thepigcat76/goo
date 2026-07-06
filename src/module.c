@@ -1,4 +1,5 @@
 #include "../include/module.h"
+#include "../include/ast.h"
 
 void module_init(Module *module, const char *filename, const char *source) {
   module->filename = filename;
@@ -10,6 +11,6 @@ void module_init(Module *module, const char *filename, const char *source) {
 }
 
 void module_deinit(Module *module) {
-  hashmap_free(&module->functions);
-  array_free(module->decls);
+  //hashmap_free(&module->functions);
+  //array_free(module->decls);
 }

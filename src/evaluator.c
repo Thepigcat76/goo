@@ -540,13 +540,10 @@ OptionalObject evaluator_eval_stmt(Evaluator *evaluator, Statement *stmt) {
     }
     }
 
-    switch (stmt_assign.left_ident_kind) {
-    case ACCESS_TYPE_IDENT: {
-      environment_add(evaluator->cur_env, &stmt_assign.left_ident.ident,
+    switch (stmt_assign.left_expr.kind) {
+    case EXPR_IDENT: {
+      environment_add(evaluator->cur_env, &stmt_assign.left_expr.var.expr_ident.ident.path[0],
                       right_obj);
-      break;
-    }
-    case ACCESS_TYPE_STRUCT_ACCESS: {
       break;
     }
     }

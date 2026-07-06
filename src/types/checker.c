@@ -5,6 +5,7 @@
 #include "lilc/array.h"
 #include "lilc/eq.h"
 #include "lilc/hash.h"
+#include <lilc/dynstr.h>
 #include <lilc/hashmap.h>
 #include <lilc/log.h>
 #include <lilc/str.h>
@@ -109,7 +110,8 @@ static ModulePath module_path_resolve(TypeChecker *checker,
     size_t path_len = array_len(imported_path.path);
     Ident last_path_segment = imported_path.path[path_len - 1];
     if (strv_eq(path->path[0], last_path_segment)) {
-      ModulePath new_path = module_path_copy(&imported_path, &checker->checker_arena_allocator);
+      ModulePath new_path =
+          module_path_copy(&imported_path, &checker->checker_arena_allocator);
       for (size_t i = 1; i < array_len(path->path); i++) {
         array_add(new_path.path, path->path[i]);
       }
@@ -608,9 +610,29 @@ static Type check_stmt(TypeChecker *checker, Statement *stmt,
 
     return UNIT_BUILTIN_TYPE;
   }
+  case STMT_ASSIGN: {
+    StmtAssign stmt_assign = stmt->var.stmt_assign;
+    Type left_type = check_expr(checker, &stmt_assign.left_expr);
+    // if (val == NULL || !val->opt_type.present) {
+    //   log_error("Cannot assign to non-existing variable %s",
+    //             dyn_string_temp_copy_and_free(
+    //                 module_path_fmt(&stmt_assign.left_expr.ident)));
+    //   exit(1);
+    // }
+
+    Type right_type = check_expr(checker, &stmt_assign.right_expr);
+
+    if (!type_eq(&left_type, &right_type)) {
+      log_error("Cannot assign expr of type %s to expr of type %s",
+                type_format(&checker->type_fmt, &right_type).string,
+                type_format(&checker->type_fmt, &left_type).string);
+    }
+
+    return UNIT_BUILTIN_TYPE;
+  } break;
   case STMT_DECL: {
     OptionalType opt_type = stmt->var.stmt_decl.type;
-    if (stmt->var.stmt_decl.value.kind != EXPR_VAR_TYPE_EXPR) {
+    if (stmt->var.stmt_decl.value.kind == EXPR_VAR_REG_EXPR) {
       Expression decl_val = stmt->var.stmt_decl.value.var.expr_var_reg_expr;
       if (opt_type.present) {
         checker->hint.hint = &opt_type.type;
@@ -623,7 +645,8 @@ static Type check_stmt(TypeChecker *checker, Statement *stmt,
           GenericFunction func = {
               .generics = array_new(Ident, &HEAP_ALLOCATOR),
               .callers_args = array_new(CallerArgs, &HEAP_ALLOCATOR),
-              .caller_exprs = array_new(ExprCall *, &HEAP_ALLOCATOR)};
+              .caller_exprs = array_new(ExprCall *, &HEAP_ALLOCATOR),
+          };
 
           for (size_t i = 0; i < array_len(func.generics); i++) {
             array_add(func.generics, generics[i].name);
@@ -648,13 +671,16 @@ static Type check_stmt(TypeChecker *checker, Statement *stmt,
           exit(1);
         }
       } else {
+        log_debug("Value type: %s - kind: %d",
+                  dyn_string_temp_copy_and_free(
+                      type_format(&checker->type_fmt, &value_type)),
+                  value_type.kind);
         opt_type.type = value_type;
         opt_type.present = true;
       }
-    }
 
-    if (stmt->var.stmt_decl.value.kind == EXPR_VAR_REG_EXPR) {
-      ModulePath decl_path = module_path_root(stmt->var.stmt_decl.name, &checker->checker_arena_allocator);
+      ModulePath decl_path = module_path_root(
+          stmt->var.stmt_decl.name, &checker->checker_arena_allocator);
       type_table_add(
           checker->cur_type_table, &decl_path,
           EXPR_VAR_EXPR(stmt->var.stmt_decl.value.var.expr_var_reg_expr),
@@ -671,16 +697,15 @@ static Type check_stmt(TypeChecker *checker, Statement *stmt,
             ModulePath *ty_ident = &field->type.var.type_ident;
             TypeTableValue *actual_type = type_table_get(
                 checker->cur_type_table, ty_ident, checker->global_type_table);
-            if (actual_type != NULL) {
-              if (actual_type->expr_variant.kind == EXPR_VAR_TYPE_EXPR) {
-                TypeExpr resolved_ty_expr =
-                    actual_type->expr_variant.var.expr_var_type_expr;
-                if (resolved_ty_expr.kind == TYPE_EXPR_STRUCT) {
-                  field->type = (Type){
-                      .kind = TYPE_STRUCT,
-                      .var = {.type_struct = create_struct_from_expr(
-                                  &resolved_ty_expr.var.type_expr_struct)}};
-                }
+            if (actual_type != NULL &&
+                actual_type->expr_variant.kind == EXPR_VAR_TYPE_EXPR) {
+              TypeExpr resolved_ty_expr =
+                  actual_type->expr_variant.var.expr_var_type_expr;
+              if (resolved_ty_expr.kind == TYPE_EXPR_STRUCT) {
+                field->type = (Type){
+                    .kind = TYPE_STRUCT,
+                    .var = {.type_struct = create_struct_from_expr(
+                                &resolved_ty_expr.var.type_expr_struct)}};
               }
             }
           }
@@ -691,7 +716,7 @@ static Type check_stmt(TypeChecker *checker, Statement *stmt,
     }
 
     return UNIT_BUILTIN_TYPE;
-  }
+  } break;
   case STMT_FOREIGN: {
     StmtForeign stmt_foreign = stmt->var.stmt_foreign;
     ExprFunction expr_function = {

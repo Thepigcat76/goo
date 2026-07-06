@@ -6,5 +6,5 @@
 #./output/bin
 
 gurd r --args tests/modules.goo -o output/modules.o
-gcc output/modules.o -lraylib print_int.a -o ./output/bin # This just links the program, it doesnt have anything to do with compilation
+gcc output/modules.o -lraylib tests/print_int.a -o ./output/bin # This just links the program, it doesnt have anything to do with compilation
 ./output/bin

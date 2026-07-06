@@ -1,4 +1,6 @@
+#define INS_IMPL
 #include "../include/ins.h"
+#undef INS_IMPL
 #include <lilc/log.h>
 #include <stdint.h>
 
@@ -30,8 +32,12 @@ uint8_t mod_rm_gen(ModRM mod_rm) {
 static size_t imm_gen(const Instruction *ins, uint8_t *ins_bytes,
                       size_t ins_len) {
   size_t imm_len;
-  if (ins->flags.imm8) {
+  if (ins->flags.imm8 || ins->imm_size == 1) {
     imm_len = 1;
+  } else if (ins->imm_size == 8) {
+    imm_len = 8;
+  } else if (ins->imm_size == 2) {
+    imm_len = 2;
   } else {
     imm_len = 4;
   }

@@ -1,6 +1,7 @@
 #include <limits.h>
 #include <stdio.h>
 #include <raylib.h>
+#include <stdint.h>
 
 void draw_rect(int x, int y, int width, int height) {
   DrawRectangle(x, y, width, height, WHITE);
@@ -24,4 +25,20 @@ int is_key_down(int key) {
 
 void print_int_ptr(int *ip) {
   printf("%d\n", *ip);
+}
+
+void print_u8(uint8_t byte) {
+  printf("%d\n", byte);
+}
+
+void print_u16(uint16_t s) {
+  printf("%d\n", s);
+}
+
+void print_bool(bool s) {
+  printf("%s\n", s ? "True" : "False");
+}
+
+void add_random_num(int *i) {
+  *i += 20;
 }

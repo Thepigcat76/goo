@@ -2,7 +2,6 @@
 
 /* Every file is its own module. Relevant for importing and compilation */
 
-#include "ast.h"
 #include "types.h"
 #include <lilc/alloc.h>
 #include <lilc/hashmap.h>

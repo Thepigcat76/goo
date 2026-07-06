@@ -6,5 +6,4 @@ main :: () {
   integer_deref: i32 = ~i_ptr
 
   printfn("integer: %, pointer: %", integer, i_ptr)
-
 }

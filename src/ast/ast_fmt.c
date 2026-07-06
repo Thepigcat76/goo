@@ -52,13 +52,13 @@ static dyn_string_t module_path_format(Formatter *fmt, const ModulePath *path) {
 
 static dyn_string_t expr_list_format(Formatter *fmt, const Expression *exprs);
 
-static dyn_string_t expr_format(Formatter *fmt, const Expression *expr) {
+static dyn_string_t expr_format0(Formatter *fmt, const Expression *expr) {
   dyn_string_t str = {0};
   dyn_string_init(&str, &HEAP_ALLOCATOR);
   switch (expr->kind) {
   case EXPR_CAST: {
     dyn_string_printf(&str, "ExprCast{type=, expr=%s}",
-                      expr_format(fmt, expr->var.expr_cast.expr).string);
+                      expr_format0(fmt, expr->var.expr_cast.expr).string);
     break;
   }
   case EXPR_ARRAY_INIT: {
@@ -140,8 +140,8 @@ static dyn_string_t expr_format(Formatter *fmt, const Expression *expr) {
       break;
     }
 
-    char *left = expr_format(fmt, expr_bin_op.left).string;
-    char *right = expr_format(fmt, expr_bin_op.right).string;
+    char *left = expr_format0(fmt, expr_bin_op.left).string;
+    char *right = expr_format0(fmt, expr_bin_op.right).string;
 
     dyn_string_printf(&str, "ExprBinOp{%s %s %s}", left, op, right);
     break;
@@ -153,6 +153,8 @@ static dyn_string_t expr_format(Formatter *fmt, const Expression *expr) {
     break;
   }
   case EXPR_PTR_DEREF: {
+    char *deref_expr = expr_format0(fmt, expr->var.expr_ptr_deref.expr).string;
+    dyn_string_printf(&str, "ExprPtrDeref{%s}", deref_expr);
     break;
   }
   case EXPR_ADDR_OF: {
@@ -171,12 +173,17 @@ static dyn_string_t expr_format(Formatter *fmt, const Expression *expr) {
   return str;
 }
 
+dyn_string_t expr_format(const Expression *expr) {
+  Formatter fmt = {0};
+  return expr_format0(&fmt, expr);
+}
+
 static dyn_string_t expr_list_format(Formatter *fmt, const Expression *exprs) {
   dyn_string_t str = {0};
   dyn_string_init(&str, &HEAP_ALLOCATOR);
 
   for (size_t i = 0; i < array_len(exprs); i++) {
-    dyn_string_add_str(&str, expr_format(fmt, &exprs[i]).string);
+    dyn_string_add_str(&str, expr_format0(fmt, &exprs[i]).string);
     if (i < array_len(exprs) - 1) {
       dyn_string_add_char(&str, ',');
     }
@@ -201,18 +208,18 @@ static dyn_string_t stmt_format(Formatter *fmt, const Statement *stmt) {
   case STMT_DECL: {
     dyn_string_printf(
         &str, "%sStmtDecl{name=%s, val=%s}", indent_buf, stmt->var.stmt_decl.name,
-        expr_format(fmt, &stmt->var.stmt_decl.value.var.expr_var_reg_expr)
+        expr_format0(fmt, &stmt->var.stmt_decl.value.var.expr_var_reg_expr)
             .string);
     break;
   }
   case STMT_EXPR: {
     dyn_string_printf(&str, "%sStmtExpr{expr=%s}", indent_buf,
-                      expr_format(fmt, &stmt->var.stmt_expr.expr).string);
+                      expr_format0(fmt, &stmt->var.stmt_expr.expr).string);
     break;
   }
   case STMT_RETURN: {
     dyn_string_printf(&str, "%sStmtReturn{val=%s}", indent_buf,
-                      expr_format(fmt, &stmt->var.stmt_return.ret_val).string);
+                      expr_format0(fmt, &stmt->var.stmt_return.ret_val).string);
     break;
   }
   case STMT_FOREIGN: {
@@ -221,9 +228,9 @@ static dyn_string_t stmt_format(Formatter *fmt, const Statement *stmt) {
   }
   case STMT_ASSIGN: {
     dyn_string_printf(
-        &str, "%sStmtAssign{ident=%s, val=%s}", indent_buf,
-        stmt->var.stmt_assign.left_ident.ident,
-        expr_format(fmt, &stmt->var.stmt_assign.right_expr).string);
+        &str, "%sStmtAssign{left=%s, right=%s}", indent_buf,
+        expr_format0(fmt, &stmt->var.stmt_assign.left_expr).string,
+        expr_format0(fmt, &stmt->var.stmt_assign.right_expr).string);
     break;
   }
   }

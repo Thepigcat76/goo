@@ -25,6 +25,8 @@ void cli_run(char **argv, size_t argc);
 
 void compile_input(const char *input_path, const char *output_path,
                  const char *raw_module_path) {
+  //todo();
+
   builtin_types_init();
 
   ModulePath module_path = parse_module_path_from_string(raw_module_path);
@@ -119,7 +121,7 @@ void compile_input(const char *input_path, const char *output_path,
   bump_free(&checker.checker_arena);
   bump_free(&compiler.compiler_arena);
 
-  hashmap_free(&mangled_functions);
+  //hashmap_free(&mangled_functions);
 
   builtin_types_deinit();
 

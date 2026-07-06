@@ -6,6 +6,7 @@
 #include "lilc/hash.h"
 #include "lilc/panic.h"
 #include <lilc/ansi.h>
+#include <lilc/dynstr.h>
 #include <lilc/hashmap.h>
 #include <lilc/log.h>
 #include <lilc/str.h>
@@ -41,6 +42,9 @@ typedef struct {
 } ParseResult;
 
 #define PARSE_RESULT(...) (ParseResult) __VA_ARGS__
+
+#define PARSE_RESULT_SUCCESS                                                   \
+  (ParseResult) { .success = true }
 
 #define EXPECTED_TOKEN_ERR(expected, received_ptr)                             \
   do {                                                                         \
@@ -217,7 +221,8 @@ static Type parse_type(Parser *parser) {
 // begin: cur_tok must be first ident or end
 // end: cur_tok is end
 static TypedIdent *parse_typed_ident_list(Parser *parser, TokenKind end) {
-  TypedIdent *idents = array_new_capacity(TypedIdent, 8, &parser->ast_arena_allocator);
+  TypedIdent *idents =
+      array_new_capacity(TypedIdent, 8, &parser->ast_arena_allocator);
   while (parser->cur_tok->kind != end) {
     TypedIdent ti;
     if (parser->cur_tok->kind == TOKEN_IDENT) {
@@ -322,7 +327,8 @@ static Type *parse_type_list(Parser *parser, TokenKind end) {
 // begin: cur_tok must be first token of first statement
 // end: cur_tok is end
 static Statement *parse_block_statements(Parser *parser, TokenKind end) {
-  Statement *stmts = array_new_capacity(Statement, 16, &parser->ast_arena_allocator);
+  Statement *stmts =
+      array_new_capacity(Statement, 16, &parser->ast_arena_allocator);
   while (parser->cur_tok->kind != end) {
     Statement stmt = parse_stmt(parser);
     array_add(stmts, stmt);
@@ -635,13 +641,13 @@ static ParseResult parse_expr(Parser *parser, Expression *expr) {
     *expr = (Expression){.kind = EXPR_STRING_LIT,
                          .var = {.expr_string_literal = {
                                      .string = parser->cur_tok->var.string}}};
-    return PARSE_RESULT({.success = true});
+    return PARSE_RESULT_SUCCESS;
   }
   case TOKEN_BOOL: {
     *expr = (Expression){.kind = EXPR_BOOLEAN_LIT,
                          .var = {.expr_boolean_literal = {
                                      .boolean = parser->cur_tok->var.boolean}}};
-    return PARSE_RESULT({.success = true});
+    return PARSE_RESULT_SUCCESS;
   }
   case TOKEN_LPAREN: {
     if (is_func_desc(parser)) {
@@ -666,7 +672,7 @@ static ParseResult parse_expr(Parser *parser, Expression *expr) {
       *expr = (Expression){
           .kind = EXPR_FUNCTION,
           .var = {.expr_function = {.desc = desc, .block = block_expr}}};
-      return PARSE_RESULT({.success = true});
+      return PARSE_RESULT_SUCCESS;
     } else {
       next_token(parser);
       Expression grouped_expr;
@@ -679,7 +685,7 @@ static ParseResult parse_expr(Parser *parser, Expression *expr) {
       next_token(parser);
 
       *expr = grouped_expr;
-      return PARSE_RESULT({.success = true});
+      return PARSE_RESULT_SUCCESS;
     }
   }
   case TOKEN_LCURLY: {
@@ -704,7 +710,8 @@ static ParseResult parse_expr(Parser *parser, Expression *expr) {
       // cur_tok is first expr
       next_token(parser);
 
-      Expression *exprs = array_new_capacity(Expression, 8, &parser->ast_arena_allocator);
+      Expression *exprs =
+          array_new_capacity(Expression, 8, &parser->ast_arena_allocator);
       ParseResult result = parse_expr_list(parser, exprs, TOKEN_RPAREN);
       if (!result.success) {
         size_t first_line = first_token.line;
@@ -731,7 +738,7 @@ static ParseResult parse_expr(Parser *parser, Expression *expr) {
                                        .function = resolved_path,
                                        .args = exprs,
                                    }}};
-      return PARSE_RESULT({.success = true});
+      return PARSE_RESULT_SUCCESS;
     } else if (parser->peek_tok->kind == TOKEN_LCURLY) {
       if (ident_is_struct(parser, &ident)) {
         // cur_tok is lcurly
@@ -746,7 +753,7 @@ static ParseResult parse_expr(Parser *parser, Expression *expr) {
             .kind = EXPR_STRUCT_INIT,
             .var = {.expr_struct_init = {.struct_name = ident,
                                          .field_inits = field_inits}}};
-        return PARSE_RESULT({.success = true});
+        return PARSE_RESULT_SUCCESS;
       }
     } /*else if (parser->peek_tok->kind == TOKEN_DOT &&
                (parser->peek_tok + 2)->type == TOKEN_LPAREN) {
@@ -774,13 +781,13 @@ static ParseResult parse_expr(Parser *parser, Expression *expr) {
     }*/
     *expr = (Expression){.kind = EXPR_IDENT,
                          .var = {.expr_ident = {.ident = raw_path}}};
-    return PARSE_RESULT({.success = true});
+    return PARSE_RESULT_SUCCESS;
   }
   case TOKEN_INT: {
     *expr = (Expression){.kind = EXPR_INTEGER_LIT,
                          .var = {.expr_integer_literal = {
                                      .integer = parser->cur_tok->var.integer}}};
-    return PARSE_RESULT({.success = true});
+    return PARSE_RESULT_SUCCESS;
   }
   case TOKEN_LANGLE: {
     Generic *generics;
@@ -840,7 +847,7 @@ static ParseResult parse_expr(Parser *parser, Expression *expr) {
     *expr = (Expression){
         .kind = EXPR_FUNCTION,
         .var = {.expr_function = {.desc = desc, .block = block_expr}}};
-    return PARSE_RESULT({.success = true});
+    return PARSE_RESULT_SUCCESS;
   }
   case TOKEN_LSQUARE: {
     printf("Left square tok :3\n");
@@ -899,7 +906,7 @@ static ParseResult parse_expr(Parser *parser, Expression *expr) {
         (Expression){.kind = EXPR_ARRAY_INIT,
                      .var = {.expr_array_init = {.type = type.var.type_array,
                                                  .items = exprs}}};
-    return PARSE_RESULT({.success = true});
+    return PARSE_RESULT_SUCCESS;
   }
   case TOKEN_IF: {
     // cur_tok is expression
@@ -934,7 +941,7 @@ static ParseResult parse_expr(Parser *parser, Expression *expr) {
           (Expression){.kind = EXPR_IF,
                        .var = {.expr_if = {.condition = heap_clone(&cond_expr),
                                            .block = {.statements = stmts}}}};
-      return PARSE_RESULT({.success = true});
+      return PARSE_RESULT_SUCCESS;
     }
     fprintf(stderr,
             "Failed to parse condition of if-statement. Error message: %s\n",
@@ -943,7 +950,7 @@ static ParseResult parse_expr(Parser *parser, Expression *expr) {
   }
   case TOKEN_IT: {
     *expr = (Expression){.kind = EXPR_IT};
-    return PARSE_RESULT({.success = true});
+    return PARSE_RESULT_SUCCESS;
   }
   case TOKEN_TILDE: {
     // cur_tok is first token of expr
@@ -967,7 +974,7 @@ static ParseResult parse_expr(Parser *parser, Expression *expr) {
     *expr = (Expression){
         .kind = EXPR_PTR_DEREF,
         .var = {.expr_ptr_deref = {.expr = heap_clone(&deref_expr)}}};
-    return PARSE_RESULT({.success = true});
+    return PARSE_RESULT_SUCCESS;
   }
   case TOKEN_AMPERSAND: {
     // cur_tok is first token of expr
@@ -991,7 +998,7 @@ static ParseResult parse_expr(Parser *parser, Expression *expr) {
     *expr = (Expression){
         .kind = EXPR_ADDR_OF,
         .var = {.expr_addr_of = {.expr = heap_clone(&addr_of_expr)}}};
-    return PARSE_RESULT({.success = true});
+    return PARSE_RESULT_SUCCESS;
   }
   case TOKEN_FOR: {
     // cur_tok is <var name> or range expr
@@ -1020,6 +1027,9 @@ static ParseResult parse_expr(Parser *parser, Expression *expr) {
         next_token(parser);
         Expression sec_expr;
         ParseResult sec_result = parse_expr1(parser, &sec_expr, PREC_LOWEST);
+        if (!sec_result.success) {
+          return sec_result;
+        }
         expr_for.range.max = heap_clone(&sec_expr);
       } else if (parser->peek_tok->kind == TOKEN_IN) {
         if (parser->cur_tok->kind != TOKEN_IDENT) {
@@ -1037,6 +1047,9 @@ static ParseResult parse_expr(Parser *parser, Expression *expr) {
         // TODO: handle min and max results
         Expression min_expr;
         ParseResult min_result = parse_expr1(parser, &min_expr, PREC_LOWEST);
+        if (!min_result.success) {
+          return min_result;
+        }
         expr_for.range.min = heap_clone(&min_expr);
 
         // cur_tok is TOKEN_RANGE
@@ -1046,6 +1059,9 @@ static ParseResult parse_expr(Parser *parser, Expression *expr) {
 
         Expression max_expr;
         ParseResult max_result = parse_expr1(parser, &max_expr, PREC_LOWEST);
+        if (!max_result.success) {
+          return max_result;
+        }
         expr_for.range.max = heap_clone(&max_expr);
       }
 
@@ -1068,8 +1084,8 @@ static ParseResult parse_expr(Parser *parser, Expression *expr) {
 
     expr_for.block.statements = block_stmts;
 
-    *expr = (Expression){.kind = EXPR_FOR, .var = {.expr_for = expr_for}};
-    return PARSE_RESULT({.success = true});
+    *expr = (Expression){.kind = EXPR_FOR, .var.expr_for = expr_for};
+    return PARSE_RESULT_SUCCESS;
   }
   case TOKEN_CAST: {
     if (parser->peek_tok->kind != TOKEN_LANGLE) {
@@ -1111,7 +1127,7 @@ static ParseResult parse_expr(Parser *parser, Expression *expr) {
     ExprCast expr_cast = {.type = type, .expr = malloc(sizeof(Expression))};
     memcpy(expr_cast.expr, &cast_expr, sizeof(Expression));
     *expr = (Expression){.kind = EXPR_CAST, .var = {.expr_cast = expr_cast}};
-    return PARSE_RESULT({.success = true});
+    return PARSE_RESULT_SUCCESS;
   }
   case TOKEN_RANGLE:
   case TOKEN_ARROW:
@@ -1312,8 +1328,10 @@ static Expression parse_array_access(Parser *parser, Expression expr) {
   if (result.success) {
     return (Expression){
         .kind = EXPR_ARRAY_ACCESS,
-        .var = {.expr_array_access = {.array_expr = bump_clone(&parser->ast_arena, &expr),
-                                      .index_expr = bump_clone(&parser->ast_arena, &index_expr)}}};
+        .var = {
+            .expr_array_access = {
+                .array_expr = bump_clone(&parser->ast_arena, &expr),
+                .index_expr = bump_clone(&parser->ast_arena, &index_expr)}}};
   }
   fprintf(stderr,
           "Failed to parse expression for array access, Error message: %s",
@@ -1354,7 +1372,7 @@ static ParseResult parse_expr1(Parser *parser, Expression *expr,
   }
 
   *expr = left_expr;
-  return PARSE_RESULT({.success = true});
+  return PARSE_RESULT_SUCCESS;
 }
 
 static TypeExpr parse_type_expr(Parser *parser) {
@@ -1471,7 +1489,8 @@ static StmtDecl parse_decl_stmt(Parser *parser, bool typed) {
     }
     case EXPR_VAR_REG_EXPR: {
       if (expr_var.var.expr_var_reg_expr.kind == EXPR_FUNCTION) {
-        ModulePath module_path = module_path_copy(&parser->path, &parser->ast_arena_allocator);
+        ModulePath module_path =
+            module_path_copy(&parser->path, &parser->ast_arena_allocator);
         array_add(module_path.path, stmt_decl.name);
 
         if (debug_flags.print_parse_info) {
@@ -1593,6 +1612,11 @@ static char *get_exec_dir(const char *exec_filename) {
   return _exec_dir_path;
 }
 
+static bool is_expr_assignable(const Expression *expr) {
+  return expr->kind == EXPR_IDENT || expr->kind == EXPR_PTR_DEREF ||
+         expr->kind == EXPR_STRUCT_ACCESS || expr->kind == EXPR_ARRAY_ACCESS;
+}
+
 static Statement parse_stmt(Parser *parser) {
   switch (parser->cur_tok->kind) {
   case TOKEN_RETURN: {
@@ -1653,32 +1677,37 @@ static Statement parse_stmt(Parser *parser) {
     Expression expr;
     ParseResult result = parse_expr1(parser, &expr, PREC_LOWEST);
     if (result.success) {
-      if ((expr.kind == EXPR_IDENT || expr.kind == EXPR_STRUCT_ACCESS) &&
-          parser->peek_tok->kind == TOKEN_ASSIGN) {
-        // cur_tok is TOKEN_ASSIGN
-        next_token(parser);
-        // cur_tok is right expr
-        next_token(parser);
-        Expression right_expr;
-        ParseResult right_result =
-            parse_expr1(parser, &right_expr, PREC_LOWEST);
-        if (!right_result.success) {
-          log_error("Failed to parse right-hand expression of StmtAssign, "
-                    "error: %s",
-                    right_result.error_msg);
-          exit(1);
+      if (parser->peek_tok->kind == TOKEN_ASSIGN) {
+        if (is_expr_assignable(&expr)) {
+          // cur_tok is TOKEN_ASSIGN
+          next_token(parser);
+          // cur_tok is right expr
+          next_token(parser);
+          Expression right_expr;
+          ParseResult right_result =
+              parse_expr1(parser, &right_expr, PREC_LOWEST);
+          if (!right_result.success) {
+            log_error("Failed to parse right-hand expression of StmtAssign, "
+                      "error: %s",
+                      right_result.error_msg);
+            exit(1);
+          }
+
+          Statement stmt = {
+              .kind = STMT_ASSIGN,
+              .var = {.stmt_assign =
+                          {
+                              .left_expr = expr,
+                              .right_expr = right_expr,
+                              .assign_kind = ASSIGN_REGULAR,
+                          }},
+          };
+
+          return stmt;
+        } else {
+          log_error("Cannot assign to expr %s",
+                    dyn_string_temp_copy_and_free(expr_format(&expr)));
         }
-        // TODO: Fix module path
-        return (Statement){
-            .kind = STMT_ASSIGN,
-            .var = {
-                .stmt_assign = {
-                    .left_ident_kind = expr.kind == EXPR_IDENT
-                                           ? ACCESS_TYPE_IDENT
-                                           : ACCESS_TYPE_STRUCT_ACCESS,
-                    .left_ident = {.ident = expr.var.expr_ident.ident.path[0]},
-                    .right_expr = right_expr,
-                    .assign_kind = ASSIGN_REGULAR}}};
       }
       return (Statement){.kind = STMT_EXPR,
                          .var = {.stmt_expr = {.expr = expr}}};

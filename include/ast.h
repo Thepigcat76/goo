@@ -269,14 +269,7 @@ typedef enum {
 } AssignKind;
 
 typedef struct {
-  enum {
-    ACCESS_TYPE_IDENT,
-    ACCESS_TYPE_STRUCT_ACCESS,
-  } left_ident_kind;
-  union {
-    Ident ident;
-    ExprStructAccess struct_access;
-  } left_ident;
+  Expression left_expr;
   Expression right_expr;
   AssignKind assign_kind;
 } StmtAssign;
@@ -302,3 +295,5 @@ typedef struct _stmt {
 } Statement;
 
 dyn_string_t ast_format(const Statement *stmts);
+
+dyn_string_t expr_format(const Expression *expr);

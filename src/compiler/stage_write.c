@@ -110,7 +110,7 @@ static size_t obj_string_table_add(Object *obj, char *symbol,
   size_t symbol_len = strlen(symbol);
   if (obj->strtab_section_capacity <= obj->strtab_section_size + symbol_len) {
     obj->strtab_section_capacity *= 2;
-    obj->strtab_section_data = allocator_realloc(
+    obj->strtab_section_data = allocator->realloc(
         allocator, obj->strtab_section_data, obj->strtab_section_size,
         obj->strtab_section_capacity + 1);
   }
@@ -123,7 +123,8 @@ static size_t obj_string_table_add(Object *obj, char *symbol,
   return old_size;
 }
 
-static void obj_symbol_table_add_foreign_func(Object *obj, char *func_name, Allocator *obj_bump_alloc) {
+static void obj_symbol_table_add_foreign_func(Object *obj, char *func_name,
+                                              Allocator *obj_bump_alloc) {
   size_t name_idx = obj_string_table_add(obj, func_name, obj_bump_alloc);
 
   Elf64_Sym foreign_func_sym = {0};

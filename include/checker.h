@@ -18,6 +18,7 @@ typedef struct {
   TypeTable *global_type_table;
 
   TypeHint hint;
+  bool infer_types;
 
   // Table of all functions that have generics
   // Maps the name of the function to the names
