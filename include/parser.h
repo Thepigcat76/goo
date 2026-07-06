@@ -6,6 +6,7 @@
 #include "preprocess.h"
 #include "shared.h"
 #include "ast.h"
+#include "errors.h"
 #include <stdbool.h>
 
 void *_internal_heap_clone(void *ptr, size_t size);
@@ -50,10 +51,20 @@ typedef struct {
   Module module;
   ModulePath path;
 
+  ErrorSink sink;
+
   // Stores additional ast data like arrays
   Bump ast_arena;
   Allocator ast_arena_allocator;
 } Parser;
+
+typedef struct {
+  char *error_msg;
+  bool success;
+  i32 line;
+  i32 pos;
+  i32 len;
+} ParseResult;
 
 void parser_init(Parser *parser, Token *tokens, const char *source, const char *filename, ModulePath path);
 

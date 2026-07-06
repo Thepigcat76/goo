@@ -19,6 +19,9 @@
 static Cmd cmd = {0};
 
 static void visit_entry(struct file_entry entry) {
+  if (strcmp(entry.file_ext, "c") != 0)
+    return;
+
   cmd_appendf(&cmd, "%s", entry.path);
 }
 
@@ -32,6 +35,8 @@ int main(int argc, char **argv) {
   // Output location
   cmd_appendf(&cmd, "-o");
   cmd_appendf(&cmd, OUT_NAME);
+  // Build system info
+  cmd_appendf(&cmd, "-DGURD");
   // Goo Version info
   cmd_appendf(&cmd, "-DGOO_VERSION=" GOO_VERSION);
   cmd_appendf(&cmd, "-DGOO_VERSION_RELEASE_DATE=" GOO_VERSION_RELEASE_DATE);

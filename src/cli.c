@@ -13,7 +13,7 @@ const char *CLI_OPTIONS[] = {
   "--help", "-h", "Display help information (this information) (does not require input file)",
   "--output", "-o", "Specify the output path",
   "--module-path", "-mp", "Specify the module path of the input file. (Example: '-mp core.io.files')",
-  "--debug-info=<option>", "-di=<option>", "Enable a specific type of debug information like logs, internal warnings and errors"
+  "--debug-flag=<option>", "-df=<option>", "Enable a specific type of debug information like logs, internal warnings and errors"
 };
 // clang-format on
 
@@ -65,7 +65,6 @@ static void args_parse(CliArgs *args, char **argv, size_t argc) {
       if (argv[i][0] != '-') {
         args->kind = ARG_COMPILE_FILE;
         compile_file->input_path = argv[i];
-        log_debug("compiling file");
         NEXT_ARG(i, argc);
       } else if (STR_CMP_OR(argv[i], "-h", "--help")) {
         args->kind = ARG_PRINT_HELP;
@@ -94,8 +93,8 @@ static void args_parse(CliArgs *args, char **argv, size_t argc) {
 
       NEXT_ARG(i, argc);
       compile_file->module_path = argv[i];
-    } else if (strncmp(argv[i], "-di", 3) == 0 ||
-               strncmp(argv[i], "--debug-info", strlen("--debug-info")) == 0) {
+    } else if (strncmp(argv[i], "-df", 3) == 0 ||
+               strncmp(argv[i], "--debug-flag", strlen("--debug-flag")) == 0) {
 
       log_debug("DEBUG INFO OPTION");
       if (args->kind != ARG_COMPILE_FILE) {
@@ -106,7 +105,7 @@ static void args_parse(CliArgs *args, char **argv, size_t argc) {
 
       size_t arg_len = strlen(argv[i]);
       size_t arg_prefix_len =
-          strncmp(argv[i], "-di", 3) == 0 ? 3 : strlen("--debug-info");
+          strncmp(argv[i], "-df", 3) == 0 ? 3 : strlen("--debug-flag");
 
       if (arg_len > 3 && argv[i][3] == '=') {
         char *value = argv[i] + arg_prefix_len + 1;
@@ -127,7 +126,9 @@ static void args_parse(CliArgs *args, char **argv, size_t argc) {
           compile_file->debug_flags.print_codegen_info = true;
         else if (strcmp(value, "print_obj_write_info") == 0)
           compile_file->debug_flags.print_obj_write_info = true;
-        else
+        else if (strcmp(value, "extra_parse_err_info") == 0) {
+          compile_file->debug_flags.extra_parse_err_info = true;
+        } else
           log_error("Invalid debug info option '%s'", value);
       } else {
         memset(&compile_file->debug_flags, 1, sizeof(struct debug_flags));
@@ -180,6 +181,8 @@ static void args_handle(CliArgs *args) {
       args->compile_file.module_path = "";
     }
 
+    debug_flags = args->compile_file.debug_flags;
+
     compile_input(args->compile_file.input_path, args->compile_file.output_path,
                   args->compile_file.module_path);
   } break;
@@ -217,7 +220,8 @@ static void print_help(FILE *out) {
     i += 3;
   }
 
-  dyn_string_add_str(&str, "Goo is a tool for compiling and managing goo source code\n");
+  dyn_string_add_str(
+      &str, "Goo is a tool for compiling and managing goo source code\n");
   dyn_string_add_str(&str, "Options:\n");
 
   for (size_t i = 0; i < CLI_OPTIONS_len;) {

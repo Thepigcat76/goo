@@ -199,8 +199,10 @@ typedef struct _expr {
     ExprIntegerLiteral expr_integer_literal;
     ExprBooleanLiteral expr_boolean_literal;
   } var;
-  const char *begin;
-  size_t len;
+  i32 line;
+  i32 lines_amount;
+  i32 pos;
+  i32 end_pos;
 } Expression;
 
 typedef struct _labeled_expr {

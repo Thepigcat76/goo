@@ -62,6 +62,13 @@ typedef struct _type {
 } Type;
 
 typedef struct {
+  char *error_msg;
+  bool success;
+  int line;
+  int pos;
+} CheckResult;
+
+typedef struct {
   Ident name;
   struct _generic *generics;
   Type *arg_types;

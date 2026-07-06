@@ -11,6 +11,9 @@
 #include <lilc/str.h>
 #include <stdio.h>
 
+#define CHECK_RESULT_SUCCESS                                                   \
+  (CheckResult) { .success = true }
+
 static const CheckerContext EMPTY_CONTEXT = {0};
 
 static bool type_is_integer(const Type *type) {
@@ -28,6 +31,9 @@ static void checker_type_table_push(TypeChecker *checker);
 
 void checker_init(TypeChecker *checker, Parser *parser) {
   checker->stmts = parser->statements;
+  checker->lines = parser->lines;
+  checker->source = parser->source;
+  checker->filename = parser->filename;
   checker->type_tables = array_new(TypeTable, &HEAP_ALLOCATOR);
   checker->generic_functions_table = gft_new();
   checker->imported_modules = parser->imported_modules;
@@ -36,6 +42,7 @@ void checker_init(TypeChecker *checker, Parser *parser) {
   checker_type_table_push(checker);
   checker->global_type_table = &checker->type_tables[0];
   checker->cur_type_table = checker->global_type_table;
+  error_sink_init(&checker->sink);
 
   bump_init(&checker->checker_arena, 8000);
   bump_allocator_init(&checker->checker_arena_allocator,
@@ -121,8 +128,8 @@ static ModulePath module_path_resolve(TypeChecker *checker,
   return *path;
 }
 
-static Type check_stmt(TypeChecker *checker, Statement *stmt,
-                       CheckerContext context);
+static CheckResult check_stmt(TypeChecker *checker, Statement *stmt, Type *type,
+                              CheckerContext context);
 
 static Type check_expr(TypeChecker *checker, Expression *expr);
 
@@ -337,7 +344,8 @@ static Type check_block_expr(TypeChecker *checker,
     Type last_type = UNIT_BUILTIN_TYPE;
     for (size_t i = 0; i < len; i++) {
       Statement stmt = expr_block->statements[i];
-      last_type = check_stmt(checker, &stmt, EMPTY_CONTEXT);
+      CheckResult res = check_stmt(checker, &stmt, &last_type, EMPTY_CONTEXT);
+      // TODO: Handle result
     }
     return last_type;
   }
@@ -429,7 +437,10 @@ static Type check_expr(TypeChecker *checker, Expression *expr) {
       CheckerContext context = {.cur_func_desc = &expr->var.expr_function.desc};
 
       for (size_t i = 0; i < array_len(expr_function.block->statements); i++) {
-        check_stmt(checker, &expr_function.block->statements[i], context);
+        Type t;
+        CheckResult res = check_stmt(
+            checker, &expr_function.block->statements[i], &t, context);
+        // TODO: Handle
       }
     }
     checker_type_table_pop(checker);
@@ -489,8 +500,6 @@ static Type check_expr(TypeChecker *checker, Expression *expr) {
     TypeTableValue *val =
         type_table_get(checker->cur_type_table, &expr->var.expr_ident.ident,
                        checker->global_type_table);
-    scoped_dyn_string(module_path_fmt(&expr->var.expr_ident.ident), char *str,
-                      { log_debug("Looking up val by name: %s", str); });
     if (val != NULL) {
       if (val->opt_type.present) {
         return val->opt_type.type;
@@ -581,8 +590,8 @@ create_struct_from_expr(const TypeExprStruct *ty_expr_struct) {
   return type_struct;
 }
 
-static Type check_stmt(TypeChecker *checker, Statement *stmt,
-                       CheckerContext context) {
+static CheckResult check_stmt(TypeChecker *checker, Statement *stmt, Type *type,
+                              CheckerContext context) {
   // char print_buf[1024];
   //  parser_stmt_print(print_buf, stmt);
   switch (stmt->kind) {
@@ -590,15 +599,68 @@ static Type check_stmt(TypeChecker *checker, Statement *stmt,
     StmtReturn stmt_return = stmt->var.stmt_return;
 
     if (context.cur_func_desc == NULL) {
-      fprintf(stderr, "Cannot use return outside of function\n");
-      exit(1);
+      sink_add_err(&checker->sink,
+                   ERR_MSG({
+                       .err_msg = "Return stmt cannot be outside of a function",
+                       .issue_line = stmt->line,
+                       .issue_pos = stmt->pos,
+                       .issue_len = stmt->len,
+                       .ctx_lines_amount = 1,
+                       .ctx_first_line = stmt->line,
+                       .issue_ctx_msg = "Remove this 'return' statement",
+                   }));
+      return (CheckResult){0};
     }
 
     if (stmt_return.has_ret_val) {
       if (!context.cur_func_desc->has_ret_type) {
-        fprintf(stderr, "Return stmt cannot have return value, if the function "
-                        "doesn't have return value\n");
-        exit(1);
+        sink_add_err(
+            &checker->sink,
+            ERR_MSG({
+                .err_msg =
+                    "Return stmt cannot have return value, if the function "
+                    "doesn't have return value",
+                .issue_line = stmt_return.ret_val.line,
+                .issue_pos = stmt_return.ret_val.pos,
+                .issue_len =
+                    stmt_return.ret_val.end_pos - stmt_return.ret_val.pos,
+                .ctx_lines_amount = stmt_return.ret_val.lines_amount,
+                .ctx_first_line = stmt->line,
+                .issue_ctx_msg = "Remove this expression",
+            }));
+        return (CheckResult){0};
+      } else {
+        Type ret_type = check_expr(checker, &stmt_return.ret_val);
+        if (!type_eq(&context.cur_func_desc->ret_type, &ret_type)) {
+          dyn_string_t err_msg = {0};
+          dyn_string_t func_ret_type_str =
+              type_format(&checker->type_fmt, &context.cur_func_desc->ret_type);
+          dyn_string_init(&err_msg, &HEAP_ALLOCATOR);
+          dyn_string_printf(&err_msg,
+                            "Return Statement returns expression of type '%s', "
+                            "but return type "
+                            "of function expects '%s'",
+                            dyn_string_temp_copy_and_free(
+                                type_format(&checker->type_fmt, &ret_type)),
+                            func_ret_type_str.string);
+
+          dyn_string_t issue_ctx_msg = {0};
+          dyn_string_init(&issue_ctx_msg, &HEAP_ALLOCATOR);
+          dyn_string_printf(&issue_ctx_msg,
+                            "This expression needs to be of type '%s'",
+                            func_ret_type_str.string);
+          sink_add_err(&checker->sink,
+                       ERR_MSG({
+                           .err_msg = err_msg.string,
+                           .issue_line = stmt_return.ret_val.line,
+                           .issue_pos = stmt_return.ret_val.pos,
+                           .issue_len = stmt_return.ret_val.end_pos -
+                                        stmt_return.ret_val.pos,
+                           .ctx_lines_amount = stmt_return.ret_val.lines_amount,
+                           .ctx_first_line = stmt->line,
+                           .issue_ctx_msg = issue_ctx_msg.string,
+                       }));
+        }
       }
     } else {
       if (context.cur_func_desc->has_ret_type) {
@@ -608,7 +670,7 @@ static Type check_stmt(TypeChecker *checker, Statement *stmt,
       }
     }
 
-    return UNIT_BUILTIN_TYPE;
+    return CHECK_RESULT_SUCCESS;
   }
   case STMT_ASSIGN: {
     StmtAssign stmt_assign = stmt->var.stmt_assign;
@@ -628,7 +690,7 @@ static Type check_stmt(TypeChecker *checker, Statement *stmt,
                 type_format(&checker->type_fmt, &left_type).string);
     }
 
-    return UNIT_BUILTIN_TYPE;
+    return CHECK_RESULT_SUCCESS;
   } break;
   case STMT_DECL: {
     OptionalType opt_type = stmt->var.stmt_decl.type;
@@ -671,10 +733,6 @@ static Type check_stmt(TypeChecker *checker, Statement *stmt,
           exit(1);
         }
       } else {
-        log_debug("Value type: %s - kind: %d",
-                  dyn_string_temp_copy_and_free(
-                      type_format(&checker->type_fmt, &value_type)),
-                  value_type.kind);
         opt_type.type = value_type;
         opt_type.present = true;
       }
@@ -715,7 +773,7 @@ static Type check_stmt(TypeChecker *checker, Statement *stmt,
                      EXPR_VAR_TYPE(type_expr), opt_type);
     }
 
-    return UNIT_BUILTIN_TYPE;
+    return CHECK_RESULT_SUCCESS;
   } break;
   case STMT_FOREIGN: {
     StmtForeign stmt_foreign = stmt->var.stmt_foreign;
@@ -727,7 +785,8 @@ static Type check_stmt(TypeChecker *checker, Statement *stmt,
                    EXPR_VAR_EXPR(expr), OPT_TYPE_EMPTY);
   }
   case STMT_EXPR: {
-    return check_expr(checker, &stmt->var.stmt_expr.expr);
+    check_expr(checker, &stmt->var.stmt_expr.expr);
+    return CHECK_RESULT_SUCCESS;
   }
   }
 }
@@ -738,6 +797,9 @@ void checker_check(TypeChecker *checker) {
   }
 
   for (size_t i = 0; i < array_len(checker->stmts); i++) {
-    check_stmt(checker, &checker->stmts[i], EMPTY_CONTEXT);
+    Type t;
+    check_stmt(checker, &checker->stmts[i], &t, EMPTY_CONTEXT);
   }
+
+  sink_print_errors(checker->lines, checker->filename, &checker->sink);
 }

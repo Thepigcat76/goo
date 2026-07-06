@@ -26,6 +26,7 @@ struct debug_flags {
   bool print_compile_info;
   bool print_codegen_info;
   bool print_obj_write_info;
+  bool extra_parse_err_info;
 };
 
 extern struct debug_flags debug_flags;

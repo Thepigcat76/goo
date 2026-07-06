@@ -1,5 +1,6 @@
 #pragma once
 
+#include "lexer.h"
 #include "lilc/hashmap.h"
 #include "parser.h"
 #include "generics.h"
@@ -11,6 +12,9 @@ typedef struct {
 
 typedef struct {
   Statement *stmts;
+  const char *source;
+  const char *filename;
+  LexerLine *lines;
 
   // Works like environemnts in the evaluator but for type checking
   TypeTable *type_tables;
@@ -19,6 +23,8 @@ typedef struct {
 
   TypeHint hint;
   bool infer_types;
+
+  ErrorSink sink;
 
   // Table of all functions that have generics
   // Maps the name of the function to the names

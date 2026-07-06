@@ -10,11 +10,11 @@ main :: () {
   byte := false
   print_bool(byte)
 
-  i = 10
+  i := 10
   add_random_num(&i)
   print_int(i)
 
-  i_ptr = &i
+  i_ptr := &i
 
   ~i_ptr = 400
 

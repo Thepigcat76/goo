@@ -850,7 +850,6 @@ static ExprCompileResult expr_compile_with_res(Compiler *compiler,
       StackObject *stack_obj =
           hashmap_value(&compiler->cur_frame.symbol_table, &ident);
       if (stack_obj != NULL) {
-        log_debug("STACK OBJECT: %s, %zu", ident, stack_obj->size);
         return EXPR_COMPILE_RES(EXPR_COMPILE_RES_STACK_OBJ, stack_obj->size,
                                 .stack_obj = {.offset = stack_obj->offset,
                                               .size = stack_obj->size});

@@ -57,9 +57,6 @@ void compile_input(const char *input_path, const char *output_path,
 
   parser_parse(&parser);
 
-  // Parsing finished, free tokens and lexer lines
-  lexer_deinit(&lexer);
-
   if (debug_flags.print_ast) {
     log_debug("AST:\n%s", ast_format(parser.statements).string);
   }
@@ -92,6 +89,9 @@ void compile_input(const char *input_path, const char *output_path,
   checker_check(&checker);
 
   checker_gen_functions(&checker);
+
+  // Parsing finished, free tokens and lexer lines
+  lexer_deinit(&lexer);
 
   // ** COMPILER **
 

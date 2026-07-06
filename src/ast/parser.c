@@ -2,22 +2,17 @@
 #include "../../include/preprocess.h"
 #include "lilc/alloc.h"
 #include "lilc/array.h"
+#include "lilc/dynstr.h"
 #include "lilc/eq.h"
 #include "lilc/hash.h"
+#include "lilc/hashmap.h"
+#include "lilc/log.h"
 #include "lilc/panic.h"
-#include <lilc/ansi.h>
-#include <lilc/dynstr.h>
-#include <lilc/hashmap.h>
-#include <lilc/log.h>
-#include <lilc/str.h>
-#include <lilc/todo.h>
 #include <stdarg.h>
-#include <stdatomic.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/types.h>
 
 Hashmap(ModulePath, Ident) mangled_functions = {.keys = NULL};
 
@@ -34,17 +29,16 @@ typedef struct {
   char *error_msg;
 } OptionalExpr;
 
-typedef struct {
-  char *error_msg;
-  bool success;
-  int line;
-  int pos;
-} ParseResult;
-
 #define PARSE_RESULT(...) (ParseResult) __VA_ARGS__
 
 #define PARSE_RESULT_SUCCESS                                                   \
   (ParseResult) { .success = true }
+
+#define PARSE_RESULT_SUCCESS_AT(_line, _pos, ...)                              \
+  (ParseResult) {                                                              \
+    .success = true, .line = _line, .pos = _pos,                               \
+    .len = 1 __VA_OPT__(-1 + __VA_ARGS__)                                      \
+  }
 
 #define EXPECTED_TOKEN_ERR(expected, received_ptr)                             \
   do {                                                                         \
@@ -87,6 +81,7 @@ void parser_init(Parser *parser, Token *tokens, const char *source,
       hashmap_new(ModulePath, FuncDescriptor, &HEAP_ALLOCATOR,
                   module_path_ptrv_hash, module_path_ptrv_eq, NULL);
   parser->module = (Module){0};
+  error_sink_init(&parser->sink);
   module_init(&parser->module, filename, source);
 
   bump_init(&parser->ast_arena, AST_ARENA_SIZE);
@@ -346,7 +341,14 @@ static ParseResult parse_expr_list(Parser *parser, Expression *exprs,
     if (result.success) {
       array_add(exprs, expr);
     } else {
-      return (ParseResult){.success = false, .error_msg = result.error_msg};
+      sink_add_err(&parser->sink, ERR_MSG({
+                                      .issue_line = result.line,
+                                      .issue_pos = result.pos,
+                                      .ctx_lines_amount = 1,
+                                      .ctx_first_line = result.line,
+                                      .issue_ctx_msg = NULL,
+                                      .err_msg = result.error_msg,
+                                  }));
     }
 
     if (parser->peek_tok->kind != TOKEN_COMMA &&
@@ -516,105 +518,6 @@ static bool is_func_desc(Parser *parser) {
   return false;
 }
 
-typedef struct {
-  size_t ctx_first_line;
-  size_t ctx_lines_amount;
-  size_t issue_pos;
-  size_t issue_line;
-  const char *issue_ctx_msg;
-} ErrorMessage;
-
-#define PRINT_SPACE(str_ptr, amount)                                           \
-  for (size_t i = 0; i < amount; i++) {                                        \
-    dyn_string_add_char(str_ptr, ' ');                                         \
-  }
-
-static dyn_string_t error_msg_fmt(const Parser *parser,
-                                  const ErrorMessage *msg) {
-  dyn_string_t str = {0};
-  dyn_string_init(&str, &HEAP_ALLOCATOR);
-
-  size_t first_line_idx = msg->ctx_first_line - 1;
-
-  size_t ctx_last_line = msg->ctx_first_line + msg->ctx_lines_amount;
-
-  dyn_string_t str0 = {0};
-  dyn_string_init(&str0, &HEAP_ALLOCATOR);
-  size_t line_number_max_len = snprintf(NULL, 0, "%zu", ctx_last_line);
-  for (size_t i = 0; i < msg->ctx_lines_amount; i++) {
-    size_t actual_line_idx = first_line_idx + i;
-    LexerLine line = parser->lines[actual_line_idx];
-    char line_number_buf[128] = {0};
-    size_t cur_line_number_len =
-        sprintf(line_number_buf, "%zu", first_line_idx + i + 1);
-    char space_buf[128] = {0};
-    for (ssize_t i = 0;
-         i < (ssize_t)(line_number_max_len - cur_line_number_len); i++) {
-      strcat(space_buf, " ");
-    }
-
-    dyn_string_printf(&str0, "%s%s |%.*s\n", space_buf, line_number_buf,
-                      (int)line.len, line.begin);
-    dyn_string_add_str(&str, str0.string);
-    dyn_string_clear(&str0);
-
-    if (msg->issue_line == actual_line_idx + 1) {
-      PRINT_SPACE(&str, line_number_max_len)
-      dyn_string_add_str(&str, " |");
-      PRINT_SPACE(&str, msg->issue_pos - 1)
-      dyn_string_add_char(&str, '^');
-      dyn_string_add_char(&str, '\n');
-
-      if (msg->issue_ctx_msg != NULL) {
-        size_t issue_ctx_msg_len = strlen(msg->issue_ctx_msg);
-        PRINT_SPACE(&str, line_number_max_len)
-        dyn_string_add_str(&str, " |");
-        // Issue pos starts at 1 so we subtract 1
-        // The first char is fine since arrow is also one char so we add 1
-        size_t spaces_len;
-        bool msg_excedes_spaces = false;
-        if (issue_ctx_msg_len + 1 > msg->issue_pos - 1) {
-          spaces_len = msg->issue_pos - 1;
-          msg_excedes_spaces = true;
-        } else {
-          spaces_len = msg->issue_pos - 1 - issue_ctx_msg_len + 1;
-        }
-        PRINT_SPACE(&str, spaces_len)
-        if (msg_excedes_spaces) {
-          dyn_string_add_str(&str, "|");
-          dyn_string_add_char(&str, '\n');
-          PRINT_SPACE(&str, line_number_max_len)
-          dyn_string_add_str(&str, " |");
-          PRINT_SPACE(&str, spaces_len)
-        }
-      }
-      dyn_string_add_str(&str, msg->issue_ctx_msg);
-      dyn_string_add_char(&str, '\n');
-    }
-  }
-
-  dyn_string_free(&str0);
-  return str;
-}
-
-static dyn_string_t error_msg_deco_fmt(const Parser *parser,
-                                       const ErrorMessage *msg,
-                                       const char *error_msg_text, size_t line,
-                                       size_t pos) {
-  dyn_string_t str = {0};
-  dyn_string_init(&str, &HEAP_ALLOCATOR);
-
-  dyn_string_printf(&str, "%s:%zu:%zu: " ANSI_RED "error:" ANSI_RESET " %s\n",
-                    parser->filename, line, pos, error_msg_text);
-
-  dyn_string_t str0 = error_msg_fmt(parser, msg);
-  dyn_string_add_str(&str, str0.string);
-
-  dyn_string_free(&str0);
-
-  return str;
-}
-
 // TODO: Might want to factor out into extra step
 
 static ModulePath module_path_resolve(Parser *parser, const ModulePath *path) {
@@ -641,13 +544,13 @@ static ParseResult parse_expr(Parser *parser, Expression *expr) {
     *expr = (Expression){.kind = EXPR_STRING_LIT,
                          .var = {.expr_string_literal = {
                                      .string = parser->cur_tok->var.string}}};
-    return PARSE_RESULT_SUCCESS;
+    return PARSE_RESULT_SUCCESS_AT(parser->cur_tok->line, parser->cur_tok->begin_pos, parser->cur_tok->len);
   }
   case TOKEN_BOOL: {
     *expr = (Expression){.kind = EXPR_BOOLEAN_LIT,
                          .var = {.expr_boolean_literal = {
                                      .boolean = parser->cur_tok->var.boolean}}};
-    return PARSE_RESULT_SUCCESS;
+    return PARSE_RESULT_SUCCESS_AT(parser->cur_tok->line, parser->cur_tok->begin_pos, parser->cur_tok->len);
   }
   case TOKEN_LPAREN: {
     if (is_func_desc(parser)) {
@@ -716,22 +619,18 @@ static ParseResult parse_expr(Parser *parser, Expression *expr) {
       if (!result.success) {
         size_t first_line = first_token.line;
         size_t cur_line = parser->cur_tok->line;
-        ErrorMessage msg = {.ctx_first_line = first_line,
-                            .ctx_lines_amount = cur_line - first_line + 1,
-                            .issue_pos = result.pos,
-                            .issue_line = result.line,
-                            .issue_ctx_msg = ")"};
-        dyn_string_t err_msg = error_msg_deco_fmt(
-            parser, &msg, result.error_msg, result.line, result.pos);
-        printf("%s", err_msg.string);
-        exit(1);
+        sink_add_err(&parser->sink,
+                     ERR_MSG({
+                         .ctx_first_line = first_line,
+                         .ctx_lines_amount = cur_line - first_line + 1,
+                         .issue_pos = result.pos,
+                         .issue_line = result.line,
+                         .err_msg = result.error_msg,
+                         .issue_ctx_msg = ")",
+                     }));
+        return result;
       }
       // end: right parenthesis
-
-      if (parser->cur_tok->kind != TOKEN_RPAREN) {
-        fprintf(stderr, "No TOKEN_RPAREN at end of call");
-        exit(1);
-      }
 
       *expr = (Expression){.kind = EXPR_CALL,
                            .var = {.expr_call = {
@@ -784,10 +683,21 @@ static ParseResult parse_expr(Parser *parser, Expression *expr) {
     return PARSE_RESULT_SUCCESS;
   }
   case TOKEN_INT: {
-    *expr = (Expression){.kind = EXPR_INTEGER_LIT,
-                         .var = {.expr_integer_literal = {
-                                     .integer = parser->cur_tok->var.integer}}};
-    return PARSE_RESULT_SUCCESS;
+    *expr = (Expression){
+        .kind = EXPR_INTEGER_LIT,
+        .var =
+            {
+                .expr_integer_literal = {.integer =
+                                             parser->cur_tok->var.integer},
+            },
+        .line = parser->cur_tok->line,
+        .lines_amount = 1,
+        .pos = parser->cur_tok->begin_pos,
+        .end_pos = parser->cur_tok->begin_pos + parser->cur_tok->len,
+    };
+    return PARSE_RESULT_SUCCESS_AT(parser->cur_tok->line,
+                                   parser->cur_tok->begin_pos,
+                                   parser->cur_tok->len);
   }
   case TOKEN_LANGLE: {
     Generic *generics;
@@ -853,20 +763,19 @@ static ParseResult parse_expr(Parser *parser, Expression *expr) {
     printf("Left square tok :3\n");
     Type type = parse_type(parser);
     if (parser->peek_tok->kind != TOKEN_LCURLY) {
+      // FIXME: These are the same thing
       size_t first_line = parser->cur_tok->line;
       size_t cur_line = parser->cur_tok->line;
-      ErrorMessage msg = {.ctx_first_line = first_line,
-                          .ctx_lines_amount = cur_line - first_line + 1,
-                          .issue_pos =
-                              parser->cur_tok->begin_pos + parser->cur_tok->len,
-                          .issue_line = parser->cur_tok->line,
-                          .issue_ctx_msg = "{"};
-      dyn_string_t err_msg = error_msg_deco_fmt(
-          parser, &msg, "Expected left curly after array type for initializer",
-          parser->cur_tok->line,
-          parser->cur_tok->begin_pos + parser->cur_tok->len);
-      printf("%s", err_msg.string);
-      exit(1);
+
+      sink_add_err(
+          &parser->sink,
+          ERR_MSG({
+              .ctx_first_line = first_line,
+              .ctx_lines_amount = cur_line - first_line + 1,
+              .issue_pos = parser->cur_tok->line,
+              .issue_line = parser->cur_tok->begin_pos + parser->cur_tok->len,
+              .err_msg = "Expected left curly after array type for initializer",
+          }));
     }
 
     // cur_tok is left curly
@@ -879,20 +788,20 @@ static ParseResult parse_expr(Parser *parser, Expression *expr) {
       Expression expr;
       ParseResult result = parse_expr1(parser, &expr, PREC_LOWEST);
       if (!result.success) {
-        printf("%s:%d:%zu: " ANSI_RED "error:" ANSI_RESET " %s\n",
-               parser->filename, result.line,
-               parser->cur_tok->begin_pos + parser->cur_tok->len,
-               "Expected left curly after array type for initializer");
-        // TODO: THESE ARE LITERALLY THE SAME THING
+        // FIXME: These are the same, which doesnt even remotely make sense
         size_t first_line = result.line;
         size_t cur_line = result.line;
-        ErrorMessage msg = {.ctx_first_line = first_line,
-                            .ctx_lines_amount = cur_line - first_line + 1,
-                            .issue_pos = result.pos,
-                            .issue_line = result.line};
-        dyn_string_t err_msg = error_msg_fmt(parser, &msg);
-        printf("%s", err_msg.string);
-        exit(1);
+
+        sink_add_err(
+            &parser->sink,
+            ERR_MSG({
+                .ctx_first_line = first_line,
+                .ctx_lines_amount = cur_line - first_line + 1,
+                .issue_pos = result.pos,
+                .issue_line = result.line,
+                .err_msg =
+                    "Expected left curly after array type for initializer",
+            }));
       }
       array_add(exprs, expr);
       if (parser->peek_tok->kind == TOKEN_COMMA) {
@@ -917,16 +826,16 @@ static ParseResult parse_expr(Parser *parser, Expression *expr) {
 
     if (result.success) {
       if (parser->peek_tok->kind != TOKEN_LCURLY) {
-        printf("%s:%d:%d: " ANSI_RED "error:" ANSI_RESET " %s\n",
-               parser->filename, result.line, result.pos, result.error_msg);
-        ErrorMessage err_msg = {.ctx_first_line = parser->cur_tok->line,
-                                .ctx_lines_amount = 1,
-                                .issue_line = parser->cur_tok->line,
-                                .issue_pos = parser->cur_tok->begin_pos +
-                                             parser->custom_types.len,
-                                .issue_ctx_msg = "{"};
-        printf("%s\n", error_msg_fmt(parser, &err_msg).string);
-        exit(1);
+        sink_add_err(&parser->sink,
+                     ERR_MSG({
+                         .ctx_first_line = parser->cur_tok->line,
+                         .ctx_lines_amount = 1,
+                         .issue_line = parser->cur_tok->line,
+                         .issue_pos = parser->cur_tok->begin_pos +
+                                      parser->custom_types.len,
+                         .err_msg = result.error_msg,
+                         .issue_ctx_msg = "{",
+                     }));
       }
 
       // cur_tok is left curly
@@ -960,17 +869,16 @@ static ParseResult parse_expr(Parser *parser, Expression *expr) {
     ParseResult result = parse_expr1(parser, &deref_expr, PREC_LOWEST);
 
     if (!result.success) {
-      printf("%s:%d:%d: " ANSI_RED "error:" ANSI_RESET " %s\n",
-             parser->filename, result.line, result.pos, result.error_msg);
-      ErrorMessage err_msg = {
-          .ctx_first_line = result.line,
-          .ctx_lines_amount = 1,
-          .issue_line = result.line,
-          .issue_pos = parser->cur_tok->begin_pos + parser->custom_types.len,
-      };
-      printf("%s\n", error_msg_fmt(parser, &err_msg).string);
-      exit(1);
+      sink_add_err(&parser->sink, ERR_MSG({
+                                      .ctx_first_line = result.line,
+                                      .ctx_lines_amount = 1,
+                                      .issue_line = result.line,
+                                      .issue_pos = parser->cur_tok->begin_pos +
+                                                   parser->custom_types.len,
+                                      .err_msg = result.error_msg,
+                                  }));
     }
+
     *expr = (Expression){
         .kind = EXPR_PTR_DEREF,
         .var = {.expr_ptr_deref = {.expr = heap_clone(&deref_expr)}}};
@@ -984,16 +892,14 @@ static ParseResult parse_expr(Parser *parser, Expression *expr) {
     ParseResult result = parse_expr1(parser, &addr_of_expr, PREC_LOWEST);
 
     if (!result.success) {
-      printf("%s:%d:%d: " ANSI_RED "error:" ANSI_RESET " %s\n",
-             parser->filename, result.line, result.pos, result.error_msg);
-      ErrorMessage err_msg = {
-          .ctx_first_line = result.line,
-          .ctx_lines_amount = 1,
-          .issue_line = result.line,
-          .issue_pos = parser->cur_tok->begin_pos + parser->custom_types.len,
-      };
-      printf("%s\n", error_msg_fmt(parser, &err_msg).string);
-      exit(1);
+      sink_add_err(&parser->sink, ERR_MSG({
+                                      .ctx_first_line = result.line,
+                                      .ctx_lines_amount = 1,
+                                      .issue_line = result.line,
+                                      .issue_pos = parser->cur_tok->begin_pos +
+                                                   parser->custom_types.len,
+                                      .err_msg = result.error_msg,
+                                  }));
     }
     *expr = (Expression){
         .kind = EXPR_ADDR_OF,
@@ -1158,9 +1064,19 @@ static ParseResult parse_expr(Parser *parser, Expression *expr) {
   case TOKEN_ILLEGAL: {
     char print_buf[64];
     lexer_tok_print(print_buf, parser->cur_tok);
-    printf("%s:%d:%d nyi/illegal token: %s\n", parser->filename,
-           parser->cur_tok->line, parser->cur_tok->begin_pos, print_buf);
-    exit(1);
+
+    dyn_string_t error_msg = {0};
+    dyn_string_init(&error_msg, &HEAP_ALLOCATOR);
+
+    dyn_string_printf(&error_msg,
+                      "Unexpected token %s at beginning of expression",
+                      print_buf);
+
+    return PARSE_RESULT({
+        .line = parser->cur_tok->line,
+        .pos = parser->cur_tok->begin_pos,
+        .error_msg = error_msg.string,
+    });
   }
   }
 }
@@ -1372,7 +1288,7 @@ static ParseResult parse_expr1(Parser *parser, Expression *expr,
   }
 
   *expr = left_expr;
-  return PARSE_RESULT_SUCCESS;
+  return result;
 }
 
 static TypeExpr parse_type_expr(Parser *parser) {
@@ -1620,6 +1536,8 @@ static bool is_expr_assignable(const Expression *expr) {
 static Statement parse_stmt(Parser *parser) {
   switch (parser->cur_tok->kind) {
   case TOKEN_RETURN: {
+    size_t begin_pos = parser->cur_tok->begin_pos;
+
     // cur_tok is first token of expression of return value
     next_token(parser);
 
@@ -1628,7 +1546,11 @@ static Statement parse_stmt(Parser *parser) {
     if (result.success) {
       return (Statement){
           .kind = STMT_RETURN,
-          .var = {.stmt_return = {.ret_val = expr, .has_ret_val = true}}};
+          .var = {.stmt_return = {.ret_val = expr, .has_ret_val = true}},
+          .line = result.line,
+          .pos = begin_pos,
+          .len = result.pos - begin_pos + result.len,
+      };
     }
     fprintf(stderr,
             "Encountered error while parsing return value expression\n");
@@ -1711,11 +1633,9 @@ static Statement parse_stmt(Parser *parser) {
       }
       return (Statement){.kind = STMT_EXPR,
                          .var = {.stmt_expr = {.expr = expr}}};
+    } else {
     }
-    fprintf(stderr, "Failed to parse expression statement, error msg: %s\n",
-            result.error_msg);
-    exit(1);
-  }
+  } break;
   case TOKEN_HASH: {
     size_t line = parser->cur_tok->line;
     if (parser->peek_tok->kind == TOKEN_COMPTIME) {
@@ -1814,16 +1734,17 @@ static Statement parse_stmt(Parser *parser) {
   default: {
     char cur_tok_buf[32];
     lexer_tok_print(cur_tok_buf, parser->cur_tok);
-    printf("%s:%d:%d Illegal Token %s at beginning of statement\n",
-           parser->filename, parser->cur_tok->line, parser->cur_tok->begin_pos,
-           cur_tok_buf);
-    ErrorMessage msg = {.ctx_first_line = parser->cur_tok->line,
-                        .ctx_lines_amount = 1,
-                        .issue_line = parser->cur_tok->line,
-                        .issue_pos = parser->cur_tok->begin_pos,
-                        .issue_ctx_msg = cur_tok_buf};
-    printf("%s\n", error_msg_fmt(parser, &msg).string);
-    exit(1);
+    sink_add_err(
+        &parser->sink,
+        ERR_MSG({
+            .ctx_first_line = parser->cur_tok->line,
+            .ctx_lines_amount = 1,
+            .issue_line = parser->cur_tok->line,
+            .issue_pos = parser->cur_tok->begin_pos,
+            .err_msg = str_fmt_temp(
+                "Illegal Token %s at beginning of statement", cur_tok_buf),
+            .issue_ctx_msg = cur_tok_buf,
+        }));
   } break;
   }
 }
@@ -1841,6 +1762,8 @@ void parser_parse(Parser *parser) {
     array_add(parser->statements, stmt);
     next_token(parser);
   }
+
+  sink_print_errors(parser->lines, parser->filename, &parser->sink);
 }
 
 inline Module parser_parse_module_ex(Parser *parser, const char *source,
