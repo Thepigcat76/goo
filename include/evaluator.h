@@ -1,7 +1,6 @@
 #pragma once
 
-#include "lilc/hashmap.h"
-#include "parser.h"
+#include "ast.h"
 #include "types.h"
 #include <stdarg.h>
 #include <stdio.h>
@@ -19,6 +18,11 @@
     .kind = OBJECT_INT, .var = {.obj_int = _int }                              \
   }
 
+#define obj_try_cast_int(obj_ptr, err_msg, ...)                                \
+  ((obj_ptr)->kind == OBJECT_INT)                                              \
+      ? (obj_ptr)->var.obj_int                                                 \
+      : exit_with_msg(1, err_msg __VA_OPT__(, ) __VA_ARGS__)
+
 #if defined(__GNUC__) || defined(__clang__)
 __attribute__((format(printf, 2, 3)))
 #endif
@@ -30,11 +34,6 @@ static int exit_with_msg(int exit_code, const char *format, ...) {
   exit(exit_code);
 }
 
-#define obj_try_cast_int(obj_ptr, err_msg, ...)                                \
-  ((obj_ptr)->kind == OBJECT_INT)                                              \
-      ? (obj_ptr)->var.obj_int                                                 \
-      : exit_with_msg(1, err_msg __VA_OPT__(, ) __VA_ARGS__)
-
 typedef struct {
   Argument *args;
   ExprBlock *block;
@@ -42,7 +41,7 @@ typedef struct {
 } ObjectFunction;
 
 typedef struct {
-  Hashmap(Ident, Object) fields;
+  Hashmap fields; // Ident -> Object
 } ObjectStruct;
 
 typedef struct {
@@ -74,7 +73,7 @@ typedef struct _obj {
 extern const Object UNIT_OBJ;
 
 typedef struct {
-  Hashmap(Ident, Object) env;
+  Hashmap env; // Ident -> Object
 } Environment;
 
 typedef struct {

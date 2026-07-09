@@ -5,7 +5,7 @@ foreign CloseWindow()
 foreign BeginDrawing()
 foreign EndDrawing()
 foreign HideCursor()
-foreign ClearBackground(r: u8)
+foreign ClearBackground(r: u8, g: u8, b: u8, a: u8)
 foreign draw_rect(x: i32, y: i32, width: i32, height: i32)
 foreign sleep(time: i32)
 foreign IsMouseButtonPressed(button: i32) -> i32
@@ -35,7 +35,7 @@ main :: () {
 
   for {
     BeginDrawing()
-    ClearBackground(0)
+    ClearBackground(255, 0, 255, 255)
 
     if WindowShouldClose() {
       CloseWindow()

@@ -1,0 +1,6 @@
+#import "printer"
+
+main :: () {
+  println("Modules working")
+  printer.print_stuff("Sussih")
+}

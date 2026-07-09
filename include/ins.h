@@ -83,6 +83,7 @@ typedef struct {
   bool has_imm;
   bool imm8;
   bool switch_imm_disp;
+  bool explicit_disp8;
 } InsFlags;
 
 typedef struct {
@@ -183,12 +184,12 @@ INS(je_disp8, (i8 disp), {
   .disp = {(u8)disp, 0, 0, 0},
   .flags = {
     .has_disp = true,
+    .explicit_disp8 = true,
   },
 })
 
 INS(jmp_disp32, (u32 disp), {
   .opcode = OPCODE1(0xe9),
-  .mod_rm = {.mod = MOD_MEM_32BIT_DISP},
   .disp = IMM32_PACK(disp),
   .flags = {
     .has_disp = true,

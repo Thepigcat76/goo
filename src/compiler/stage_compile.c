@@ -2,11 +2,11 @@
 #include "lilc/assert.h"
 #include "lilc/eq.h"
 #include "lilc/hash.h"
+#include "lilc/hashmap0.h"
 #include "lilc/log.h"
 #include "lilc/panic.h"
 #include "lilc/todo.h"
 #include <lilc/alloc.h>
-#include <lilc/hashmap.h>
 #include <limits.h>
 #include <threads.h>
 
@@ -79,6 +79,7 @@ static size_t data_section_add(DataSection *section, Ident *key,
         realloc(section->data_bytes, section->data_capacity *= 2);
   }
   memcpy(section->data_bytes + section->data_len, data_bytes, data_len);
+  log_debug("Adding to data section: %.*s", (int)data_len, data_bytes);
   size_t offset = section->data_len;
   if (key != NULL)
     hashmap_insert(&section->section_lookup, key, &offset);
@@ -189,10 +190,30 @@ static inline ExprCompileResult expr_compile(Compiler *compiler,
 
 static ExprCompileResult expr_call_compile(Compiler *compiler,
                                            const ExprCall *expr_call) {
+
+  TypeTableValue *func_val =
+      hashmap_value(&compiler->type_tables[0].type_table, &expr_call->function);
+
+  log_debug("Function: %s - is found: %s", expr_call->function.path[0],
+            func_val != NULL ? "true" : "false");
+
   for (size_t i = 0; i < array_len(expr_call->args); i++) {
+    Type *arg_type = NULL;
+
+    if (func_val != NULL) {
+      arg_type =
+          &func_val->expr_variant.var.expr_var_reg_expr.var.expr_function.desc
+               .args[i]
+               .var.typed_arg.type;
+      log_debug("Arg type: %s",
+                type_format(&(TypeFormatter){0}, arg_type).string);
+    }
+
     Expression arg = expr_call->args[i];
-    ExprCompileResult res =
-        expr_compile(compiler, &arg, EXPR_COMPILE_CTX_EMPTY);
+    ExprCompileResult res = expr_compile(
+        compiler, &arg,
+        arg_type == NULL ? EXPR_COMPILE_CTX_EMPTY
+                         : EXPR_COMPILE_CTX(.variable_type = arg_type));
     compiler_arg_push(compiler, i, &res);
   }
 
@@ -220,9 +241,6 @@ static ExprCompileResult expr_call_compile(Compiler *compiler,
   if (strv_eq(expr_call->function.path[0], "IsKeyDown")) {
     insns_add(compiler, ins_mov_r8_r32(REG_EAX, REG_EAX));
   }
-
-  TypeTableValue *func_val =
-      hashmap_value(&compiler->type_tables[0].type_table, &expr_call->function);
 
   Type ret_type = UNIT_BUILTIN_TYPE;
   if (func_val != NULL && func_val->expr_variant.kind == EXPR_VAR_REG_EXPR) {
@@ -269,7 +287,10 @@ static void compiler_stack_alloc_imm32(Compiler *compiler, Ident *name,
 
 static void compiler_stack_alloc_imm64(Compiler *compiler, Ident *name,
                                        u64 imm) {
+  ASSERT(name != NULL, "Name cannot be (null)");
+
   compiler->cur_frame.sp_offset += sizeof(u64);
+
   hashmap_insert(&compiler->cur_frame.symbol_table, name,
                  &STACK_OBJ(compiler->cur_frame.sp_offset, sizeof(uint32_t)));
   insns_add(compiler, ins_mov_i64_r64(REG_EAX, imm));
@@ -406,10 +427,9 @@ static void expr_func_compile(Compiler *compiler, const ExprFunction *expr_func,
   if (debug_flags.print_compile_info) {
     log_info("[COMPILER] Pushed new stack frame");
   }
-  compiler->cur_frame =
-      (Frame){.sp_offset = 0,
-              .symbol_table = hashmap_new(Ident *, StackObject, &HEAP_ALLOCATOR,
-                                          str_ptrv_hash, str_ptrv_eq, NULL)};
+  compiler->cur_frame.sp_offset = 0;
+  hashmap_init(&compiler->cur_frame.symbol_table, &HEAP_ALLOCATOR, Ident,
+               StackObject, str_ptrv_hash, str_ptrv_eq, NULL);
 
   bool uses_stack = array_len(expr_func->block->statements) > 0;
   if (uses_stack) {
@@ -466,7 +486,7 @@ static void expr_func_compile(Compiler *compiler, const ExprFunction *expr_func,
   insns_add_return(compiler);
 
   Frame *cur_frame = &compiler->cur_frame;
-  hashmap_free(&cur_frame->symbol_table);
+  hashmap_deinit(&cur_frame->symbol_table);
 
   memset(&compiler->cur_frame, 0, sizeof(Frame));
 }
@@ -775,9 +795,11 @@ static ExprCompileResult expr_bin_op_compile(Compiler *compiler,
 static void stack_dump(const Frame *frame) {
   puts("-- STACK-DUMP --");
   printf("Stack size: %zu\n", frame->sp_offset);
-  hashmap_foreach(&frame->symbol_table, Ident * key, StackObject * val, {
+  Ident *key;
+  StackObject *val;
+  hashmap_foreach(&frame->symbol_table, key, val) {
     printf("| '%s' at %zu with size %zu\n", *key, val->offset, val->size);
-  });
+  }
   puts("-- END-STACK-DUMP --");
 }
 
@@ -838,21 +860,24 @@ static ExprCompileResult expr_compile_with_res(Compiler *compiler,
   }
   case EXPR_IDENT: {
     Ident ident = expr->var.expr_ident.ident.path[0];
-    Hashmap(Ident *, GlobalDataLocation) globals = compiler->globals;
-    GlobalDataLocation *data_loc = hashmap_value(&globals, &ident);
+    GlobalDataLocation *data_loc = hashmap_value(&compiler->globals, &ident);
     if (data_loc != NULL) {
       return EXPR_COMPILE_RES(
-          data_loc->kind == EXPR_COMPILE_RES_DATA_OFFSET, sizeof(uint8_t *),
-          .data_offset = {.offset = data_loc->data_offset,
-                          .data_type = data_loc->data_type,
-                          .read_only = data_loc->kind != GLOB_DATA_LOC_DATA});
+          EXPR_COMPILE_RES_DATA_OFFSET, sizeof(u64 *),
+          .data_offset = {
+              .offset = data_loc->data_offset,
+              .data_type = data_loc->data_type,
+              .read_only = data_loc->kind != GLOB_DATA_LOC_DATA,
+          });
     } else {
       StackObject *stack_obj =
           hashmap_value(&compiler->cur_frame.symbol_table, &ident);
       if (stack_obj != NULL) {
         return EXPR_COMPILE_RES(EXPR_COMPILE_RES_STACK_OBJ, stack_obj->size,
-                                .stack_obj = {.offset = stack_obj->offset,
-                                              .size = stack_obj->size});
+                                .stack_obj = {
+                                    .offset = stack_obj->offset,
+                                    .size = stack_obj->size,
+                                });
       }
     }
     log_error("Failed to find global variable: %s", ident);
@@ -870,6 +895,9 @@ static ExprCompileResult expr_compile_with_res(Compiler *compiler,
     Statement *stmts = expr_for.block.statements;
     if (expr_for.has_range) {
       Ident iter_var = expr_for.variable_name;
+      if (iter_var == NULL) {
+        iter_var = "it";
+      }
       ExprCompileResult min_res =
           expr_compile(compiler, expr_for.range.min,
                        EXPR_COMPILE_CTX(.variable_type = &I32_BUILTIN_TYPE));
@@ -1103,7 +1131,16 @@ static void compiler_arg_push(Compiler *compiler, size_t arg_idx,
   case EXPR_COMPILE_RES_IMM: {
     Register arg_reg;
     reg_for_arg(&arg_reg, arg_idx);
-    insns_add(compiler, ins_mov_i32_r64(arg_reg, res->var.imm.value));
+
+    switch (res->var.imm.size) {
+    case 1: {
+      insns_add(compiler, ins_mov_i32_r32(arg_reg, res->var.imm.value));
+    } break;
+    default: {
+      insns_add(compiler, ins_mov_i32_r64(arg_reg, res->var.imm.value));
+    } break;
+    }
+
     break;
   }
   case EXPR_COMPILE_RES_DATA_OFFSET: {
@@ -1111,10 +1148,14 @@ static void compiler_arg_push(Compiler *compiler, size_t arg_idx,
     bool valid = reg_for_arg(&arg_reg, arg_idx);
     if (res->var.data_offset.data_type == DATA_POINTER) {
       // TODO: Relocation info
-      RELOCATIONS_ADD(compiler, {.sec = SECTION_FROM_EXPR_RES(res->kind),
-                                 .r_offset = 3,
-                                 .data_offset = res->var.data_offset.offset});
+      RELOCATIONS_ADD(compiler, {
+                                    .sec = SECTION_FROM_EXPR_RES(res->kind),
+                                    .r_offset = 3,
+                                    .data_offset = res->var.data_offset.offset,
+                                });
       insns_add(compiler, ins_lea_abs_addr32_r64(0, arg_reg));
+      log_debug("Added relocation for string with offset: %zu",
+                res->var.data_offset.offset);
       // insns_add(compiler,
       //           INSN(INS_LEA_RIP_REG, .op0 = {.reg = REG_BASE_05(arg_reg)},
       //                .op0_size = sizeof(uint64_t),
@@ -1123,10 +1164,12 @@ static void compiler_arg_push(Compiler *compiler, size_t arg_idx,
       //                               .sec = SECTION_FROM_EXPR_RES(res->type),
       //                               .r_offset = 3}));
     } else {
-      RELOCATIONS_ADD(compiler, {.sec = SECTION_FROM_EXPR_RES(res->kind),
-                                 .r_offset = 3,
-                                 .data_offset = res->var.data_offset.offset});
-      insns_add(compiler, ins_lea_abs_addr32_r64(0, arg_reg));
+      RELOCATIONS_ADD(compiler, {
+                                    .sec = SECTION_FROM_EXPR_RES(res->kind),
+                                    .r_offset = 3,
+                                    .data_offset = res->var.data_offset.offset,
+                                });
+      insns_add(compiler, ins_mov_abs_addr32_r64(0, arg_reg));
       // insns_add(compiler,
       //           INSN(INS_MOV_RIP_REG_DISP32,
       //                .op0 = {.reg = REG_BASE_05(arg_reg)},
@@ -1208,7 +1251,7 @@ static void stmt_compile(Compiler *compiler, const Statement *stmt) {
           } else {
             mangled_func_name = stmt_decl.name;
           }
-          hashmap_insert(&compiler->symbols, &mangled_func_name,
+          hashmap_insert(&compiler->function_symbols, &mangled_func_name,
                          &compiler->program_size);
           expr_func_compile(compiler, &expr.var.expr_function,
                             (CompileContext){.level = COMPILE_LEVEL_GLOBAL,
@@ -1225,7 +1268,8 @@ static void stmt_compile(Compiler *compiler, const Statement *stmt) {
           GlobalDataLocation loc = {
               .kind = stmt_decl.mut ? GLOB_DATA_LOC_DATA : GLOB_DATA_LOC_RODATA,
               .data_type = DATA_IMMEDIATE,
-              .data_offset = offset};
+              .data_offset = offset,
+          };
           hashmap_insert(&compiler->globals, &stmt_decl.name, &loc);
 
           log_debug("Added data to section: %zu", val);
@@ -1237,7 +1281,8 @@ static void stmt_compile(Compiler *compiler, const Statement *stmt) {
           GlobalDataLocation loc = {
               .kind = stmt_decl.mut ? GLOB_DATA_LOC_DATA : GLOB_DATA_LOC_RODATA,
               .data_type = DATA_POINTER,
-              .data_offset = offset};
+              .data_offset = offset,
+          };
           hashmap_insert(&compiler->globals, &stmt_decl.name, &loc);
         }
       } else {

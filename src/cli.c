@@ -114,6 +114,8 @@ static void args_parse(CliArgs *args, char **argv, size_t argc) {
           compile_file->debug_flags.print_tokens = true;
         else if (strcmp(value, "print_ast") == 0)
           compile_file->debug_flags.print_ast = true;
+        else if (strcmp(value, "print_preprocessed_ast") == 0)
+          compile_file->debug_flags.print_preprocessed_ast = true;
         else if (strcmp(value, "print_parse_info") == 0)
           compile_file->debug_flags.print_parse_info = true;
         else if (strcmp(value, "print_preprocessor_info") == 0)
@@ -126,9 +128,9 @@ static void args_parse(CliArgs *args, char **argv, size_t argc) {
           compile_file->debug_flags.print_codegen_info = true;
         else if (strcmp(value, "print_obj_write_info") == 0)
           compile_file->debug_flags.print_obj_write_info = true;
-        else if (strcmp(value, "extra_parse_err_info") == 0) {
+        else if (strcmp(value, "extra_parse_err_info") == 0)
           compile_file->debug_flags.extra_parse_err_info = true;
-        } else
+        else
           log_error("Invalid debug info option '%s'", value);
       } else {
         memset(&compile_file->debug_flags, 1, sizeof(struct debug_flags));

@@ -1,10 +1,14 @@
 #include "../../include/types.h"
 #include <lilc/alloc.h>
+#include <lilc/assert.h>
 #include <lilc/dynstr.h>
 #include <lilc/str.h>
+#include <lilc/todo.h>
 #include <stdbool.h>
 
 dyn_string_t type_format(const TypeFormatter *fmt, const Type *type) {
+  ASSERT(type != NULL, "Type for formatting cannot be (null)");
+
   dyn_string_t str = {0};
   dyn_string_init(&str, &HEAP_ALLOCATOR);
 
@@ -12,7 +16,7 @@ dyn_string_t type_format(const TypeFormatter *fmt, const Type *type) {
   case TYPE_IDENT: {
     dyn_string_t path = module_path_fmt(&type->var.type_ident);
     if (fmt->debug) {
-      dyn_string_printf(&str, "TypeIdent{%s}", path.string);
+      dyn_string_printf(&str, "TypeIdent{'%s'}", path.string);
     } else {
       dyn_string_add_str(&str, path.string);
     }
@@ -24,8 +28,6 @@ dyn_string_t type_format(const TypeFormatter *fmt, const Type *type) {
     } else {
     }
   } break;
-  case TYPE_FUNCTION:
-  case TYPE_TUPLE:
   case TYPE_UNIT: {
     if (fmt->debug) {
       dyn_string_printf(&str, "TypeUnit");
@@ -33,9 +35,20 @@ dyn_string_t type_format(const TypeFormatter *fmt, const Type *type) {
       dyn_string_printf(&str, "()");
     }
   } break;
+  case TYPE_POINTER: {
+    char *type_str = dyn_string_temp_copy_and_free(type_format(fmt, type->var.type_pointer.type));
+
+    if (fmt->debug) {
+      dyn_string_printf(&str, "TypePointer{%s}", type_str);
+    } else {
+      dyn_string_printf(&str, "*%s", type_str);
+    }
+  } break;
   case TYPE_STRUCT:
-  case TYPE_POINTER:
-    break;
+  case TYPE_FUNCTION:
+  case TYPE_TUPLE: {
+    TODO("Formatting not implemented for type of kind %d", type->kind);
+  } break;
   }
   return str;
 }

@@ -5,7 +5,7 @@
 #include "lilc/dynstr.h"
 #include "lilc/eq.h"
 #include "lilc/hash.h"
-#include "lilc/hashmap.h"
+#include "lilc/hashmap0.h"
 #include "lilc/log.h"
 #include "lilc/panic.h"
 #include <stdarg.h>
@@ -14,7 +14,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-Hashmap(ModulePath, Ident) mangled_functions = {.keys = NULL};
+Hashmap mangled_functions = {0}; // ModulePath -> Ident
 
 #define DEBUG_TOK(tok_ptr, ctx_msg)                                            \
   do {                                                                         \
@@ -59,17 +59,16 @@ const OptionalType OPT_TYPE_EMPTY = {.present = false};
 
 void parser_init(Parser *parser, Token *tokens, const char *source,
                  const char *filename, ModulePath path) {
-  if (mangled_functions.keys == NULL) {
-    mangled_functions =
-        hashmap_new(ModulePath, Ident, &HEAP_ALLOCATOR, module_path_ptrv_hash,
-                    module_path_ptrv_eq, NULL);
+  if (mangled_functions._internal_map == NULL) {
+    hashmap_init(&mangled_functions, &HEAP_ALLOCATOR, ModulePath, Ident,
+                 module_path_ptrv_hash, module_path_ptrv_eq, NULL);
   }
   parser->tokens = tokens;
   parser->statements = array_new(Statement, &HEAP_ALLOCATOR);
-  parser->custom_types = hashmap_new(Ident *, TypeExpr, &HEAP_ALLOCATOR,
-                                     str_ptrv_hash, str_ptrv_eq, NULL);
-  parser->custom_functions = hashmap_new(Ident *, ExprFunction, &HEAP_ALLOCATOR,
-                                         str_ptrv_hash, str_ptrv_eq, NULL);
+  hashmap_init(&parser->custom_types, &HEAP_ALLOCATOR, Ident *, TypeExpr,
+               str_ptrv_hash, str_ptrv_eq, NULL);
+  hashmap_init(&parser->custom_functions, &HEAP_ALLOCATOR, Ident *,
+               ExprFunction, str_ptrv_hash, str_ptrv_eq, NULL);
   parser->pp_dirs = array_new(PpDirective, &HEAP_ALLOCATOR);
   parser->pp_dir_conditionals = array_new(size_t, &HEAP_ALLOCATOR);
   parser->filename = filename;
@@ -77,9 +76,9 @@ void parser_init(Parser *parser, Token *tokens, const char *source,
   parser->path = path;
   parser->foreign_functions = array_new(ModulePath, &HEAP_ALLOCATOR);
   parser->imported_modules = array_new(ModulePath, &HEAP_ALLOCATOR);
-  parser->imported_functions =
-      hashmap_new(ModulePath, FuncDescriptor, &HEAP_ALLOCATOR,
-                  module_path_ptrv_hash, module_path_ptrv_eq, NULL);
+  hashmap_init(&parser->imported_functions, &HEAP_ALLOCATOR, ModulePath,
+               FuncDescriptor, module_path_ptrv_hash, module_path_ptrv_eq,
+               NULL);
   parser->module = (Module){0};
   error_sink_init(&parser->sink);
   module_init(&parser->module, filename, source);
@@ -89,15 +88,15 @@ void parser_init(Parser *parser, Token *tokens, const char *source,
 }
 
 void parser_deinit(Parser *parser) {
-  hashmap_free(&parser->custom_types);
-  hashmap_free(&parser->custom_functions);
+  hashmap_deinit(&parser->custom_types);
+  hashmap_deinit(&parser->custom_functions);
 
   module_deinit(&parser->module);
   array_free(parser->pp_dirs);
   array_free(parser->pp_dir_conditionals);
   array_free(parser->foreign_functions);
   array_free(parser->imported_modules);
-  hashmap_free(&parser->imported_functions);
+  hashmap_deinit(&parser->imported_functions);
   array_free(parser->statements);
 }
 
@@ -135,7 +134,7 @@ static ModulePath parse_module_path(Parser *parser) {
   return path;
 }
 
-static Statement parse_stmt(Parser *parser);
+static bool parse_stmt(Parser *parser, Statement *out_stmt);
 
 // begin: cur_tok must be first token of type
 // end: cur_tok is last token of type
@@ -325,8 +324,10 @@ static Statement *parse_block_statements(Parser *parser, TokenKind end) {
   Statement *stmts =
       array_new_capacity(Statement, 16, &parser->ast_arena_allocator);
   while (parser->cur_tok->kind != end) {
-    Statement stmt = parse_stmt(parser);
-    array_add(stmts, stmt);
+    Statement stmt;
+    if (parse_stmt(parser, &stmt)) {
+      array_add(stmts, stmt);
+    }
     next_token(parser);
   }
   return stmts;
@@ -544,13 +545,17 @@ static ParseResult parse_expr(Parser *parser, Expression *expr) {
     *expr = (Expression){.kind = EXPR_STRING_LIT,
                          .var = {.expr_string_literal = {
                                      .string = parser->cur_tok->var.string}}};
-    return PARSE_RESULT_SUCCESS_AT(parser->cur_tok->line, parser->cur_tok->begin_pos, parser->cur_tok->len);
+    return PARSE_RESULT_SUCCESS_AT(parser->cur_tok->line,
+                                   parser->cur_tok->begin_pos,
+                                   parser->cur_tok->len);
   }
   case TOKEN_BOOL: {
     *expr = (Expression){.kind = EXPR_BOOLEAN_LIT,
                          .var = {.expr_boolean_literal = {
                                      .boolean = parser->cur_tok->var.boolean}}};
-    return PARSE_RESULT_SUCCESS_AT(parser->cur_tok->line, parser->cur_tok->begin_pos, parser->cur_tok->len);
+    return PARSE_RESULT_SUCCESS_AT(parser->cur_tok->line,
+                                   parser->cur_tok->begin_pos,
+                                   parser->cur_tok->len);
   }
   case TOKEN_LPAREN: {
     if (is_func_desc(parser)) {
@@ -1116,18 +1121,6 @@ static BinOperator tok_to_bin_op(const Token *tok) {
   }
 }
 
-void *_internal_heap_clone(void *ptr, size_t size) {
-  void *new_ptr = malloc(size);
-  memcpy(new_ptr, ptr, size);
-  return new_ptr;
-}
-
-void *_internal_bump_clone(Bump *bump, void *ptr, size_t size) {
-  void *new_ptr = bump_alloc(bump, size);
-  memcpy(new_ptr, ptr, size);
-  return new_ptr;
-}
-
 static Precedence op_to_prec(BinOperator op) {
   switch (op) {
   case BIN_OP_ADD:
@@ -1533,7 +1526,7 @@ static bool is_expr_assignable(const Expression *expr) {
          expr->kind == EXPR_STRUCT_ACCESS || expr->kind == EXPR_ARRAY_ACCESS;
 }
 
-static Statement parse_stmt(Parser *parser) {
+static bool parse_stmt(Parser *parser, Statement *out_stmt) {
   switch (parser->cur_tok->kind) {
   case TOKEN_RETURN: {
     size_t begin_pos = parser->cur_tok->begin_pos;
@@ -1544,13 +1537,14 @@ static Statement parse_stmt(Parser *parser) {
     Expression expr;
     ParseResult result = parse_expr1(parser, &expr, PREC_LOWEST);
     if (result.success) {
-      return (Statement){
+      *out_stmt = (Statement){
           .kind = STMT_RETURN,
           .var = {.stmt_return = {.ret_val = expr, .has_ret_val = true}},
           .line = result.line,
           .pos = begin_pos,
           .len = result.pos - begin_pos + result.len,
       };
+      return true;
     }
     fprintf(stderr,
             "Encountered error while parsing return value expression\n");
@@ -1562,7 +1556,11 @@ static Statement parse_stmt(Parser *parser) {
 
     if (peek_kind == TOKEN_DECL_CONST || peek_kind == TOKEN_DECL_VAR || typed) {
       StmtDecl stmt_decl = parse_decl_stmt(parser, typed);
-      return (Statement){.kind = STMT_DECL, .var = {.stmt_decl = stmt_decl}};
+      *out_stmt = (Statement){
+          .kind = STMT_DECL,
+          .var = {.stmt_decl = stmt_decl},
+      };
+      return true;
     } else {
       goto parse_expr;
     }
@@ -1581,10 +1579,12 @@ static Statement parse_stmt(Parser *parser) {
     FuncDescriptor desc = {0};
     parse_func_desc(parser, &desc);
     array_add(parser->foreign_functions, mod_path);
-    return (Statement){
+    *out_stmt = (Statement){
         .kind = STMT_FOREIGN,
-        .var = {.stmt_foreign = {.name = mod_path, .desc = desc}}};
-  }
+        .var = {.stmt_foreign = {.name = mod_path, .desc = desc}},
+    };
+    return true;
+  } break;
   case TOKEN_IF:
   case TOKEN_IT:
   case TOKEN_FOR:
@@ -1615,7 +1615,7 @@ static Statement parse_stmt(Parser *parser) {
             exit(1);
           }
 
-          Statement stmt = {
+          *out_stmt = (Statement){
               .kind = STMT_ASSIGN,
               .var = {.stmt_assign =
                           {
@@ -1625,15 +1625,17 @@ static Statement parse_stmt(Parser *parser) {
                           }},
           };
 
-          return stmt;
+          return true;
         } else {
           log_error("Cannot assign to expr %s",
                     dyn_string_temp_copy_and_free(expr_format(&expr)));
         }
       }
-      return (Statement){.kind = STMT_EXPR,
-                         .var = {.stmt_expr = {.expr = expr}}};
-    } else {
+      *out_stmt = (Statement){
+          .kind = STMT_EXPR,
+          .var = {.stmt_expr = {.expr = expr}},
+      };
+      return true;
     }
   } break;
   case TOKEN_HASH: {
@@ -1644,11 +1646,13 @@ static Statement parse_stmt(Parser *parser) {
       // cur_tok is first token of stmt
       next_token(parser);
 
-      Statement stmt = parse_stmt(parser);
-      PpDirective pp_dir = {.kind = PP_DIR_COMPTIME,
-                            .var = {.pp_dir_comptime = {.stmt = stmt}}};
-      array_add(parser->pp_dirs, pp_dir);
-      return stmt;
+      PpDirective pp_dir = {
+          .kind = PP_DIR_COMPTIME,
+      };
+      if (parse_stmt(parser, &pp_dir.var.pp_dir_comptime.stmt)) {
+        array_add(parser->pp_dirs, pp_dir);
+      }
+      return false;
     } else if (parser->peek_tok->kind == TOKEN_IDENT) {
       if (strv_eq(parser->peek_tok->var.ident, "import")) {
         // cur_tok is 'import' ident
@@ -1698,15 +1702,13 @@ static Statement parse_stmt(Parser *parser) {
 
         Module mod = parser_parse_module(source_buf, path.string, mod_path);
 
-        hashmap_foreach(
-            &mod.functions, ModulePath * key, FuncDescriptor * val,
-            { hashmap_insert(&parser->imported_functions, key, val); });
+        ModulePath *key;
+        FuncDescriptor *val;
+        hashmap_foreach(&mod.functions, key, val) {
+          hashmap_insert(&parser->imported_functions, key, val);
+        }
 
-        // Parse and return next stmt, effectively removing the pp dir from
-        // source code cur_tok is first token of stmt
-        next_token(parser);
-        Statement stmt = parse_stmt(parser);
-        return stmt;
+        return false;
       }
     } else if (parser->peek_tok->kind == TOKEN_RCURLY) {
       size_t last_pp_cond_idx =
@@ -1721,10 +1723,7 @@ static Statement parse_stmt(Parser *parser) {
 
       // cur_tok is 'right curly'
       next_token(parser);
-      // cur_tok is first token of stmt
-      next_token(parser);
-      Statement stmt = parse_stmt(parser);
-      return stmt;
+      return false;
     }
     PpDirective pp_dir = parse_pp_dir(parser);
     pp_dir.line = line;
@@ -1758,8 +1757,10 @@ void parser_parse(Parser *parser) {
   }
 
   while (parser->cur_tok->kind != TOKEN_EOF) {
-    Statement stmt = parse_stmt(parser);
-    array_add(parser->statements, stmt);
+    Statement stmt;
+    if (parse_stmt(parser, &stmt)) {
+      array_add(parser->statements, stmt);
+    }
     next_token(parser);
   }
 

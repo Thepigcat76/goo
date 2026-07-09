@@ -1,6 +1,6 @@
 #pragma once
 
-#include "lilc/hashmap.h"
+#include "lilc/hashmap0.h"
 #include "lilc/str.h"
 #include "types.h"
 #include "shared.h"
@@ -237,7 +237,7 @@ typedef struct {
 } TypeTableValue;
 
 typedef struct {
-  Hashmap(ModulePath, TypeTableValue) type_table;
+  Hashmap type_table; // ModulePath -> TypeTableValue
 } TypeTable;
 
 typedef struct {

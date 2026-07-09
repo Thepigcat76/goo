@@ -1,23 +1,8 @@
-foreign print_u16(byte: u16)
 foreign print_int(i: i32)
-foreign print_bool(b: bool)
 
-add_random_num :: (num: *i32) {
-  ~num = 20
-}
+#comptime TEST_NUMBER: i32 : 200
 
 main :: () {
-  byte := false
-  print_bool(byte)
-
-  i := 10
-  add_random_num(&i)
-  print_int(i)
-
-  i_ptr := &i
-
-  ~i_ptr = 400
-
-  print_int(i)
-
+  print_int(TEST_NUMBER)
+  println("Hello :3")
 }

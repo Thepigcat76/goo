@@ -3,6 +3,7 @@
 // can be found at <https://github.com/Thepigcat76/gurd/blob/main/gurd.h>
 
 #include "gurd.h"
+#include <assert.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -18,6 +19,8 @@
 
 static Cmd cmd = {0};
 
+static int compiler_tests(void);
+
 static void visit_entry(struct file_entry entry) {
   if (strcmp(entry.file_ext, "c") != 0)
     return;
@@ -26,6 +29,10 @@ static void visit_entry(struct file_entry entry) {
 }
 
 int main(int argc, char **argv) {
+  if (arg_eq(argc, argv, 1, "tests")) {
+    return compiler_tests();
+  }
+
   // The compiler to use
   cmd_appendf(&cmd, COMPILER);
   // Flags
@@ -80,6 +87,77 @@ int main(int argc, char **argv) {
       sprintf(exec_cmd, "gdb --args ./%s", OUT_NAME);
     }
 
-    systemf("%s %s", exec_cmd, args);
+    return WEXITSTATUS(systemf("%s %s", exec_cmd, args));
   }
+}
+
+static int cmd_run_capture_out(const char *cmd, char **stdout_buf) {
+  FILE *fp = popen(cmd, "r");
+  if (fp == NULL) {
+    perror("popen");
+    return 1;
+  }
+
+  size_t sz = 4096;
+
+  *stdout_buf = malloc(sz);
+
+  **stdout_buf = '\0';
+
+  char line_buf[512];
+  while (fgets(line_buf, sizeof(line_buf), fp) != NULL) {
+    strcat(*stdout_buf, line_buf);
+  }
+
+  int status = pclose(fp);
+  int exit_code = WEXITSTATUS(status);
+  return exit_code;
+}
+
+static char *run_test_program0(const char *name, int *exit_code,
+                               const char *link_libs) {
+  printf("Compiling test '%s'\n", name);
+  char run_cmd[1024];
+  char *stdout_buf = NULL;
+  if (exit_code == NULL) {
+    int exit_code0;
+    exit_code = &exit_code0;
+  }
+  sprintf(run_cmd, "./tests/build/%s", name);
+  if ((*exit_code = WEXITSTATUS(systemf(
+           "gurd r --args tests/%s.goo -o tests/build/%s.o", name, name)))) {
+    printf("Compiler exited with code %d\n", *exit_code);
+    return stdout_buf;
+  }
+  if ((*exit_code =
+           WEXITSTATUS(systemf("gcc tests/build/%s.o %s -o tests/build/%s",
+                               name, link_libs, name)))) {
+    printf("Linker exited with code %d\n", *exit_code);
+    return stdout_buf;
+  }
+  printf("Running program '%s'\n", name);
+  if ((*exit_code = WEXITSTATUS(cmd_run_capture_out(run_cmd, &stdout_buf)))) {
+    printf("Program exited with code %d\n", *exit_code);
+    return stdout_buf;
+  }
+
+  return stdout_buf;
+}
+
+#define run_test_program(name, exit_code, ...)                                 \
+  run_test_program0(name, exit_code, "" __VA_ARGS__)
+
+static int compiler_tests(void) {
+  ensure_parent_dirs("tests/build/.", 0755);
+
+  run_test_program("modules", NULL, "-lraylib tests/print_int.a");
+  char *out = run_test_program("test_modules", NULL, "-lraylib tests/print_int.a");
+  
+  printf("Test modules output: %s\n", out);
+
+  assert(strcmp("Modules working\n", out) == 0);
+
+  run_test_program("comptime", NULL, "-lraylib tests/print_int.a");
+
+  return 0;
 }

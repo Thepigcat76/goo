@@ -2,7 +2,7 @@
 #include <complex.h>
 #include <lilc/dynstr.h>
 #include <lilc/eq.h>
-#include <lilc/hashmap.h>
+#include "lilc/hashmap0.h"
 #include <lilc/log.h>
 #include <stdlib.h>
 
@@ -24,8 +24,8 @@
 void cli_run(char **argv, size_t argc);
 
 void compile_input(const char *input_path, const char *output_path,
-                 const char *raw_module_path) {
-  //todo();
+                   const char *raw_module_path) {
+  // todo();
 
   builtin_types_init();
 
@@ -52,7 +52,8 @@ void compile_input(const char *input_path, const char *output_path,
   // ** PARSER **
 
   Parser parser = {0};
-  parser_init(&parser, lexer.tokens, file_content.string, input_path, module_path);
+  parser_init(&parser, lexer.tokens, file_content.string, input_path,
+              module_path);
   parser.lines = lexer.lines;
 
   parser_parse(&parser);
@@ -70,21 +71,31 @@ void compile_input(const char *input_path, const char *output_path,
 
   preprocessor_deinit(&preprocessor);
 
+  if (debug_flags.print_preprocessed_ast) {
+    log_debug("PREPROCESSED AST:\n%s", ast_format(preprocessor.stmts).string);
+  }
+
   // ** CHECKER **
 
   TypeChecker checker = {0};
   checker_init(&checker, &parser);
   builtin_functions_init(checker.global_type_table);
 
-  hashmap_foreach(
-      &parser.imported_functions, ModulePath * key, FuncDescriptor * val, {
-        Expression expr = {.kind = EXPR_FUNCTION,
-                           .var = {.expr_function = {.desc = *val,
-                                                     .block = NULL,
-                                                     .native_function = NULL}}};
-        type_table_add(checker.global_type_table, key, EXPR_VAR_EXPR(expr),
-                       (OptionalType){.present = false});
-      });
+  ModulePath *key;
+  FuncDescriptor *val;
+  hashmap_foreach(&parser.imported_functions, key, val) {
+    Expression expr = {
+        .kind = EXPR_FUNCTION,
+        .var.expr_function =
+            {
+                .desc = *val,
+                .block = NULL,
+                .native_function = NULL,
+            },
+    };
+    type_table_add(checker.global_type_table, key, EXPR_VAR_EXPR(expr),
+                   (OptionalType){.present = false});
+  }
 
   checker_check(&checker);
 
@@ -121,14 +132,13 @@ void compile_input(const char *input_path, const char *output_path,
   bump_free(&checker.checker_arena);
   bump_free(&compiler.compiler_arena);
 
-  //hashmap_free(&mangled_functions);
+  // hashmap_free(&mangled_functions);
 
   builtin_types_deinit();
 
   array_free(module_path.path);
 
   dyn_string_free(&file_content);
-
 }
 
 static char *_corelib_path = NULL;
@@ -142,5 +152,5 @@ int main(int argc, char **argv) {
 
   _corelib_path = core_lib_path;
 
-  cli_run(argv, (size_t) argc);
+  cli_run(argv, (size_t)argc);
 }

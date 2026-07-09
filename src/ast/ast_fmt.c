@@ -2,8 +2,9 @@
 #include "lilc/str.h"
 #include <lilc/alloc.h>
 #include <lilc/array.h>
-#include <string.h>
+#include <lilc/dynstr.h>
 #include <lilc/log.h>
+#include <string.h>
 
 typedef struct {
   size_t stmt_indent;
@@ -52,6 +53,19 @@ static dyn_string_t module_path_format(Formatter *fmt, const ModulePath *path) {
 
 static dyn_string_t expr_list_format(Formatter *fmt, const Expression *exprs);
 
+static dyn_string_t expr_format0(Formatter *fmt, const Expression *expr);
+
+static dyn_string_t expr_range_format(Formatter *fmt, const ExprRange *range) {
+  dyn_string_t s = {0};
+  dyn_string_init(&s, &HEAP_ALLOCATOR);
+
+  dyn_string_printf(&s, "ExprRange{%s, %s}",
+                    expr_format0(fmt, range->min).string,
+                    expr_format0(fmt, range->max).string);
+
+  return s;
+}
+
 static dyn_string_t expr_format0(Formatter *fmt, const Expression *expr) {
   dyn_string_t str = {0};
   dyn_string_init(&str, &HEAP_ALLOCATOR);
@@ -80,7 +94,9 @@ static dyn_string_t expr_format0(Formatter *fmt, const Expression *expr) {
   }
   case EXPR_CALL: {
     ExprCall expr_call = expr->var.expr_call;
-    dyn_string_printf(&str, "ExprCall{function=%s, args=[%s]}", module_path_format(fmt, &expr_call.function).string, expr_list_format(fmt, expr_call.args).string);
+    dyn_string_printf(&str, "ExprCall{function=%s, args=[%s]}",
+                      module_path_format(fmt, &expr_call.function).string,
+                      expr_list_format(fmt, expr_call.args).string);
     break;
   }
   case EXPR_GENERIC_CALL: {
@@ -100,7 +116,9 @@ static dyn_string_t expr_format0(Formatter *fmt, const Expression *expr) {
     break;
   }
   case EXPR_IDENT: {
-    dyn_string_printf(&str, "%s", module_path_format(fmt, &expr->var.expr_ident.ident).string);
+    dyn_string_printf(
+        &str, "%s",
+        module_path_format(fmt, &expr->var.expr_ident.ident).string);
     break;
   }
   case EXPR_UNIT: {
@@ -158,16 +176,23 @@ static dyn_string_t expr_format0(Formatter *fmt, const Expression *expr) {
     break;
   }
   case EXPR_ADDR_OF: {
+    dyn_string_printf(&str, "ExprAddrOf");
     break;
   }
   case EXPR_IF: {
+    dyn_string_printf(&str, "ExprIf");
     break;
   }
   case EXPR_FOR: {
+    ExprFor expr_for = expr->var.expr_for;
+    dyn_string_printf(
+        &str, "ExprFor{iter_var_name=%s, range=%s}", expr_for.variable_name,
+        expr_for.has_range ? expr_range_format(fmt, &expr_for.range).string
+                           : "(null)");
     break;
   }
   case EXPR_IT: {
-    break;
+    dyn_string_printf(&str, "ExprIt");
   } break;
   }
   return str;
@@ -207,7 +232,8 @@ static dyn_string_t stmt_format(Formatter *fmt, const Statement *stmt) {
   switch (stmt->kind) {
   case STMT_DECL: {
     dyn_string_printf(
-        &str, "%sStmtDecl{name=%s, val=%s}", indent_buf, stmt->var.stmt_decl.name,
+        &str, "%sStmtDecl{name=%s, val=%s}", indent_buf,
+        stmt->var.stmt_decl.name,
         expr_format0(fmt, &stmt->var.stmt_decl.value.var.expr_var_reg_expr)
             .string);
     break;

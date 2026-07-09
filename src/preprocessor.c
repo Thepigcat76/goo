@@ -1,12 +1,28 @@
 #include "../include/preprocess.h"
-#include "../include/types.h"
 #include "lilc/log.h"
+#include <assert.h>
 #include <lilc/alloc.h>
 #include <lilc/array.h>
+#include <lilc/dynstr.h>
 #include <lilc/eq.h>
 #include <lilc/hash.h>
-#include <lilc/hashmap.h>
+#include <lilc/hashmap0.h>
 #include <stdio.h>
+
+typedef enum {
+  PROCESS_RES_SUCCESS_REMOVE,
+  PROCESS_RES_ERROR,
+  PROCESS_RES_SUCCESS,
+} ProcessResult;
+
+typedef struct {
+  bool comptime;
+} ProcessContext;
+
+static ProcessResult stmt_process(PreProcessor *preprocessor, Statement *stmt,
+                                  Statement *new_stmt);
+
+static void expr_process(PreProcessor *preprocessor, Expression *expr);
 
 typedef struct {
   char *variable_name;
@@ -35,13 +51,12 @@ void preprocessor_init(PreProcessor *pp, Statement *stmts,
   pp->stmts = stmts;
   pp->pp_dirs = pp_dirs;
   pp->pp_dir_cond_line = -1;
-  pp->comptime_functions =
-      hashmap_new(Ident *, ComptimeBuiltinFunction, &HEAP_ALLOCATOR,
-                  str_ptrv_hash, str_ptrv_eq, NULL);
-  pp->valid_lines = hashmap_new(size_t, size_t, &HEAP_ALLOCATOR, size_tv_hash,
-                                size_tv_eq, NULL);
-  pp->comptime_constants = hashmap_new(Ident *, Expression, &HEAP_ALLOCATOR,
-                                       str_ptrv_hash, str_ptrv_eq, NULL);
+  hashmap_init(&pp->comptime_functions, &HEAP_ALLOCATOR, Ident *,
+               ComptimeBuiltinFunction, str_ptrv_hash, str_ptrv_eq, NULL);
+  hashmap_init(&pp->valid_lines, &HEAP_ALLOCATOR, size_t, size_t, size_tv_hash,
+               size_tv_eq, NULL);
+  hashmap_init(&pp->comptime_constants, &HEAP_ALLOCATOR, Ident *, Expression,
+               str_ptrv_hash, str_ptrv_eq, NULL);
   char *println_name = "println";
   hashmap_insert(
       &pp->comptime_functions, &println_name,
@@ -49,9 +64,9 @@ void preprocessor_init(PreProcessor *pp, Statement *stmts,
 }
 
 void preprocessor_deinit(PreProcessor *pp) {
-  hashmap_free(&pp->comptime_functions);
-  hashmap_free(&pp->valid_lines);
-  hashmap_free(&pp->comptime_constants);
+  hashmap_deinit(&pp->comptime_functions);
+  hashmap_deinit(&pp->valid_lines);
+  hashmap_deinit(&pp->comptime_constants);
 }
 
 static uint32_t apply_lit_bin_op(uint32_t a, uint32_t b, BinOperator op) {
@@ -125,20 +140,29 @@ static Expression expr_eval_comptime(PreProcessor *preprocessor,
   }
   case EXPR_FUNCTION: {
     ExprFunction expr_function = expr->var.expr_function;
-    hashmap_insert(&preprocessor->comptime_functions, context.variable_name,
+    Statement *block_stmt;
+    array_foreach(expr->var.expr_function.block->statements, block_stmt) {
+      ProcessResult res = stmt_process(preprocessor, block_stmt, block_stmt);
+    }
+    log_debug("Comptime function: %s", context.variable_name);
+    hashmap_insert(&preprocessor->comptime_functions, &context.variable_name,
                    &(ComptimeBuiltinFunction){.builtin = false,
                                               .expr_function = expr_function});
-    break;
-  }
+    return *expr;
+  } break;
   case EXPR_BLOCK: {
     break;
   }
   case EXPR_CALL: {
     ExprCall expr_call = expr->var.expr_call;
-    ComptimeBuiltinFunction *func =
-        hashmap_value(&preprocessor->comptime_functions, &expr_call.function);
-    if (func != NULL && func->builtin) {
-      func->execute(expr_call.args);
+    ComptimeBuiltinFunction *func = hashmap_value(
+        &preprocessor->comptime_functions, &expr_call.function.path[0]);
+    if (func != NULL) {
+      if (func->builtin) {
+        func->execute(expr_call.args);
+      } else {
+        expr_block_eval_comptime(preprocessor, func->expr_function.block);
+      }
     }
     return *expr;
   }
@@ -194,12 +218,13 @@ static Expression expr_eval_comptime(PreProcessor *preprocessor,
   exit(1);
 }
 
-static void pp_dir_process(PreProcessor *preprocessor, PpDirective *pp_dir) {
+static void pp_dir_process(PreProcessor *preprocessor, PpDirective *pp_dir,
+                           bool global) {
   switch (pp_dir->kind) {
   case PP_DIR_IF: {
     PpDirIf pp_dir_if = pp_dir->var.pp_dir_if;
     Expression cond_expr = expr_eval_comptime(
-        preprocessor, &pp_dir_if.condition, (PreprocessorExprContext){});
+        preprocessor, &pp_dir_if.condition, (PreprocessorExprContext){0});
     bool evaluated_cond_expr = false;
     if (cond_expr.kind == EXPR_INTEGER_LIT) {
       evaluated_cond_expr = cond_expr.var.expr_integer_literal.integer;
@@ -221,6 +246,19 @@ static void pp_dir_process(PreProcessor *preprocessor, PpDirective *pp_dir) {
     if (pp_dir_comptime.stmt.kind == STMT_EXPR) {
       expr_eval_comptime(preprocessor, &pp_dir_comptime.stmt.var.stmt_expr.expr,
                          (PreprocessorExprContext){});
+    } else if (pp_dir_comptime.stmt.kind == STMT_DECL) {
+      Expression *expr =
+          &pp_dir_comptime.stmt.var.stmt_decl.value.var.expr_var_reg_expr;
+      expr_eval_comptime(
+          preprocessor, expr,
+          (PreprocessorExprContext){
+              .variable_name = pp_dir_comptime.stmt.var.stmt_decl.name});
+      if (global) {
+        log_debug("Added comptime constant: %s",
+                  pp_dir_comptime.stmt.var.stmt_decl.name);
+        hashmap_insert(&preprocessor->comptime_constants,
+                       &pp_dir_comptime.stmt.var.stmt_decl.name, expr);
+      }
     }
   }
   default: {
@@ -229,8 +267,8 @@ static void pp_dir_process(PreProcessor *preprocessor, PpDirective *pp_dir) {
   }
 }
 
-static bool stmt_process(PreProcessor *preprocessor, Statement *stmt,
-                         Statement *new_stmt);
+static ProcessResult stmt_process(PreProcessor *preprocessor, Statement *stmt,
+                                  Statement *new_stmt);
 
 static void expr_process(PreProcessor *preprocessor, Expression *expr) {
   switch (expr->kind) {
@@ -274,11 +312,13 @@ static void expr_process(PreProcessor *preprocessor, Expression *expr) {
   }
   case EXPR_IDENT: {
     Expression *val = hashmap_value(&preprocessor->comptime_constants,
-                                    &expr->var.expr_ident.ident);
+                                    &expr->var.expr_ident.ident.path[0]);
     if (val != NULL) {
       *expr = *val;
     }
-    log_debug("Preprocessor - process expression");
+    log_debug("Preprocessor - process ident expr %s - found val: %s",
+              dyn_string_temp_copy_and_free(expr_format(expr)),
+              val != NULL ? "true" : "false");
     break;
   }
   case EXPR_UNIT: {
@@ -321,8 +361,9 @@ static void expr_process(PreProcessor *preprocessor, Expression *expr) {
   }
 }
 
-static bool stmt_process(PreProcessor *preprocessor, Statement *stmt,
-                         Statement *new_stmt) {
+// Return true if stmt was sucessfully processed and should be removed
+static ProcessResult stmt_process(PreProcessor *preprocessor, Statement *stmt,
+                                  Statement *new_stmt) {
   // if (stmt.)
   switch (stmt->kind) {
   case STMT_DECL: {
@@ -363,7 +404,7 @@ void preprocessor_process(PreProcessor *preprocessor) {
   }
 
   for (size_t i = 0; i < array_len(preprocessor->pp_dirs); i++) {
-    pp_dir_process(preprocessor, &preprocessor->pp_dirs[i]);
+    pp_dir_process(preprocessor, &preprocessor->pp_dirs[i], true);
   }
 
   for (size_t i = 0; i < array_len(preprocessor->stmts); i++) {

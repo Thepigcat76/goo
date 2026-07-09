@@ -1,4 +1,5 @@
 #include "../include/builtins.h"
+#include "../include/parser.h"
 #include "lilc/array.h"
 #include <stdio.h>
 

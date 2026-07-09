@@ -2,16 +2,11 @@
 
 #include "module.h"
 #include "lexer.h"
-#include "lilc/hashmap.h"
 #include "preprocess.h"
 #include "shared.h"
 #include "ast.h"
 #include "errors.h"
 #include <stdbool.h>
-
-void *_internal_heap_clone(void *ptr, size_t size);
-
-#define heap_clone(ptr) _internal_heap_clone(ptr, sizeof(typeof(*(ptr))))
 
 void *_internal_bump_clone(Bump *bump, void *ptr, size_t size);
 
@@ -27,18 +22,18 @@ void *_internal_bump_clone(Bump *bump, void *ptr, size_t size);
     .kind = EXPR_VAR_REG_EXPR, .var = {.expr_var_reg_expr = expr }             \
   }
 
-extern Hashmap(ModulePath, Ident) mangled_functions;
+extern Hashmap mangled_functions; // ModulePath -> Ident
 
 typedef struct {
   const Token *cur_tok;
   const Token *peek_tok;
   Token *tokens;
   Statement *statements;
-  Hashmap(Ident *, TypeExpr) custom_types;
-  Hashmap(Ident *, ExprFunction) custom_functions;
+  Hashmap custom_types; // Ident -> TypeExpr
+  Hashmap custom_functions; // Ident * -> ExprFunction
   ModulePath *foreign_functions;
   // Imports
-  Hashmap(ModulePath, FuncDescriptor) imported_functions;
+  Hashmap imported_functions; // ModulePath -> FuncDescriptor
   ModulePath *imported_modules;
   // Preprocessor
   PpDirective *pp_dirs;

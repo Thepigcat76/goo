@@ -1,9 +1,14 @@
-foreign fopen(path: string, mode: string) -> string
-foreign printf(fmt: string, thisshitiswaytoofuckinghackylol: string)
-foreign puts(msg: string)
+//foreign fopen(path: string, mode: string) -> string
+//foreign printf(fmt: string, thisshitiswaytoofuckinghackylol: string)
+//foreign puts(msg: string)
 
-file_open :: (path: string) {
-  f := fopen(path, "r")
-  printf("%p", f)
-  puts("")
+//file_open :: (path: string) {
+//  f := fopen(path, "r")
+//  printf("%p", f)
+//  puts("")
+//}
+
+main :: () {
+  //file_open("sussy.txt")
+  println("Helllo :3")
 }

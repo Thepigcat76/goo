@@ -1,6 +1,7 @@
 #pragma once
 
-#include "lilc/str.h"
+#include "lilc/alloc.h"
+#include "lilc/dynstr.h"
 #include <stdbool.h>
 #include <stdint.h>
 
@@ -19,6 +20,7 @@ typedef struct {
 struct debug_flags {
   bool print_tokens;
   bool print_ast;
+  bool print_preprocessed_ast;
   bool print_parse_info;
   bool print_preprocessor_info;
   bool print_checker_info;
@@ -30,6 +32,10 @@ struct debug_flags {
 };
 
 extern struct debug_flags debug_flags;
+
+void *_internal_heap_clone(void *ptr, size_t size);
+
+#define heap_clone(ptr) _internal_heap_clone(ptr, sizeof(typeof(*(ptr))))
 
 #define MODULE_PATH_ROOT                                                       \
   (ModulePath) { .path = NULL }

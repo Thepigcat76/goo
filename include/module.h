@@ -3,13 +3,12 @@
 /* Every file is its own module. Relevant for importing and compilation */
 
 #include "types.h"
-#include <lilc/alloc.h>
-#include <lilc/hashmap.h>
+#include "lilc/hashmap0.h"
 
 typedef struct {
   const char *filename;
   const char *source;
-  Hashmap(ModulePath, FuncDescriptor) functions;
+  Hashmap functions; // ModulePath -> FuncDescriptor
   TypedIdent *decls;
 } Module;
 

@@ -1,3 +1,5 @@
+foreign print_int(i: i32)
+
 GLOBAL :: 3
 
 main :: () {

@@ -1,0 +1,3 @@
+print_stuff :: (s: string) {
+  println(s)
+}

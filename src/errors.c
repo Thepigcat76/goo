@@ -1,12 +1,13 @@
 #pragma once
 
-#include "../../include/errors.h"
-#include "../../include/shared.h"
+#include "../include/errors.h"
+#include "../include/shared.h"
 #include "lilc/ansi.h"
 #include "lilc/dynstr.h"
 #include "lilc/numbers.h"
 #include <lilc/alloc.h>
 #include <lilc/array.h>
+#include <lilc/str.h>
 #include <stdio.h>
 #include <string.h>
 #include <sys/types.h>

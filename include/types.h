@@ -46,8 +46,7 @@ typedef struct _type {
     TYPE_ARRAY,
     TYPE_FUNCTION,
     TYPE_TUPLE,
-    // unit is just an empty tuple and used as the "void" type
-    TYPE_UNIT,
+    TYPE_UNIT, // unit is just an empty tuple and used as the "void" type
     TYPE_STRUCT,
     TYPE_POINTER,
   } kind;

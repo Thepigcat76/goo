@@ -181,7 +181,9 @@ void compiler_write(Compiler *compiler, FILE *file) {
   array_add(obj.symbols, sym_data);
 
   /* Symbols */
-  hashmap_foreach(&compiler->symbols, Ident * key, size_t *val, {
+  Ident *key;
+  size_t *val;
+  hashmap_foreach(&compiler->function_symbols, key, val) {
     size_t name_idx = obj_string_table_add(&obj, *key, &obj_bump_alloc);
 
     Elf64_Sym sym = {0};
@@ -192,7 +194,7 @@ void compiler_write(Compiler *compiler, FILE *file) {
     sym.st_value = *val; // start of section
     sym.st_size = obj.text_section_size;
     array_add(obj.symbols, sym);
-  });
+  }
 
   /* Relocations */
   for (size_t i = 0; i < array_len(compiler->elf64_relocations); i++) {
@@ -213,7 +215,7 @@ void compiler_write(Compiler *compiler, FILE *file) {
     case RELOCATION_DATA:
     case RELOCATION_RODATA: {
       rela.r_offset = reloc.program_offset + reloc.r_offset;
-      rela.r_info = ELF64_R_INFO(reloc.rel_type == RELOCATION_DATA ? 3 : 2,
+      rela.r_info = ELF64_R_INFO(reloc.rel_type == RELOCATION_RODATA ? 3 : 2,
                                  R_X86_64_PC32);
       rela.r_addend = -4 + reloc.data_offset;
       break;

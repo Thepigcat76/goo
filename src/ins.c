@@ -49,7 +49,7 @@ static size_t imm_gen(const Instruction *ins, uint8_t *ins_bytes,
 static size_t disp_gen(const Instruction *ins, uint8_t *ins_bytes,
                        size_t ins_len) {
   size_t disp_len;
-  if (ins->mod_rm.mod == MOD_MEM_8BIT_DISP) {
+  if (ins->mod_rm.mod == MOD_MEM_8BIT_DISP || ins->flags.explicit_disp8) {
     disp_len = 1;
   } else {
     disp_len = 4;

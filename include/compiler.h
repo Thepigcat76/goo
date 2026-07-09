@@ -3,7 +3,7 @@
 #include "ast.h"
 #include "ins.h"
 #include "shared.h"
-#include <lilc/alloc.h>
+#include "lilc/alloc.h"
 #include <stdio.h>
 
 typedef struct {
@@ -16,7 +16,7 @@ typedef struct {
   size_t data_capacity;
   size_t data_len;
   // Name -> offset
-  Hashmap(Ident *, size_t) section_lookup;
+  Hashmap section_lookup; // Ident -> size_t
 } DataSection;
 
 typedef enum {
@@ -32,7 +32,7 @@ typedef struct {
 } StackObject;
 
 typedef struct {
-  Hashmap(Ident *, StackObject) symbol_table;
+  Hashmap symbol_table; // Ident -> StackObject
   size_t sp_offset;
 
   size_t sub_stack_size_ins_idx;
@@ -113,10 +113,10 @@ typedef struct {
   size_t stmt_index;
   Instruction *insns;
   Relocation *relocations;
-  Hashmap(Ident *, GlobalDataLocation) globals;
-  Hashmap(Ident *, size_t) symbols;
-  Hashmap(ModulePath, Ident) mangled_functions;
-  // Hashmap(Ident *, size_t) extern_functions;
+  Hashmap globals; // Ident -> GlobalDataLocation
+  Hashmap function_symbols; // Ident -> size_t
+  Hashmap mangled_functions; // ModulePath -> Ident
+  
   Frame cur_frame;
   size_t program_size;
   /* Data */
@@ -141,7 +141,7 @@ typedef struct {
 
 void compiler_init(Compiler *compiler, const Statement *stmts,
                    TypeTable *type_tables,
-                   Hashmap(ModulePath, Ident) mangled_functions,
+                   Hashmap mangled_functions /* ModulePath -> Ident */,
                    ModulePath mod_path);
 
 void compiler_deinit(Compiler *compiler);

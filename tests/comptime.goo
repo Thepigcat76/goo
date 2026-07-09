@@ -1,9 +1,10 @@
-test :: () {
-
+#comptime test :: (str: string) {
+  println("Grrr")
 }
 
 main :: () {
   #comptime for 0..10 {
+    test("Hi :3")
     println("Hello World")
   }
 }

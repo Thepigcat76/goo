@@ -1,7 +1,7 @@
 #pragma once
 
 #include "parser.h"
-#include "lilc/hashmap.h"
+#include "lilc/hashmap0.h"
 
 typedef Type *CallerArgs;
 
@@ -12,7 +12,7 @@ typedef struct {
 } GenericFunction;
 
 typedef struct {
-  Hashmap(Ident *, GenericFunction) table;
+  Hashmap table; // Ident *, GenericFunction
 } GenericFunctionsTable;
 
 GenericFunction *gft_get(GenericFunctionsTable *table, Ident *name);
@@ -20,4 +20,4 @@ GenericFunction *gft_get(GenericFunctionsTable *table, Ident *name);
 void gft_add(GenericFunctionsTable *table, Ident *name,
                     GenericFunction func);
 
-GenericFunctionsTable gft_new();
+void gft_init(GenericFunctionsTable *table);

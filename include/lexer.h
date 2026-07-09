@@ -1,7 +1,7 @@
 #pragma once
 
 #include "lilc/bump.h"
-#include <lilc/alloc.h>
+#include "lilc/alloc.h"
 #include <stdbool.h>
 #include <stdlib.h>
 

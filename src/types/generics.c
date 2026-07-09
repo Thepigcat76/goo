@@ -3,7 +3,7 @@
 #include "lilc/array.h"
 #include "lilc/eq.h"
 #include "lilc/hash.h"
-#include "lilc/hashmap.h"
+#include "lilc/hashmap0.h"
 #include <stdio.h>
 
 GenericFunction *gft_get(GenericFunctionsTable *table, Ident *name) {
@@ -14,20 +14,13 @@ void gft_add(GenericFunctionsTable *table, Ident *name, GenericFunction func) {
   hashmap_insert(&table->table, name, &func);
 }
 
-GenericFunctionsTable gft_new() {
-  return (GenericFunctionsTable){
-      .table = hashmap_new(Ident *, GenericFunction, &HEAP_ALLOCATOR,
-                           str_ptrv_hash, str_ptrv_eq, NULL)};
+void gft_init(GenericFunctionsTable *table) {
+  hashmap_init(&table->table, &HEAP_ALLOCATOR, Ident *, GenericFunction,
+               str_ptrv_hash, str_ptrv_eq, NULL);
 }
 
 static Type try_transform_generic_type(const Type *type,
-                                       Hashmap(Ident *, Type) generics_lookup) {
-
-  // hashmap_foreach(&generics_lookup, Ident * key, Type * val, {
-  //   char print_buf[512];
-  //   type_print(print_buf, val);
-  //   printf("Key: %s, Val: %s\n", *key, print_buf);
-  // });
+                                       Hashmap generics_lookup /*Ident * -> Type*/) {
   if (type->kind == TYPE_IDENT) {
     Type *resolved_type =
         hashmap_value(&generics_lookup, &type->var.type_ident);
@@ -40,16 +33,14 @@ static Type try_transform_generic_type(const Type *type,
 
 static ExprBlock *transform_generic_block(TypeChecker *checker,
                                           ExprBlock *block,
-                                          Hashmap(Ident *, Type)
-                                              generics_lookup);
+                                          Hashmap generics_lookup /*Ident * -> Type*/);
 
 static ExprFunction transform_generic_function(TypeChecker *checker,
                                                ExprFunction *expr_func,
-                                               Hashmap(Ident *, Type)
-                                                   generics_lookup);
+                                               Hashmap generics_lookup /*Ident * -> Type*/);
 
 static void transform_generic_expr(TypeChecker *checker, Expression *expr,
-                                   Hashmap(Ident *, Type) generics_lookup) {
+                                   Hashmap generics_lookup /*Ident * -> Type*/) {
   switch (expr->kind) {
   case EXPR_CAST: {
     ExprCast *expr_cast = &expr->var.expr_cast;
@@ -97,8 +88,7 @@ static void transform_generic_expr(TypeChecker *checker, Expression *expr,
 
 static ExprBlock *transform_generic_block(TypeChecker *checker,
                                           ExprBlock *block,
-                                          Hashmap(Ident *, Type)
-                                              generics_lookup) {
+                                          Hashmap generics_lookup /*Ident * -> Type*/) {
   Statement *stmt;
   array_foreach(block->statements, stmt) {
     switch (stmt->kind) {
@@ -127,8 +117,7 @@ static ExprBlock *transform_generic_block(TypeChecker *checker,
 
 static ExprFunction transform_generic_function(TypeChecker *checker,
                                                ExprFunction *expr_func,
-                                               Hashmap(Ident *, Type)
-                                                   generics_lookup) {
+                                               Hashmap generics_lookup /*Ident * -> Type*/) {
   Argument *args = array_new_capacity(Argument, array_len(expr_func->desc.args),
                                       &HEAP_ALLOCATOR);
   for (size_t i = 0; i < array_len(expr_func->desc.args); i++) {

@@ -1,7 +1,10 @@
 #include "../include/evaluator.h"
 #include "lilc/alloc.h"
 #include "lilc/array.h"
+#include "lilc/eq.h"
+#include "lilc/hash.h"
 #include "lilc/panic.h"
+#include "../include/shared.h"
 #include <lilc/log.h>
 #include <stdio.h>
 #include <string.h>
@@ -46,18 +49,24 @@ static Object *environment_get(Environment *environment, const Ident *symbol,
 
 static void evaluator_envs_push_copy(Evaluator *evaluator,
                                      Environment *env_to_copy) {
-  Environment new_env = {.env = hashmap_new(Ident, Object, &HEAP_ALLOCATOR,
-                                            str_ptrv_hash, str_ptrv_eq, NULL)};
-  hashmap_foreach(&env_to_copy->env, Ident * key, Object * val,
-                  { environment_add(&new_env, key, *val); });
+  Environment new_env = {0};
+  hashmap_init(&new_env.env, &HEAP_ALLOCATOR, Ident, Object, str_ptrv_hash,
+               str_ptrv_eq, NULL);
+  Ident *key;
+  Object *val;
+  hashmap_foreach(&env_to_copy->env, key, val) {
+    environment_add(&new_env, key, *val);
+  }
 
   array_add(evaluator->environments, new_env);
   evaluator->cur_env++;
 }
 
 static void evaluator_envs_push(Evaluator *evaluator) {
-  Environment new_env = {.env = hashmap_new(Ident, Object, &HEAP_ALLOCATOR,
-                                            str_ptrv_hash, str_ptrv_eq, NULL)};
+  Environment new_env = {0};
+  hashmap_init(&new_env.env, &HEAP_ALLOCATOR, Ident, Object, str_ptrv_hash,
+               str_ptrv_eq, NULL);
+
   array_add(evaluator->environments, new_env);
   evaluator->cur_env++;
 }
@@ -70,7 +79,7 @@ static void evaluator_envs_pop(Evaluator *evaluator) {
 
   Environment last_env = evaluator->environments[len - 1];
   _internal_array_set_len(evaluator->environments, len - 1);
-  hashmap_free(&last_env.env);
+  hashmap_deinit(&last_env.env);
   evaluator->cur_env--;
 }
 
@@ -142,7 +151,8 @@ Object eval_expr_call(Evaluator *evaluator, const ExprCall *expr_call) {
   } else {
     fprintf(stderr,
             "Invalid name: %s for function call (func-ptr: %p), type: %d\n",
-            module_path_fmt(&expr_call->function).string, (void *) value, value != NULL ? value->kind : -1);
+            module_path_fmt(&expr_call->function).string, (void *)value,
+            value != NULL ? value->kind : -1);
     // hashmap_foreach(&evaluator->global_env->env, Ident * key, Object * obj,
     //                 { printf("Key: %s\n", *key); });
     exit(1);
@@ -188,7 +198,7 @@ Object obj_cast(const Type *type, const Object *obj) {
       return OBJ_INT((long)obj->var.obj_ptr);
     } else if (type_eq(type, &STRING_BUILTIN_TYPE)) {
       char *buf = malloc(128);
-      sprintf(buf, "%p", obj->var.obj_ptr);
+      sprintf(buf, "%p", (void *) obj->var.obj_ptr);
       return OBJ_STR(buf);
     }
   }
@@ -289,12 +299,14 @@ Object evaluator_eval_expr(Evaluator *evaluator, Expression *expr) {
   switch (expr->kind) {
   case EXPR_IDENT: {
     char *s = "";
-    Object *value = environment_get(
-        evaluator->cur_env, &s /*&expr->var.expr_ident.ident*/, evaluator->global_env);
+    Object *value =
+        environment_get(evaluator->cur_env, &s /*&expr->var.expr_ident.ident*/,
+                        evaluator->global_env);
     if (value != NULL) {
       return *value;
     } else {
-      panic("Error: Unknown identifier: %s\n", module_path_fmt(&expr->var.expr_ident.ident).string);
+      panic("Error: Unknown identifier: %s\n",
+            module_path_fmt(&expr->var.expr_ident.ident).string);
       // fprintf(stderr, "Error: Unknown identifier: %s\n",
       //         expr->var.expr_ident.ident);
       // exit(1);
@@ -457,12 +469,14 @@ Object evaluator_eval_expr(Evaluator *evaluator, Expression *expr) {
   }
   case EXPR_STRUCT_INIT: {
     ExprStructInit *struct_init_expr = &expr->var.expr_struct_init;
-    Object obj = {.kind = OBJECT_STRUCT,
-                  .var = {.obj_struct = {.fields = hashmap_new(
-                                             char *, Object, &HEAP_ALLOCATOR,
-                                             strv_hash, strv_eq, NULL)}}};
-    for (size_t i = 0; i < array_len(struct_init_expr->field_inits); i++) {
-      LabeledExpr *labeled_expr = &struct_init_expr->field_inits[i];
+    Object obj = {
+        .kind = OBJECT_STRUCT,
+    };
+    hashmap_init(&obj.var.obj_struct.fields, &HEAP_ALLOCATOR, Ident, Object,
+                 strv_hash, strv_eq, NULL);
+
+    LabeledExpr *labeled_expr;
+    array_foreach(struct_init_expr->field_inits, labeled_expr) {
       Object field_obj = evaluator_eval_expr(evaluator, &labeled_expr->expr);
       hashmap_insert(&obj.var.obj_struct.fields, labeled_expr->field,
                      &field_obj);
@@ -542,7 +556,8 @@ OptionalObject evaluator_eval_stmt(Evaluator *evaluator, Statement *stmt) {
 
     switch (stmt_assign.left_expr.kind) {
     case EXPR_IDENT: {
-      environment_add(evaluator->cur_env, &stmt_assign.left_expr.var.expr_ident.ident.path[0],
+      environment_add(evaluator->cur_env,
+                      &stmt_assign.left_expr.var.expr_ident.ident.path[0],
                       right_obj);
       break;
     }
@@ -562,13 +577,13 @@ static void eval(Evaluator *evaluator) {
 }
 
 void evaluator_eval_global(Evaluator *evaluator, TypeTable *global_table) {
-  hashmap_foreach(
-      &global_table->type_table, Ident * key, TypeTableValue * val, {
-        if (val->expr_variant.kind == EXPR_VAR_REG_EXPR) {
-          environment_add(
-              evaluator->global_env, key,
-              evaluator_eval_expr(evaluator,
-                                  &val->expr_variant.var.expr_var_reg_expr));
-        }
-      });
+  ModulePath *key;
+  TypeTableValue *val;
+  hashmap_foreach(&global_table->type_table, key, val) {
+    if (val->expr_variant.kind == EXPR_VAR_REG_EXPR) {
+      environment_add(evaluator->global_env, &key->path[0],
+                      evaluator_eval_expr(
+                          evaluator, &val->expr_variant.var.expr_var_reg_expr));
+    }
+  }
 }

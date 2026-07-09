@@ -6,7 +6,7 @@
 #include "lilc/eq.h"
 #include "lilc/hash.h"
 #include <lilc/dynstr.h>
-#include <lilc/hashmap.h>
+#include <lilc/hashmap0.h>
 #include <lilc/log.h>
 #include <lilc/str.h>
 #include <stdio.h>
@@ -35,14 +35,16 @@ void checker_init(TypeChecker *checker, Parser *parser) {
   checker->source = parser->source;
   checker->filename = parser->filename;
   checker->type_tables = array_new(TypeTable, &HEAP_ALLOCATOR);
-  checker->generic_functions_table = gft_new();
+  gft_init(&checker->generic_functions_table);
   checker->imported_modules = parser->imported_modules;
-  checker->generated_generic_functions = hashmap_new(
-      Ident *, Type, &HEAP_ALLOCATOR, str_ptrv_hash, str_ptrv_eq, NULL);
+  hashmap_init(&checker->generated_generic_functions, &HEAP_ALLOCATOR, Ident *,
+               Type, str_ptrv_hash, str_ptrv_eq, NULL);
   checker_type_table_push(checker);
   checker->global_type_table = &checker->type_tables[0];
   checker->cur_type_table = checker->global_type_table;
   error_sink_init(&checker->sink);
+
+  checker->type_fmt = (TypeFormatter){.debug = true};
 
   bump_init(&checker->checker_arena, 8000);
   bump_allocator_init(&checker->checker_arena_allocator,
@@ -52,11 +54,11 @@ void checker_init(TypeChecker *checker, Parser *parser) {
 void checker_deinit(TypeChecker *checker) {
   TypeTable *table;
   array_foreach(checker->type_tables, table) {
-    hashmap_free(&table->type_table);
+    hashmap_deinit(&table->type_table);
   }
   array_free(checker->type_tables);
-  hashmap_free(&checker->generic_functions_table.table);
-  hashmap_free(&checker->generated_generic_functions);
+  hashmap_deinit(&checker->generic_functions_table.table);
+  hashmap_deinit(&checker->generated_generic_functions);
 }
 
 void type_table_add(TypeTable *table, ModulePath *path,
@@ -85,10 +87,10 @@ TypeTableValue *type_table_get(TypeTable *table, ModulePath *path,
 }
 
 static void checker_type_table_push(TypeChecker *checker) {
-  array_add(checker->type_tables,
-            (TypeTable){.type_table = hashmap_new(
-                            ModulePath, TypeTableValue, &HEAP_ALLOCATOR,
-                            module_path_ptrv_hash, module_path_ptrv_eq, NULL)});
+  TypeTable table;
+  hashmap_init(&table.type_table, &HEAP_ALLOCATOR, ModulePath, TypeTableValue,
+               module_path_ptrv_hash, module_path_ptrv_eq, NULL);
+  array_add(checker->type_tables, table);
   checker->cur_type_table++;
 }
 
@@ -104,7 +106,7 @@ static void checker_type_table_pop(TypeChecker *checker) {
 
   TypeTable last_table = checker->type_tables[len - 1];
   _internal_array_set_len(checker->type_tables, len - 1);
-  hashmap_free(&last_table.type_table);
+  hashmap_deinit(&last_table.type_table);
   checker->cur_type_table--;
 }
 
@@ -201,15 +203,16 @@ static Ident resolve_overloaded_function(TypeChecker *checker,
 */
 
 static void type_table_dump(const TypeTable *type_table) {
-  hashmap_foreach(
-      &type_table->type_table, ModulePath * key, TypeTableValue * val, {
-        if (val->opt_type.present) {
-          dyn_string_t type_buf =
-              type_format(&(TypeFormatter){.debug = true}, &val->opt_type.type);
-          printf("Key: %s, Val: %s\n", module_path_fmt(key).string,
-                 type_buf.string);
-        }
-      });
+  ModulePath *key;
+  TypeTableValue *val;
+  hashmap_foreach(&type_table->type_table, key, val) {
+    if (val->opt_type.present) {
+      dyn_string_t type_buf =
+          type_format(&(TypeFormatter){.debug = true}, &val->opt_type.type);
+      printf("Key: %s, Val: %s\n", module_path_fmt(key).string,
+             type_buf.string);
+    }
+  }
 }
 
 static bool is_generic_function(const ExprFunction *func) {
@@ -295,10 +298,11 @@ static Type check_call_expr(TypeChecker *checker, ExprCall *expr_call) {
         dyn_string_t func_arg_type = type_format(
             &checker->type_fmt, &expr_function.desc.args[i].var.typed_arg.type);
         log_error(
-            "Type error: Expected type %s for argument %zu of function %s, "
-            "received argument of type %s",
+            "Type error: Expected type '%s' for argument %zu of function '%s', "
+            "received argument of type '%s'",
             func_arg_type.string, i, mod_path_call.string,
             caller_arg_type.string);
+
         dyn_string_free(&caller_arg_type);
         dyn_string_free(&func_arg_type);
         exit(1);
