@@ -85,7 +85,7 @@ int main(int argc, char **argv) {
 
     if (debug) {
       sprintf(exec_cmd, "gdb --args ./%s", OUT_NAME);
-    } else if (args_contains(argc, argv, "-vg")) {
+    } else if (args_contains(argc, argv, "-vg") != -1) {
       sprintf(exec_cmd, "valgrind --leak-check=full --show-leak-kinds=all --track-origins=yes --errors-for-leak-kinds=all ./%s", OUT_NAME);
     }
 

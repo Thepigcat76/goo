@@ -7,6 +7,7 @@
 #include "lilc/panic.h"
 #include "lilc/todo.h"
 #include <lilc/alloc.h>
+#include <lilc/dynstr.h>
 #include <limits.h>
 #include <threads.h>
 
@@ -206,7 +207,7 @@ static ExprCompileResult expr_call_compile(Compiler *compiler,
                .args[i]
                .var.typed_arg.type;
       log_debug("Arg type: %s",
-                type_format(&(TypeFormatter){0}, arg_type).string);
+                dyn_string_temp_copy_and_free(type_format(&(TypeFormatter){0}, arg_type)));
     }
 
     Expression arg = expr_call->args[i];

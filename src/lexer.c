@@ -184,9 +184,9 @@ static bool next_char_count_newline(Lexer *lexer, SourceLine **out_lines) {
   if (*lexer->cur_char == '\n') {
     lexer->pos = 1;
     lexer->line++;
-    size_t lines = array_len(out_lines);
+    size_t lines = array_len(*out_lines);
     if (lines > 0) {
-      out_lines[lines - 1]->len = lexer->cur_char - out_lines[lines - 1]->begin;
+      (*out_lines)[lines - 1].len = lexer->cur_char - (*out_lines)[lines - 1].begin;
     }
     lines_add(out_lines, (SourceLine){.begin = lexer->cur_char + 1});
   } else {
@@ -518,9 +518,9 @@ void lexer_tokenize(Lexer *lexer, const char *src, const char *filename,
     tokens_add(out_tokens, tok);
     next_char(lexer, out_lines);
   }
-  size_t lines = array_len(out_lines);
+  size_t lines = array_len(*out_lines);
   if (lines > 0) {
-    out_lines[lines - 1]->len = lexer->cur_char - out_lines[lines - 1]->begin;
+    (*out_lines)[lines - 1].len = lexer->cur_char - (*out_lines)[lines - 1].begin;
   }
   tokens_add(out_tokens, (Token){.kind = TOKEN_EOF});
 }

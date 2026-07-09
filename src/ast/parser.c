@@ -84,7 +84,7 @@ void parser_deinit(Parser *parser) {
   hashmap_deinit(&parser->custom_types);
   hashmap_deinit(&parser->custom_functions);
 
-  //array_free(parser->pp_dir_conditionals);
+  // array_free(parser->pp_dir_conditionals);
   array_free(parser->foreign_functions);
   array_free(parser->imported_modules);
   hashmap_deinit(&parser->imported_functions);
@@ -517,7 +517,8 @@ static bool is_func_desc(Parser *parser) {
 
 // TODO: Might want to factor out into extra step
 
-static ModulePath module_path_resolve(Parser *parser, const ModulePath *path) {
+static ModulePath module_path_resolve(Parser *parser, const ModulePath *path,
+                                      Allocator *alloc) {
   size_t modules_len = array_len(parser->imported_modules);
   for (size_t i = 0; i < modules_len; i++) {
     ModulePath imported_path = parser->imported_modules[i];
@@ -525,7 +526,7 @@ static ModulePath module_path_resolve(Parser *parser, const ModulePath *path) {
     Ident last_path_segment = imported_path.path[path_len - 1];
 
     if (strv_eq(path->path[0], last_path_segment)) {
-      ModulePath new_path = module_path_copy(&imported_path, &HEAP_ALLOCATOR);
+      ModulePath new_path = module_path_copy(&imported_path, alloc);
       for (size_t i = 1; i < array_len(path->path); i++) {
         array_add(new_path.path, path->path[i]);
       }
@@ -603,7 +604,9 @@ static ParseResult parse_expr(Parser *parser, Expression *expr) {
     Token first_token = *parser->cur_tok;
     Ident ident = parser->cur_tok->var.ident;
     ModulePath raw_path = parse_module_path(parser);
-    ModulePath resolved_path = module_path_resolve(parser, &raw_path);
+    // TODO: Use different arena for module related stuff
+    ModulePath resolved_path =
+        module_path_resolve(parser, &raw_path, &parser->ast_arena_allocator);
     if (parser->peek_tok->kind == TOKEN_LPAREN) {
       // if (hashmap_contains(&parser->custom_functions, &ident)||
       //     ident_is_imported_function(parser, ident) ||
@@ -1394,6 +1397,8 @@ static StmtDecl parse_decl_stmt(Parser *parser, bool typed) {
     }
     case EXPR_VAR_REG_EXPR: {
       if (expr_var.var.expr_var_reg_expr.kind == EXPR_FUNCTION) {
+        // FIXME: Gets freed when parser_deinit is called due to it using an
+        // arena
         ModulePath module_path = module_path_copy(&parser->cur_module->path,
                                                   &parser->ast_arena_allocator);
         array_add(module_path.path, stmt_decl.name);
@@ -1408,7 +1413,8 @@ static StmtDecl parse_decl_stmt(Parser *parser, bool typed) {
           hashmap_insert(
               &parser->cur_module->functions, &module_path,
               &expr_var.var.expr_var_reg_expr.var.expr_function.desc);
-          Ident mangled_function = mangle_function_name(&module_path);
+          Ident mangled_function =
+              mangle_function_name(&module_path, &parser->ast_arena_allocator);
           hashmap_insert(&mangled_functions, &module_path, &mangled_function);
           if (debug_flags.print_parse_info) {
             log_debug("Mangled function mod path len: %zu, %s",
@@ -1498,21 +1504,19 @@ static PpDirective parse_pp_dir(Parser *parser) {
   exit(1);
 }
 
-static char *_exec_dir_path;
+static dyn_string_t get_exec_dir(const char *exec_filename, Allocator *alloc) {
+  static dyn_string_t _exec_dir_path = {0};
 
-static char *get_exec_dir(const char *exec_filename) {
-  if (_exec_dir_path == NULL) {
-    const char *const exec_filename_only = strrchr(exec_filename, '/');
-    if (exec_filename_only != NULL) {
-      size_t exec_dir_path_length = exec_filename_only - exec_filename + 1;
-      _exec_dir_path = malloc(exec_dir_path_length + 1);
-      strncpy(_exec_dir_path, exec_filename, exec_dir_path_length);
-    } else {
-      _exec_dir_path = malloc(3);
-      _exec_dir_path[0] = '.';
-      _exec_dir_path[1] = '/';
-      _exec_dir_path[2] = '\0';
-    }
+  if (_exec_dir_path.string == NULL) {
+    dyn_string_init(&_exec_dir_path, alloc);
+  }
+
+  const char *const exec_filename_only = strrchr(exec_filename, '/');
+  if (exec_filename_only != NULL) {
+    size_t exec_dir_path_length = exec_filename_only - exec_filename + 1;
+    dyn_string_copy_str_len(&_exec_dir_path, exec_filename, exec_dir_path_length);
+  } else {
+    dyn_string_printf(&_exec_dir_path, "./");
   }
 
   return _exec_dir_path;
@@ -1664,22 +1668,23 @@ static bool parse_stmt(Parser *parser, Statement *out_stmt) {
         next_token(parser);
 
         char *module_name = parser->cur_tok->var.string;
-        char *exec_file_dir_path = get_exec_dir(parser->cur_module->filename);
+        dyn_string_t exec_file_dir_path = get_exec_dir(parser->cur_module->filename, &parser->ast_arena_allocator);
         dyn_string_t path = {0};
         dyn_string_init(&path, &HEAP_ALLOCATOR);
 
         if (strncmp(module_name, "core/", 5) == 0) {
-          dyn_string_printf(&path, "%s/%s.goo", CORE_LIB_PATH,
-                            module_name + 5);
+          dyn_string_printf(&path, "%s/%s.goo", CORE_LIB_PATH, module_name + 5);
         } else {
-          dyn_string_printf(&path, "%s%s.goo", exec_file_dir_path, module_name);
+          dyn_string_printf(&path, "%s%s.goo", exec_file_dir_path.string, module_name);
         }
 
-        ModulePath mod_path = parse_module_path_from_string(module_name);
+        ModulePath mod_path = parse_module_path_from_string(
+            module_name, &parser->ast_arena_allocator);
 
         array_add(parser->imported_modules, mod_path);
 
-        dyn_string_t file_content = file_read_to_string(path.string, &HEAP_ALLOCATOR);
+        dyn_string_t file_content =
+            file_read_to_string(path.string, &HEAP_ALLOCATOR);
 
         if (file_content.string == NULL) {
           log_error("[PREPROCESSOR] Cannot find module for import directive, "
@@ -1702,6 +1707,11 @@ static bool parse_stmt(Parser *parser, Statement *out_stmt) {
         hashmap_foreach(&mod.functions, key, val) {
           hashmap_insert(&parser->imported_functions, key, val);
         }
+
+        module_deinit(&mod);
+
+        dyn_string_free(&file_content);
+        dyn_string_free(&path);
 
         return false;
       }

@@ -54,6 +54,10 @@ void checker_deinit(TypeChecker *checker) {
   array_free(checker->type_tables);
   hashmap_deinit(&checker->generic_functions_table.table);
   hashmap_deinit(&checker->generated_generic_functions);
+
+  error_sink_deinit(&checker->sink);
+
+  bump_free(&checker->checker_arena);
 }
 
 void type_table_add(TypeTable *table, ModulePath *path,
@@ -803,9 +807,12 @@ void checker_check(TypeChecker *checker) {
   sink_print_errors(checker->lines, checker->module->filename, &checker->sink);
 }
 
-void module_check(Module *module, TypeChecker *checker, const SourceLine *lines) {
+void module_check(Module *module, TypeChecker *checker, Statement *stmts, const SourceLine *lines, ModulePath *imported_modules) {
   checker->module = module;
   checker->lines = lines;
+  checker->module = module;
+  checker->stmts = stmts;
+  checker->imported_modules = imported_modules;
 
   checker_check(checker);
 }

@@ -27,7 +27,7 @@ void compile_input(const char *input_path, const char *output_path,
                    const char *raw_module_path) {
   builtin_types_init();
 
-  ModulePath module_path = parse_module_path_from_string(raw_module_path);
+  ModulePath module_path = parse_module_path_from_string(raw_module_path, &HEAP_ALLOCATOR);
 
   dyn_string_t file_content = file_read_to_string(input_path, &HEAP_ALLOCATOR);
 
@@ -97,14 +97,29 @@ void compile_input(const char *input_path, const char *output_path,
                    (OptionalType){.present = false});
   }
 
-  module_check(&module, &checker, lines);
+  module_check(&module, &checker, stmts, lines, parser.imported_modules);
 
   checker_gen_functions(&checker);
 
-  checker_deinit(&checker);
-  preprocessor_deinit(&preproc);
-  parser_deinit(&parser);
-  lexer_deinit(&lexer);
+  // ** COMPILER **
+
+  Compiler compiler = {0};
+  compiler_init(&compiler, stmts, checker.type_tables,
+                mangled_functions, module_path);
+                
+  compiler_compile(&compiler);
+
+  compiler_generate(&compiler);
+
+  FILE *out_file = fopen(output_path, "w");
+
+  compiler_write(&compiler, out_file);
+
+  fclose(out_file);
+
+  // CLEANUP
+
+  hashmap_deinit(&mangled_functions);
 
   array_free(tokens);
   array_free(lines);
@@ -115,49 +130,19 @@ void compile_input(const char *input_path, const char *output_path,
   module_deinit(&module);
   mod_path_deinit(&module_path);
 
+  compiler_deinit(&compiler);
+  checker_deinit(&checker);
+  preprocessor_deinit(&preproc);
+  parser_deinit(&parser);
+  lexer_deinit(&lexer);
+
   dyn_string_free(&file_content);
 
-  hashmap_deinit(&mangled_functions);
-
   builtin_types_deinit();
+
+  builtin_functions_deinit(NULL);
 
   return;
-
-  // ** COMPILER **
-
-  Compiler compiler = {0};
-  compiler_init(&compiler, stmts, checker.type_tables,
-                mangled_functions, module_path);
-  compiler_compile(&compiler);
-
-  // Compilation is done, statements array and others can be freed
-  parser_deinit(&parser);
-  builtin_functions_deinit(checker.global_type_table);
-  // Type checking information like type tables... can also be freed
-  checker_deinit(&checker);
-
-  compiler_generate(&compiler);
-
-  FILE *out_file = fopen(output_path, "w");
-
-  compiler_write(&compiler, out_file);
-
-  compiler_deinit(&compiler);
-
-  fclose(out_file);
-
-  bump_free(&lexer.tok_arena);
-  bump_free(&parser.ast_arena);
-  bump_free(&checker.checker_arena);
-  bump_free(&compiler.compiler_arena);
-
-  // hashmap_free(&mangled_functions);
-
-  builtin_types_deinit();
-
-  array_free(module_path.path);
-
-  dyn_string_free(&file_content);
 }
 
 int main(int argc, char **argv) {

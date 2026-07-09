@@ -4,6 +4,7 @@
 #include "lilc/eq.h"
 #include "lilc/hash.h"
 #include "lilc/numbers.h"
+#include <lilc/alloc.h>
 
 i32 module_path_ptrv_hash(const void *array) {
   const ModulePath *path = array;
@@ -23,11 +24,11 @@ i32 module_path_ptrv_hash(const void *array) {
 #define MANGLE_MODULE_INDICATOR 'M'
 #define MANGLE_MODULE_SEPERATOR "_M"
 
-Ident mangle_function_name(const ModulePath *module_path) {
+Ident mangle_function_name(const ModulePath *module_path, Allocator *alloc) {
   Ident *path = module_path->path;
   size_t path_len = array_len(path);
   dyn_string_t mangled_ident = {0};
-  dyn_string_init(&mangled_ident, &HEAP_ALLOCATOR);
+  dyn_string_init(&mangled_ident, alloc);
 
   dyn_string_copy_str(&mangled_ident, MANGLE_PREFIX);
   dyn_string_add_char(&mangled_ident, MANGLE_MODULE_INDICATOR);
@@ -42,18 +43,18 @@ Ident mangle_function_name(const ModulePath *module_path) {
   return mangled_ident.string;
 }
 
-ModulePath parse_module_path_from_string(const char *str) {
-  ModulePath path = {.path = array_new(Ident, &HEAP_ALLOCATOR)};
+ModulePath parse_module_path_from_string(const char *str, Allocator *alloc) {
+  ModulePath path = {.path = array_new(Ident, alloc)};
 
   if (str == NULL || strlen(str) == 0) return path;
 
   const char *c = str;
   dyn_string_t cur_ident = {0};
-  dyn_string_init(&cur_ident, &HEAP_ALLOCATOR);
+  dyn_string_init(&cur_ident, alloc);
   for (;;) {
     if (*c == '/' || *c == '.' || *c == '\0') {
       dyn_string_t new_str = {0};
-      dyn_string_init(&new_str, &HEAP_ALLOCATOR);
+      dyn_string_init(&new_str, alloc);
       dyn_string_copy(&new_str, &cur_ident);
       array_add(path.path, new_str.string);
       dyn_string_clear(&cur_ident);
@@ -65,6 +66,8 @@ ModulePath parse_module_path_from_string(const char *str) {
     }
     c++;
   }
+
+  dyn_string_free(&cur_ident);
 
   return path;
 }

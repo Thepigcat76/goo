@@ -56,4 +56,6 @@ void compiler_deinit(Compiler *compiler) {
   data_section_deinit(&compiler->data_section);
   data_section_deinit(&compiler->rodata_section);
   array_free(compiler->elf64_relocations);
+
+  bump_free(&compiler->compiler_arena);
 }
