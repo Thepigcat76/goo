@@ -80,11 +80,13 @@ int main(int argc, char **argv) {
       }
     }
 
-    char exec_cmd[256];
+    char exec_cmd[1024];
     sprintf(exec_cmd, "./%s", OUT_NAME);
 
     if (debug) {
       sprintf(exec_cmd, "gdb --args ./%s", OUT_NAME);
+    } else if (args_contains(argc, argv, "-vg")) {
+      sprintf(exec_cmd, "valgrind --leak-check=full --show-leak-kinds=all --track-origins=yes --errors-for-leak-kinds=all ./%s", OUT_NAME);
     }
 
     return WEXITSTATUS(systemf("%s %s", exec_cmd, args));
@@ -148,7 +150,7 @@ static char *run_test_program0(const char *name, int *exit_code,
   run_test_program0(name, exit_code, "" __VA_ARGS__)
 
 static int compiler_tests(void) {
-  ensure_parent_dirs("tests/build/.", 0755);
+  ensure_parent_dirs("tests/build/.", 0o755);
 
   run_test_program("modules", NULL, "-lraylib tests/print_int.a");
   char *out = run_test_program("test_modules", NULL, "-lraylib tests/print_int.a");

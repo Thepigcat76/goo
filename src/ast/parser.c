@@ -4,10 +4,12 @@
 #include "lilc/array.h"
 #include "lilc/dynstr.h"
 #include "lilc/eq.h"
+#include "lilc/file.h"
 #include "lilc/hash.h"
 #include "lilc/hashmap0.h"
 #include "lilc/log.h"
 #include "lilc/panic.h"
+#include <lilc/str.h>
 #include <stdarg.h>
 #include <stdbool.h>
 #include <stdio.h>
@@ -57,19 +59,16 @@ const OptionalType OPT_TYPE_EMPTY = {.present = false};
 
 #define AST_ARENA_SIZE 160000
 
-void parser_init(Parser *parser, Token *tokens) {
+void parser_init(Parser *parser) {
   if (mangled_functions._internal_map == NULL) {
     hashmap_init(&mangled_functions, &HEAP_ALLOCATOR, ModulePath, Ident,
                  module_path_ptrv_hash, module_path_ptrv_eq, NULL);
   }
-  parser->tokens = tokens;
-  parser->statements = array_new(Statement, &HEAP_ALLOCATOR);
+
   hashmap_init(&parser->custom_types, &HEAP_ALLOCATOR, Ident *, TypeExpr,
                str_ptrv_hash, str_ptrv_eq, NULL);
   hashmap_init(&parser->custom_functions, &HEAP_ALLOCATOR, Ident *,
                ExprFunction, str_ptrv_hash, str_ptrv_eq, NULL);
-  parser->pp_dirs = array_new(PpDirective, &HEAP_ALLOCATOR);
-  parser->pp_dir_conditionals = array_new(size_t, &HEAP_ALLOCATOR);
   parser->foreign_functions = array_new(ModulePath, &HEAP_ALLOCATOR);
   parser->imported_modules = array_new(ModulePath, &HEAP_ALLOCATOR);
   hashmap_init(&parser->imported_functions, &HEAP_ALLOCATOR, ModulePath,
@@ -85,16 +84,19 @@ void parser_deinit(Parser *parser) {
   hashmap_deinit(&parser->custom_types);
   hashmap_deinit(&parser->custom_functions);
 
-  module_deinit(&parser->module);
-  array_free(parser->pp_dirs);
-  array_free(parser->pp_dir_conditionals);
+  //array_free(parser->pp_dir_conditionals);
   array_free(parser->foreign_functions);
   array_free(parser->imported_modules);
   hashmap_deinit(&parser->imported_functions);
-  array_free(parser->statements);
+
+  error_sink_deinit(&parser->sink);
+
+  bump_free(&parser->ast_arena);
 }
 
 static void next_token(Parser *parser) {
+  if (parser->cur_tok->kind == TOKEN_EOF)
+    panic("Encountered EOF token");
   parser->cur_tok = parser->peek_tok;
   parser->peek_tok++;
 }
@@ -1392,8 +1394,8 @@ static StmtDecl parse_decl_stmt(Parser *parser, bool typed) {
     }
     case EXPR_VAR_REG_EXPR: {
       if (expr_var.var.expr_var_reg_expr.kind == EXPR_FUNCTION) {
-        ModulePath module_path =
-            module_path_copy(&parser->path, &parser->ast_arena_allocator);
+        ModulePath module_path = module_path_copy(&parser->cur_module->path,
+                                                  &parser->ast_arena_allocator);
         array_add(module_path.path, stmt_decl.name);
 
         if (debug_flags.print_parse_info) {
@@ -1404,7 +1406,7 @@ static StmtDecl parse_decl_stmt(Parser *parser, bool typed) {
         if (array_len(module_path.path) > 0 &&
             !strv_eq(module_path.path[0], "main")) {
           hashmap_insert(
-              &parser->module.functions, &module_path,
+              &parser->cur_module->functions, &module_path,
               &expr_var.var.expr_var_reg_expr.var.expr_function.desc);
           Ident mangled_function = mangle_function_name(&module_path);
           hashmap_insert(&mangled_functions, &module_path, &mangled_function);
@@ -1416,11 +1418,12 @@ static StmtDecl parse_decl_stmt(Parser *parser, bool typed) {
           }
         }
       } else {
-        array_add(parser->module.decls,
-                  (TypedIdent){.ident = stmt_decl.name,
-                               .type = stmt_decl.type.present
-                                           ? stmt_decl.type.type
-                                           : (Type){.kind = TYPE_UNIT}});
+        TypedIdent decl = {
+            .ident = stmt_decl.name,
+            .type = stmt_decl.type.present ? stmt_decl.type.type
+                                           : (Type){.kind = TYPE_UNIT},
+        };
+        array_add(parser->cur_module->decls, decl);
       }
       break;
     }
@@ -1644,7 +1647,7 @@ static bool parse_stmt(Parser *parser, Statement *out_stmt) {
           .kind = PP_DIR_COMPTIME,
       };
       if (parse_stmt(parser, &pp_dir.var.pp_dir_comptime.stmt)) {
-        array_add(parser->pp_dirs, pp_dir);
+        array_add(*parser->pp_dirs, pp_dir);
       }
       return false;
     } else if (parser->peek_tok->kind == TOKEN_IDENT) {
@@ -1661,40 +1664,38 @@ static bool parse_stmt(Parser *parser, Statement *out_stmt) {
         next_token(parser);
 
         char *module_name = parser->cur_tok->var.string;
-        char *exec_file_dir_path = get_exec_dir(parser->filename);
+        char *exec_file_dir_path = get_exec_dir(parser->cur_module->filename);
         dyn_string_t path = {0};
         dyn_string_init(&path, &HEAP_ALLOCATOR);
 
         if (strncmp(module_name, "core/", 5) == 0) {
-          dyn_string_printf(&path, "%s/%s.goo", getenv(CORE_LIB_PATH),
+          dyn_string_printf(&path, "%s/%s.goo", CORE_LIB_PATH,
                             module_name + 5);
         } else {
           dyn_string_printf(&path, "%s%s.goo", exec_file_dir_path, module_name);
-        }
-
-        FILE *f = fopen(path.string, "r");
-
-        if (f == NULL) {
-          log_error("[PREPROCESSOR] Cannot find module for import directive, "
-                    "module: %s, path: %s. Execution path: %s",
-                    module_name, path.string, parser->filename);
-          exit(1);
         }
 
         ModulePath mod_path = parse_module_path_from_string(module_name);
 
         array_add(parser->imported_modules, mod_path);
 
-        // TODO: Make dynamic
-        char *source_buf = malloc(4096);
-        fread(source_buf, 1, 4096, f);
+        dyn_string_t file_content = file_read_to_string(path.string, &HEAP_ALLOCATOR);
+
+        if (file_content.string == NULL) {
+          log_error("[PREPROCESSOR] Cannot find module for import directive, "
+                    "module: %s, path: %s. Execution path: %s",
+                    module_name, path.string, parser->cur_module->filename);
+          exit(1);
+        }
 
         if (debug_flags.print_parse_info) {
           log_info("[PARSER] Loaded imported module %s",
                    module_path_fmt(&mod_path).string);
         }
 
-        Module mod = parser_parse_module(source_buf, path.string, mod_path);
+        Module mod = {0};
+        module_init(&mod, mod_path, path.string, file_content.string);
+        module_parse_standalone(&mod);
 
         ModulePath *key;
         FuncDescriptor *val;
@@ -1708,7 +1709,7 @@ static bool parse_stmt(Parser *parser, Statement *out_stmt) {
       size_t last_pp_cond_idx =
           parser
               ->pp_dir_conditionals[array_len(parser->pp_dir_conditionals) - 1];
-      PpDirective *pp_dir = &parser->pp_dirs[last_pp_cond_idx];
+      PpDirective *pp_dir = &((*parser->pp_dirs)[last_pp_cond_idx]);
       pp_dir->var.pp_dir_if.lines_amount = line - pp_dir->line;
 
       log_debug("[PARSER] Found end of conditional pre processor directive in "
@@ -1721,7 +1722,7 @@ static bool parse_stmt(Parser *parser, Statement *out_stmt) {
     }
     PpDirective pp_dir = parse_pp_dir(parser);
     pp_dir.line = line;
-    array_add(parser->pp_dirs, pp_dir);
+    array_add(*parser->pp_dirs, pp_dir);
     exit(1);
   }
   default: {
@@ -1747,39 +1748,53 @@ void parser_parse(Parser *parser) {
   parser->peek_tok = parser->tokens + 1;
 
   if (debug_flags.print_parse_info) {
-    log_info("[Parser] Start parsing file %s", parser->filename);
+    log_info("[Parser] Start parsing file %s", parser->cur_module->filename);
   }
 
   while (parser->cur_tok->kind != TOKEN_EOF) {
     Statement stmt;
     if (parse_stmt(parser, &stmt)) {
-      array_add(parser->statements, stmt);
+      array_add(*parser->statements, stmt);
     }
     next_token(parser);
   }
 
-  sink_print_errors(parser->lines, parser->filename, &parser->sink);
+  sink_print_errors(parser->lines, parser->cur_module->filename, &parser->sink);
 }
 
-inline Module parser_parse_module_ex(Parser *parser, const char *source,
-                                     const char *filename) {
-  parser_parse(parser);
-  return parser->module;
+static void parser_reset(Parser *parser) {
+  parser->cur_module = NULL;
+  parser->tokens = NULL;
+  parser->cur_tok = NULL;
+  parser->peek_tok = NULL;
+
+  parser->lines = NULL;
+  parser->pp_dirs = NULL;
+  parser->pp_dir_conditionals = NULL;
+
+  array_clear(parser->foreign_functions);
+
+  array_clear(parser->sink.msgs);
+
+  parser->statements = NULL;
+
+  bump_reset(&parser->ast_arena);
+
+  // TODO: Clear hashmaps
 }
 
-Module parser_parse_module(const char *source, const char *filename,
-                           ModulePath path) {
-  Lexer lexer = {0};
-  lexer_init(&lexer);
-  lexer_tokenize(&lexer, source, filename);
-  array_add(lexer.tokens, (Token){.kind = TOKEN_EOF});
-  Parser parser = {0};
-  parser_init(&parser, lexer.tokens, source, filename, path);
-  parser.lines = lexer.lines;
-  parser_parse(&parser);
-  return parser.module;
-}
+void module_parse(Module *module, Parser *parser, Statement **out_stmts,
+                  PpDirective **out_pp_dirs, const TokenStream tokens,
+                  const SourceLines lines) {
+  parser_reset(parser);
 
-void module_parse(const Module *module, Parser *parser) {
+  parser->cur_module = module;
+  parser->tokens = tokens;
+  parser->lines = lines;
+
+  parser->lines = lines;
+  parser->pp_dirs = out_pp_dirs;
+  parser->statements = out_stmts;
+
   parser_parse(parser);
 }

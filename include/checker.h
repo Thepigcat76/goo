@@ -2,6 +2,7 @@
 
 #include "lexer.h"
 #include "lilc/hashmap0.h"
+#include "module.h"
 #include "parser.h"
 #include "generics.h"
 #include "types.h"
@@ -12,9 +13,8 @@ typedef struct {
 
 typedef struct {
   Statement *stmts;
-  const char *source;
-  const char *filename;
-  LexerLine *lines;
+  Module *module;
+  const SourceLine *lines;
 
   // Works like environemnts in the evaluator but for type checking
   TypeTable *type_tables;
@@ -44,10 +44,10 @@ typedef struct {
   FuncDescriptor *cur_func_desc;
 } CheckerContext;
 
-void checker_init(TypeChecker *checker, Parser *parser);
+void checker_init(TypeChecker *checker);
 
 void checker_deinit(TypeChecker *checker);
 
-void checker_check(TypeChecker *checker);
+void module_check(Module *module, TypeChecker *checker, const SourceLine *lines);
 
 void checker_gen_functions(TypeChecker *checker);

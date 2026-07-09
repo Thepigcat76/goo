@@ -46,10 +46,7 @@ static Expression println_execute(Expression *args) {
   return (Expression){.kind = EXPR_UNIT};
 }
 
-void preprocessor_init(PreProcessor *pp, Statement *stmts,
-                       PpDirective *pp_dirs) {
-  pp->stmts = stmts;
-  pp->pp_dirs = pp_dirs;
+void preprocessor_init(PreProcessor *pp) {
   pp->pp_dir_cond_line = -1;
   hashmap_init(&pp->comptime_functions, &HEAP_ALLOCATOR, Ident *,
                ComptimeBuiltinFunction, str_ptrv_hash, str_ptrv_eq, NULL);
@@ -61,6 +58,7 @@ void preprocessor_init(PreProcessor *pp, Statement *stmts,
   hashmap_insert(
       &pp->comptime_functions, &println_name,
       &(ComptimeBuiltinFunction){.execute = println_execute, .builtin = true});
+
 }
 
 void preprocessor_deinit(PreProcessor *pp) {
@@ -218,7 +216,7 @@ static Expression expr_eval_comptime(PreProcessor *preprocessor,
   exit(1);
 }
 
-static void pp_dir_process(PreProcessor *preprocessor, PpDirective *pp_dir,
+static void pp_dir_process(PreProcessor *preprocessor, const PpDirective *pp_dir,
                            bool global) {
   switch (pp_dir->kind) {
   case PP_DIR_IF: {
@@ -237,7 +235,8 @@ static void pp_dir_process(PreProcessor *preprocessor, PpDirective *pp_dir,
 
     if (evaluated_cond_expr) {
       size_t last_line = pp_dir->line + pp_dir_if.lines_amount;
-      hashmap_insert(&preprocessor->valid_lines, &pp_dir->line, &last_line);
+      size_t line = pp_dir->line;
+      hashmap_insert(&preprocessor->valid_lines, &line, &last_line);
     }
     break;
   }
@@ -410,4 +409,10 @@ void preprocessor_process(PreProcessor *preprocessor) {
   for (size_t i = 0; i < array_len(preprocessor->stmts); i++) {
     stmt_process(preprocessor, &preprocessor->stmts[i], NULL);
   }
+}
+
+void module_preprocess(Module *module, PreProcessor *preproc, Statement *stmts, const PpDirective *pp_dirs) {
+  preproc->pp_dirs = pp_dirs;
+  preproc->stmts = stmts;
+  preprocessor_process(preproc);
 }

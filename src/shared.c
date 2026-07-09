@@ -2,6 +2,8 @@
 #include <stddef.h>
 #include <string.h>
 
+char *corelib_path = NULL;
+
 struct debug_flags debug_flags = {0};
 
 void *_internal_heap_clone(void *ptr, size_t size) {

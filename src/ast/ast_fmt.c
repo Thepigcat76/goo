@@ -1,5 +1,4 @@
 #include "../../include/ast.h"
-#include "lilc/str.h"
 #include <lilc/alloc.h>
 #include <lilc/array.h>
 #include <lilc/dynstr.h>
@@ -8,13 +7,24 @@
 
 typedef struct {
   size_t stmt_indent;
-} Formatter;
+  Allocator fmt_allocator;
+  Bump fmt_arena;
+} AstFormatter;
 
-static dyn_string_t stmt_format(Formatter *fmt, const Statement *stmt);
+static void ast_fmt_init(AstFormatter *fmt) {
+  fmt->stmt_indent = 0;
+  bump_init(&fmt->fmt_arena, 2048);
+  bump_allocator_init(&fmt->fmt_allocator, &fmt->fmt_arena);
+}
 
-static dyn_string_t expr_block_format(Formatter *fmt, const ExprBlock *block) {
+static void ast_fmt_deinit(AstFormatter *fmt) { bump_free(&fmt->fmt_arena); }
+
+static dyn_string_t stmt_format(AstFormatter *fmt, const Statement *stmt);
+
+static dyn_string_t expr_block_format(AstFormatter *fmt,
+                                      const ExprBlock *block) {
   dyn_string_t str = {0};
-  dyn_string_init(&str, &HEAP_ALLOCATOR);
+  dyn_string_init(&str, &fmt->fmt_allocator);
   fmt->stmt_indent += 2;
 
   if (block->statements == NULL) {
@@ -24,12 +34,13 @@ static dyn_string_t expr_block_format(Formatter *fmt, const ExprBlock *block) {
 
   for (size_t i = 0; i < array_len(block->statements); i++) {
     Statement stmt = block->statements[i];
-    dyn_string_add_str(&str, stmt_format(fmt, &stmt).string);
+    dyn_string_t stmt_str = stmt_format(fmt, &stmt);
+    dyn_string_add_str(&str, stmt_str.string);
     dyn_string_add_str(&str, ",\n");
   }
 
   dyn_string_t wrapped_string = {0};
-  dyn_string_init(&wrapped_string, &HEAP_ALLOCATOR);
+  dyn_string_init(&wrapped_string, &fmt->fmt_allocator);
 
   dyn_string_printf(&wrapped_string, "ExprBlock{stmts=[\n%s]}", str.string);
 
@@ -38,9 +49,10 @@ static dyn_string_t expr_block_format(Formatter *fmt, const ExprBlock *block) {
   return wrapped_string;
 }
 
-static dyn_string_t module_path_format(Formatter *fmt, const ModulePath *path) {
+static dyn_string_t module_path_format(AstFormatter *fmt,
+                                       const ModulePath *path) {
   dyn_string_t str = {0};
-  dyn_string_init(&str, &HEAP_ALLOCATOR);
+  dyn_string_init(&str, &fmt->fmt_allocator);
 
   for (size_t i = 0; i < array_len(path->path); i++) {
     dyn_string_add_str(&str, path->path[i]);
@@ -51,24 +63,27 @@ static dyn_string_t module_path_format(Formatter *fmt, const ModulePath *path) {
   return str;
 }
 
-static dyn_string_t expr_list_format(Formatter *fmt, const Expression *exprs);
+static dyn_string_t expr_list_format(AstFormatter *fmt,
+                                     const Expression *exprs);
 
-static dyn_string_t expr_format0(Formatter *fmt, const Expression *expr);
+static dyn_string_t expr_format0(AstFormatter *fmt, const Expression *expr);
 
-static dyn_string_t expr_range_format(Formatter *fmt, const ExprRange *range) {
+static dyn_string_t expr_range_format(AstFormatter *fmt,
+                                      const ExprRange *range) {
   dyn_string_t s = {0};
-  dyn_string_init(&s, &HEAP_ALLOCATOR);
+  dyn_string_init(&s, &fmt->fmt_allocator);
 
-  dyn_string_printf(&s, "ExprRange{%s, %s}",
-                    expr_format0(fmt, range->min).string,
-                    expr_format0(fmt, range->max).string);
+  dyn_string_t l = expr_format0(fmt, range->min);
+  dyn_string_t r = expr_format0(fmt, range->max);
+
+  dyn_string_printf(&s, "ExprRange{%s, %s}", l.string, r.string);
 
   return s;
 }
 
-static dyn_string_t expr_format0(Formatter *fmt, const Expression *expr) {
+static dyn_string_t expr_format0(AstFormatter *fmt, const Expression *expr) {
   dyn_string_t str = {0};
-  dyn_string_init(&str, &HEAP_ALLOCATOR);
+  dyn_string_init(&str, &fmt->fmt_allocator);
   switch (expr->kind) {
   case EXPR_CAST: {
     dyn_string_printf(&str, "ExprCast{type=, expr=%s}",
@@ -94,9 +109,11 @@ static dyn_string_t expr_format0(Formatter *fmt, const Expression *expr) {
   }
   case EXPR_CALL: {
     ExprCall expr_call = expr->var.expr_call;
-    dyn_string_printf(&str, "ExprCall{function=%s, args=[%s]}",
-                      module_path_format(fmt, &expr_call.function).string,
-                      expr_list_format(fmt, expr_call.args).string);
+    dyn_string_t name = module_path_format(fmt, &expr_call.function);
+    dyn_string_t args = expr_list_format(fmt, expr_call.args);
+    dyn_string_printf(&str, "ExprCall{function=%s, args=[%s]}", name.string,
+                      args.string);
+
     break;
   }
   case EXPR_GENERIC_CALL: {
@@ -199,13 +216,20 @@ static dyn_string_t expr_format0(Formatter *fmt, const Expression *expr) {
 }
 
 dyn_string_t expr_format(const Expression *expr) {
-  Formatter fmt = {0};
-  return expr_format0(&fmt, expr);
+  AstFormatter fmt = {0};
+  ast_fmt_init(&fmt);
+  dyn_string_t expr_str = expr_format0(&fmt, expr);
+  dyn_string_t dest = {0};
+  dyn_string_init(&dest, &HEAP_ALLOCATOR);
+  dyn_string_copy(&dest, &expr_str);
+  ast_fmt_deinit(&fmt);
+  return dest;
 }
 
-static dyn_string_t expr_list_format(Formatter *fmt, const Expression *exprs) {
+static dyn_string_t expr_list_format(AstFormatter *fmt,
+                                     const Expression *exprs) {
   dyn_string_t str = {0};
-  dyn_string_init(&str, &HEAP_ALLOCATOR);
+  dyn_string_init(&str, &fmt->fmt_allocator);
 
   for (size_t i = 0; i < array_len(exprs); i++) {
     dyn_string_add_str(&str, expr_format0(fmt, &exprs[i]).string);
@@ -213,6 +237,7 @@ static dyn_string_t expr_list_format(Formatter *fmt, const Expression *exprs) {
       dyn_string_add_char(&str, ',');
     }
   }
+
   return str;
 }
 
@@ -222,9 +247,9 @@ static void dyn_string_add_ident(dyn_string_t *str, size_t indent) {
   }
 }
 
-static dyn_string_t stmt_format(Formatter *fmt, const Statement *stmt) {
+static dyn_string_t stmt_format(AstFormatter *fmt, const Statement *stmt) {
   dyn_string_t str = {0};
-  dyn_string_init(&str, &HEAP_ALLOCATOR);
+  dyn_string_init(&str, &fmt->fmt_allocator);
   dyn_string_add_ident(&str, fmt->stmt_indent);
   char indent_buf[str.term_len];
   strcpy(indent_buf, str.string);
@@ -240,12 +265,12 @@ static dyn_string_t stmt_format(Formatter *fmt, const Statement *stmt) {
   }
   case STMT_EXPR: {
     dyn_string_printf(&str, "%sStmtExpr{expr=%s}", indent_buf,
-                      expr_format0(fmt, &stmt->var.stmt_expr.expr).string);
+                          expr_format0(fmt, &stmt->var.stmt_expr.expr).string);
     break;
   }
   case STMT_RETURN: {
     dyn_string_printf(&str, "%sStmtReturn{val=%s}", indent_buf,
-                      expr_format0(fmt, &stmt->var.stmt_return.ret_val).string);
+                          expr_format0(fmt, &stmt->var.stmt_return.ret_val).string);
     break;
   }
   case STMT_FOREIGN: {
@@ -266,11 +291,13 @@ static dyn_string_t stmt_format(Formatter *fmt, const Statement *stmt) {
 dyn_string_t ast_format(const Statement *stmts) {
   dyn_string_t string = {0};
   dyn_string_init(&string, &HEAP_ALLOCATOR);
-  Formatter fmt = {0};
+  AstFormatter fmt = {0};
+  ast_fmt_init(&fmt);
   for (size_t i = 0; i < array_len(stmts); i++) {
     char *str = stmt_format(&fmt, stmts + i).string;
     dyn_string_add_str(&string, str);
     dyn_string_add_char(&string, '\n');
   }
+  ast_fmt_deinit(&fmt);
   return string;
 }

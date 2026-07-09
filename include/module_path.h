@@ -18,5 +18,7 @@ ModulePath parse_module_path_from_string(const char *str);
 
 dyn_string_t module_path_fmt(const ModulePath *path);
 
+void mod_path_deinit(ModulePath *mod_path);
+
 // TODO: Maybe move to parser or smth like that
 Ident mangle_function_name(const ModulePath *module_path);

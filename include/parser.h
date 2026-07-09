@@ -3,14 +3,10 @@
 #include "module.h"
 #include "lexer.h"
 #include "preprocess.h"
-#include "shared.h"
 #include "ast.h"
 #include "errors.h"
+#include <lilc/hashmap0.h>
 #include <stdbool.h>
-
-void *_internal_bump_clone(Bump *bump, void *ptr, size_t size);
-
-#define bump_clone(bump, ptr) _internal_bump_clone(bump, ptr, sizeof(typeof(*(ptr))))
 
 #define EXPR_VAR_TYPE(expr)                                                    \
   (ExpressionVariant) {                                                        \
@@ -24,29 +20,36 @@ void *_internal_bump_clone(Bump *bump, void *ptr, size_t size);
 
 extern Hashmap mangled_functions; // ModulePath -> Ident
 
+typedef SourceLine *SourceLines;
+
 typedef struct {
+  // TOKENS
   const Token *cur_tok;
   const Token *peek_tok;
-  Token *tokens;
-  Statement *statements;
+  const Token *tokens;
+  // MODULES
+  Module *cur_module;
+
+  Hashmap imported_functions; // ModulePath -> FuncDescriptor
+  ModulePath *imported_modules;
+  // MODULES CACHE
+  Hashmap cached_modules; // ModulePath -> Module
+  // SOURCE-INFO
+  const SourceLine *lines;
+  // PREPROCESSOR
+  PpDirective **pp_dirs;
+  // TODO: Merge this with pp-dirs
+  size_t *pp_dir_conditionals;
+  // DECLARATIONS
   Hashmap custom_types; // Ident -> TypeExpr
   Hashmap custom_functions; // Ident * -> ExprFunction
   ModulePath *foreign_functions;
-  // Imports
-  Hashmap imported_functions; // ModulePath -> FuncDescriptor
-  ModulePath *imported_modules;
-  // Preprocessor
-  PpDirective *pp_dirs;
-  size_t *pp_dir_conditionals;
-  // Debugging info
-  LexerLine *lines;
-  // Module
-  Module *cur_module;
-  ModulePath cur_mod_path;
-
+  // ERRORS
   ErrorSink sink;
+  // PARSE-OUTPUT
+  Statement **statements;
 
-  // Stores additional ast data like arrays
+  // MEMORY
   Bump ast_arena;
   Allocator ast_arena_allocator;
 } Parser;
@@ -59,11 +62,11 @@ typedef struct {
   i32 len;
 } ParseResult;
 
-void parser_init(Parser *parser, Token *tokens, const char *source, const char *filename, ModulePath path);
+void parser_init(Parser *parser);
 
 void parser_deinit(Parser *parser);
 
-void module_parse(const Module *module, Parser *parser);
+void module_parse(Module *module, Parser *parser, Statement **out_stmts, PpDirective **out_pp_dirs, const TokenStream tokens, const SourceLines lines);
 
 TypeTableValue *type_table_get(TypeTable *table, ModulePath *path,
                                TypeTable *global_table);

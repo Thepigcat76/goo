@@ -5,6 +5,7 @@
 #include <lilc/eq.h>
 #include <lilc/hash.h>
 #include "lilc/hashmap0.h"
+#include "module.h"
 
 typedef struct {
   Expression condition;
@@ -61,14 +62,16 @@ typedef struct {
 typedef struct {
   Statement *stmts;
   Hashmap comptime_constants; // Ident -> Expression
-  PpDirective *pp_dirs;
+  const PpDirective *pp_dirs;
   Hashmap valid_lines; // size_t -> size_t
   ssize_t pp_dir_cond_line;
   Hashmap comptime_functions; // Ident -> ComptimeBuiltinFunction
 } PreProcessor;
 
-void preprocessor_init(PreProcessor *preprocessor, Statement *stmts, PpDirective *pp_dirs);
+void preprocessor_init(PreProcessor *preprocessor);
 
 void preprocessor_deinit(PreProcessor *pp);
+
+void module_preprocess(Module *module, PreProcessor *preproc, Statement *stms, const PpDirective *pp_dirs);
 
 void preprocessor_process(PreProcessor *preprocessor);

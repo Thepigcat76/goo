@@ -72,18 +72,19 @@ typedef struct {
 typedef struct {
   const char *begin;
   size_t len;
-} LexerLine;
+} SourceLine;
 
 typedef struct {
   size_t index;
   const char *cur_char;
-  Token *tokens;
-  LexerLine *lines;
+
   int line;
   int pos;
   Bump tok_arena;
   Allocator tok_arena_allocator;
 } Lexer;
+
+typedef Token *TokenStream;
 
 extern Allocator LEXER_ARENA_ALLOCATOR;
 
@@ -93,4 +94,4 @@ void lexer_deinit(Lexer *lexer);
 
 void lexer_tok_print(char *buf, const Token *tok);
 
-void module_tokenize(Module *module, Lexer *lexer);
+void module_tokenize(Module *module, Lexer *lexer, TokenStream *out_tokens, SourceLine **out_lines);

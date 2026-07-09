@@ -25,8 +25,6 @@ void cli_run(char **argv, size_t argc);
 
 void compile_input(const char *input_path, const char *output_path,
                    const char *raw_module_path) {
-  // todo();
-
   builtin_types_init();
 
   ModulePath module_path = parse_module_path_from_string(raw_module_path);
@@ -34,19 +32,21 @@ void compile_input(const char *input_path, const char *output_path,
   dyn_string_t file_content = file_read_to_string(input_path, &HEAP_ALLOCATOR);
 
   Module module = {0};
-  module_init(&module, input_path, file_content.string);
+  module_init(&module, module_path, input_path, file_content.string);
 
   // ** LEXER **
 
   Lexer lexer = {0};
   lexer_init(&lexer);
 
-  module_tokenize(&module, &lexer);
+  SourceLine *lines = array_new(SourceLine, &HEAP_ALLOCATOR);
+  Token *tokens = array_new(Token, &HEAP_ALLOCATOR);
+  module_tokenize(&module, &lexer, &tokens, &lines);
 
   if (debug_flags.print_tokens) {
-    for (size_t i = 0; i < array_len(lexer.tokens); i++) {
+    for (size_t i = 0; i < array_len(tokens); i++) {
       char print_buf[256];
-      lexer_tok_print(print_buf, &lexer.tokens[i]);
+      lexer_tok_print(print_buf, &tokens[i]);
       puts(print_buf);
     }
   }
@@ -54,33 +54,31 @@ void compile_input(const char *input_path, const char *output_path,
   // ** PARSER **
 
   Parser parser = {0};
-  parser_init(&parser, lexer.tokens, file_content.string, input_path,
-              module_path);
-  parser.lines = lexer.lines;
+  parser_init(&parser);
 
-  module_parse(&module, &parser);
+  Statement *stmts = array_new(Statement, &HEAP_ALLOCATOR);
+  PpDirective *pp_dirs = array_new(PpDirective, &HEAP_ALLOCATOR);
+  module_parse(&module, &parser, &stmts, &pp_dirs, tokens, lines);
 
   if (debug_flags.print_ast) {
-    log_debug("AST:\n%s", ast_format(parser.statements).string);
+    log_info("AST:\n%s", ast_format(stmts).string);
   }
 
   // ** PREPROCESSOR **
 
-  PreProcessor preprocessor = {0};
-  preprocessor_init(&preprocessor, parser.statements, parser.pp_dirs);
+  PreProcessor preproc = {0};
+  preprocessor_init(&preproc);
 
-  preprocessor_process(&preprocessor);
-
-  preprocessor_deinit(&preprocessor);
+  module_preprocess(&module, &preproc, stmts, pp_dirs);
 
   if (debug_flags.print_preprocessed_ast) {
-    log_debug("PREPROCESSED AST:\n%s", ast_format(preprocessor.stmts).string);
+    log_info("PREPROCESSED AST:\n%s", dyn_string_temp_copy_and_free(ast_format(preproc.stmts)));
   }
 
   // ** CHECKER **
 
   TypeChecker checker = {0};
-  checker_init(&checker, &parser);
+  checker_init(&checker);
   builtin_functions_init(checker.global_type_table);
 
   ModulePath *key;
@@ -99,17 +97,36 @@ void compile_input(const char *input_path, const char *output_path,
                    (OptionalType){.present = false});
   }
 
-  checker_check(&checker);
+  module_check(&module, &checker, lines);
 
   checker_gen_functions(&checker);
 
-  // Parsing finished, free tokens and lexer lines
+  checker_deinit(&checker);
+  preprocessor_deinit(&preproc);
+  parser_deinit(&parser);
   lexer_deinit(&lexer);
+
+  array_free(tokens);
+  array_free(lines);
+
+  array_free(stmts);
+  array_free(pp_dirs);
+
+  module_deinit(&module);
+  mod_path_deinit(&module_path);
+
+  dyn_string_free(&file_content);
+
+  hashmap_deinit(&mangled_functions);
+
+  builtin_types_deinit();
+
+  return;
 
   // ** COMPILER **
 
   Compiler compiler = {0};
-  compiler_init(&compiler, parser.statements, checker.type_tables,
+  compiler_init(&compiler, stmts, checker.type_tables,
                 mangled_functions, module_path);
   compiler_compile(&compiler);
 
@@ -143,16 +160,14 @@ void compile_input(const char *input_path, const char *output_path,
   dyn_string_free(&file_content);
 }
 
-static char *_corelib_path = NULL;
-
 int main(int argc, char **argv) {
-  char *core_lib_path = getenv(CORE_LIB_PATH);
-  if (core_lib_path == NULL) {
+  char *_core_lib_path = getenv(CORE_LIB_PATH);
+  if (_core_lib_path == NULL) {
     setenv(CORE_LIB_PATH, DEFAULT_CORE_LIB_PATH, 0);
-    core_lib_path = DEFAULT_CORE_LIB_PATH;
+    _core_lib_path = DEFAULT_CORE_LIB_PATH;
   }
 
-  _corelib_path = core_lib_path;
+  corelib_path = _core_lib_path;
 
   cli_run(argv, (size_t)argc);
 }

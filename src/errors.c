@@ -1,5 +1,3 @@
-#pragma once
-
 #include "../include/errors.h"
 #include "../include/shared.h"
 #include "lilc/ansi.h"
@@ -21,7 +19,11 @@ void error_sink_init(ErrorSink *error_sink) {
   error_sink->msgs = array_new(ErrorMessage, &HEAP_ALLOCATOR);
 }
 
-static dyn_string_t error_desc_fmt(const LexerLine *src_lines,
+void error_sink_deinit(ErrorSink *sink) {
+  array_free(sink->msgs);
+}
+
+static dyn_string_t error_desc_fmt(const SourceLine *src_lines,
                                    const ErrorMessage *msg) {
   dyn_string_t str = {0};
   dyn_string_init(&str, &HEAP_ALLOCATOR);
@@ -36,7 +38,7 @@ static dyn_string_t error_desc_fmt(const LexerLine *src_lines,
   size_t line_number_max_len = snprintf(NULL, 0, "%zu", ctx_last_line);
   for (size_t i = 0; i < lines_amount; i++) {
     size_t actual_line_idx = first_line_idx + i;
-    LexerLine line = src_lines[actual_line_idx];
+    SourceLine line = src_lines[actual_line_idx];
     char line_number_buf[128] = {0};
     size_t cur_line_number_len =
         sprintf(line_number_buf, "%zu", first_line_idx + i + 1);
@@ -104,7 +106,7 @@ static dyn_string_t error_desc_fmt(const LexerLine *src_lines,
   return str;
 }
 
-static dyn_string_t error_msg_fmt(const LexerLine *src_lines,
+static dyn_string_t error_msg_fmt(const SourceLine *src_lines,
                                   const char *filename,
                                   const ErrorMessage *msg) {
   dyn_string_t str = {0};
@@ -151,13 +153,13 @@ void sink_add_err(ErrorSink *sink, ErrorMessage err_msg)
   array_add(sink->msgs, err_msg);
 }
 
-static void err_msg_print(const LexerLine *src_lines, const char *filename,
+static void err_msg_print(const SourceLine *src_lines, const char *filename,
                           ErrorMessage *err_msg) {
   dyn_string_t msg = error_msg_fmt(src_lines, filename, err_msg);
   printf("%s", msg.string);
 }
 
-void sink_print_errors(const LexerLine *src_lines, const char *filename,
+void sink_print_errors(const SourceLine *src_lines, const char *filename,
                        const ErrorSink *sink) {
   ErrorMessage *msg;
   array_foreach(sink->msgs, msg) { err_msg_print(src_lines, filename, msg); }

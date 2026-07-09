@@ -125,3 +125,7 @@ dyn_string_t module_path_fmt(const ModulePath *path) {
   }
   return str;
 }
+
+void mod_path_deinit(ModulePath *mod_path) {
+  array_free(mod_path->path);
+}

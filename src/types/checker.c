@@ -29,14 +29,9 @@ static bool type_is_integer(const Type *type) {
 
 static void checker_type_table_push(TypeChecker *checker);
 
-void checker_init(TypeChecker *checker, Parser *parser) {
-  checker->stmts = parser->statements;
-  checker->lines = parser->lines;
-  checker->source = parser->source;
-  checker->filename = parser->filename;
+void checker_init(TypeChecker *checker) {
   checker->type_tables = array_new(TypeTable, &HEAP_ALLOCATOR);
   gft_init(&checker->generic_functions_table);
-  checker->imported_modules = parser->imported_modules;
   hashmap_init(&checker->generated_generic_functions, &HEAP_ALLOCATOR, Ident *,
                Type, str_ptrv_hash, str_ptrv_eq, NULL);
   checker_type_table_push(checker);
@@ -805,5 +800,12 @@ void checker_check(TypeChecker *checker) {
     check_stmt(checker, &checker->stmts[i], &t, EMPTY_CONTEXT);
   }
 
-  sink_print_errors(checker->lines, checker->filename, &checker->sink);
+  sink_print_errors(checker->lines, checker->module->filename, &checker->sink);
+}
+
+void module_check(Module *module, TypeChecker *checker, const SourceLine *lines) {
+  checker->module = module;
+  checker->lines = lines;
+
+  checker_check(checker);
 }

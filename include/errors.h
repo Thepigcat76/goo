@@ -26,6 +26,8 @@ typedef struct {
 
 void error_sink_init(ErrorSink *error_sink);
 
+void error_sink_deinit(ErrorSink *sink);
+
 #define ERR_MSG(...) (ErrorMessage) __VA_ARGS__
 #ifdef GURD
 void sink_add_err0(ErrorSink *sink, ErrorMessage err_msg, i32 caller_line,
@@ -37,5 +39,5 @@ void sink_add_err0(ErrorSink *sink, ErrorMessage err_msg, i32 caller_line,
 void sink_add_err(ErrorSink *sink, ErrorMessage err_msg);
 #endif
 
-void sink_print_errors(const LexerLine *src_lines, const char *filename,
+void sink_print_errors(const SourceLine *src_lines, const char *filename,
                        const ErrorSink *sink);

@@ -191,10 +191,17 @@ static void args_handle(CliArgs *args) {
   }
 }
 
+static void args_free(CliArgs *args) {
+  if (args->kind == ARG_COMPILE_FILE) {
+    heap_dealloc(args->compile_file.output_path);
+  }
+}
+
 void cli_run(char **argv, size_t argc) {
   CliArgs args = {0};
   args_parse(&args, argv, argc);
   args_handle(&args);
+  args_free(&args);
 }
 
 #ifndef GOO_VERSION

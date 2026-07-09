@@ -27,11 +27,17 @@ struct debug_flags {
   bool extra_parse_err_info;
 };
 
+extern char *corelib_path;
+
 extern struct debug_flags debug_flags;
 
 void *_internal_heap_clone(void *ptr, size_t size);
 
 #define heap_clone(ptr) _internal_heap_clone(ptr, sizeof(typeof(*(ptr))))
+
+void *_internal_bump_clone(Bump *bump, void *ptr, size_t size);
+
+#define bump_clone(bump, ptr) _internal_bump_clone(bump, ptr, sizeof(typeof(*(ptr))))
 
 #define MODULE_PATH_ROOT                                                       \
   (ModulePath) { .path = NULL }
