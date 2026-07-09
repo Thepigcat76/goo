@@ -1,8 +1,9 @@
 #pragma once
 
 #include "lilc/hashmap0.h"
-#include "lilc/str.h"
 #include "types.h"
+#include "module_path.h"
+#include "lilc/numbers.h"
 #include "shared.h"
 
 typedef enum {

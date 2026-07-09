@@ -2,6 +2,7 @@
 
 #include "lilc/bump.h"
 #include "lilc/alloc.h"
+#include "module.h"
 #include <stdbool.h>
 #include <stdlib.h>
 
@@ -92,4 +93,4 @@ void lexer_deinit(Lexer *lexer);
 
 void lexer_tok_print(char *buf, const Token *tok);
 
-void lexer_tokenize(Lexer *lexer, const char *buf, const char *filename);
+void module_tokenize(Module *module, Lexer *lexer);

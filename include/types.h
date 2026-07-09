@@ -3,7 +3,7 @@
 #include <stdbool.h>
 #include <stdlib.h>
 #include "shared.h"
-#include "lilc/numbers.h"
+#include "module_path.h"
 
 typedef enum {
   TYPE_ARRAY_VARIANT_DYNAMIC,

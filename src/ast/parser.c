@@ -57,8 +57,7 @@ const OptionalType OPT_TYPE_EMPTY = {.present = false};
 
 #define AST_ARENA_SIZE 160000
 
-void parser_init(Parser *parser, Token *tokens, const char *source,
-                 const char *filename, ModulePath path) {
+void parser_init(Parser *parser, Token *tokens) {
   if (mangled_functions._internal_map == NULL) {
     hashmap_init(&mangled_functions, &HEAP_ALLOCATOR, ModulePath, Ident,
                  module_path_ptrv_hash, module_path_ptrv_eq, NULL);
@@ -71,17 +70,12 @@ void parser_init(Parser *parser, Token *tokens, const char *source,
                ExprFunction, str_ptrv_hash, str_ptrv_eq, NULL);
   parser->pp_dirs = array_new(PpDirective, &HEAP_ALLOCATOR);
   parser->pp_dir_conditionals = array_new(size_t, &HEAP_ALLOCATOR);
-  parser->filename = filename;
-  parser->source = source;
-  parser->path = path;
   parser->foreign_functions = array_new(ModulePath, &HEAP_ALLOCATOR);
   parser->imported_modules = array_new(ModulePath, &HEAP_ALLOCATOR);
   hashmap_init(&parser->imported_functions, &HEAP_ALLOCATOR, ModulePath,
                FuncDescriptor, module_path_ptrv_hash, module_path_ptrv_eq,
                NULL);
-  parser->module = (Module){0};
   error_sink_init(&parser->sink);
-  module_init(&parser->module, filename, source);
 
   bump_init(&parser->ast_arena, AST_ARENA_SIZE);
   bump_allocator_init(&parser->ast_arena_allocator, &parser->ast_arena);
@@ -1784,4 +1778,8 @@ Module parser_parse_module(const char *source, const char *filename,
   parser.lines = lexer.lines;
   parser_parse(&parser);
   return parser.module;
+}
+
+void module_parse(const Module *module, Parser *parser) {
+  parser_parse(parser);
 }

@@ -39,12 +39,10 @@ typedef struct {
   PpDirective *pp_dirs;
   size_t *pp_dir_conditionals;
   // Debugging info
-  const char *source;
-  const char *filename;
   LexerLine *lines;
   // Module
-  Module module;
-  ModulePath path;
+  Module *cur_module;
+  ModulePath cur_mod_path;
 
   ErrorSink sink;
 
@@ -65,7 +63,7 @@ void parser_init(Parser *parser, Token *tokens, const char *source, const char *
 
 void parser_deinit(Parser *parser);
 
-void parser_parse(Parser *parser);
+void module_parse(const Module *module, Parser *parser);
 
 TypeTableValue *type_table_get(TypeTable *table, ModulePath *path,
                                TypeTable *global_table);
@@ -74,7 +72,7 @@ void type_table_add(TypeTable *table, ModulePath *path, ExpressionVariant expr_v
                     OptionalType opt_type);
 
 // Uses the default parser
-Module parser_parse_module(const char *source, const char *filename, ModulePath path);
+Module _parser_parse_module(const char *source, const char *filename, ModulePath path);
 
 // Takes in a custom parser
-Module parser_parse_module_ex(Parser *parser, const char *source, const char *filename);
+Module _parser_parse_module_ex(Parser *parser, const char *source, const char *filename);

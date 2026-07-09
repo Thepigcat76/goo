@@ -13,10 +13,6 @@
 
 typedef char *Ident;
 
-typedef struct {
-  Ident *path;
-} ModulePath;
-
 struct debug_flags {
   bool print_tokens;
   bool print_ast;
@@ -46,25 +42,3 @@ void *_internal_heap_clone(void *ptr, size_t size);
 #define POINTER_SIZE 8
 
 #define DATA_SECTION_SIZE 8
-
-#define scoped_dyn_string(_dyn_string, str, ...)                               \
-  do {                                                                         \
-    dyn_string_t evaled_dyn_str = _dyn_string;                                 \
-    str = evaled_dyn_str.string;                                               \
-    __VA_ARGS__                                                                \
-    dyn_string_free(&evaled_dyn_str);                                          \
-  } while (0)
-
-int32_t module_path_ptrv_hash(const void *array);
-
-bool module_path_ptrv_eq(const void *array0, const void *array1);
-
-ModulePath module_path_copy(const ModulePath *path, Allocator *allocator);
-
-ModulePath module_path_root(const char *str, Allocator *allocator);
-
-Ident mangle_function_name(const ModulePath *module_path);
-
-ModulePath parse_module_path_from_string(const char *str);
-
-dyn_string_t module_path_fmt(const ModulePath *path);

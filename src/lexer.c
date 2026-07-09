@@ -223,7 +223,6 @@ void lexer_tokenize(Lexer *lexer, const char *src, const char *filename) {
     } else if (isalpha(*lexer->cur_char) || *lexer->cur_char == '_') {
       const char *begin = lexer->cur_char;
       size_t begin_pos = lexer->pos;
-      size_t cap = 256;
       dyn_string_t ident = {0};
       dyn_string_init(&ident, &lexer->tok_arena_allocator);
 
@@ -258,7 +257,8 @@ void lexer_tokenize(Lexer *lexer, const char *src, const char *filename) {
         tok.kind = TOKEN_FOR;
       } else if (strcmp(ident_str, "return") == 0) {
         tok.kind = TOKEN_RETURN;
-      } else if (strcmp(ident_str, "true") == 0 || strcmp(ident_str, "false") == 0) {
+      } else if (strcmp(ident_str, "true") == 0 ||
+                 strcmp(ident_str, "false") == 0) {
         tok.kind = TOKEN_BOOL;
         tok.var.boolean = strcmp(ident_str, "true") == 0;
       } else {
@@ -520,4 +520,9 @@ void lexer_tokenize(Lexer *lexer, const char *src, const char *filename) {
     lexer->lines[lines - 1].len =
         lexer->cur_char - lexer->lines[lines - 1].begin;
   }
+  array_add(lexer->tokens, (Token){.kind = TOKEN_EOF});
+}
+
+void module_tokenize(Module *module, Lexer *lexer) {
+  lexer_tokenize(lexer, module->source, module->filename);
 }

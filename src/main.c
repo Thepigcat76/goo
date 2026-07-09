@@ -33,13 +33,15 @@ void compile_input(const char *input_path, const char *output_path,
 
   dyn_string_t file_content = file_read_to_string(input_path, &HEAP_ALLOCATOR);
 
+  Module module = {0};
+  module_init(&module, input_path, file_content.string);
+
   // ** LEXER **
 
   Lexer lexer = {0};
   lexer_init(&lexer);
 
-  lexer_tokenize(&lexer, file_content.string, input_path);
-  array_add(lexer.tokens, (Token){.kind = TOKEN_EOF});
+  module_tokenize(&module, &lexer);
 
   if (debug_flags.print_tokens) {
     for (size_t i = 0; i < array_len(lexer.tokens); i++) {
@@ -56,7 +58,7 @@ void compile_input(const char *input_path, const char *output_path,
               module_path);
   parser.lines = lexer.lines;
 
-  parser_parse(&parser);
+  module_parse(&module, &parser);
 
   if (debug_flags.print_ast) {
     log_debug("AST:\n%s", ast_format(parser.statements).string);
