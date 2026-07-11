@@ -11,7 +11,7 @@ void module_init(Module *module, ModulePath mod_path, const char *filename,
   module->source = source;
   module->path = mod_path;
   hashmap_init(&module->functions, &HEAP_ALLOCATOR, ModulePath, FuncDescriptor,
-               module_path_ptrv_hash, module_path_ptrv_eq, NULL);
+               mod_path_ptrv_hash, mod_path_ptrv_eq, NULL);
   module->decls = array_new(TypedIdent, &HEAP_ALLOCATOR);
 }
 

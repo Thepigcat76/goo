@@ -107,8 +107,11 @@ bool type_eq(const Type *a, const Type *b);
 
 typedef struct {
   bool debug;
+  bool color;
 } TypeFormatter;
 
-#define TYPE_FORMATTER_DEFAULT (TypeFormatter){.debug = true}
+#define TYPE_FORMATTER_DEFAULT (TypeFormatter){.debug = false, .color = true}
+
+#define TYPE_FORMATTER_DEBUG (TypeFormatter){.debug = true}
 
 dyn_string_t type_format(const TypeFormatter *fmt, const Type *type);

@@ -2,16 +2,14 @@
 
 #include "lexer.h"
 #include <stddef.h>
-#ifdef GURD
 #include "lilc/numbers.h"
-#endif
 
 typedef struct {
-  size_t ctx_first_line;
-  size_t ctx_lines_amount;
-  size_t issue_pos;
-  size_t issue_line;
-  size_t issue_len;
+  i32 ctx_first_line;
+  i32 ctx_lines_amount;
+  i32 issue_pos;
+  i32 issue_line;
+  i32 issue_len;
   char *err_msg;
   const char *issue_ctx_msg;
 #ifdef GURD

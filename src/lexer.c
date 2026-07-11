@@ -288,7 +288,6 @@ void lexer_tokenize(Lexer *lexer, const char *src, const char *filename,
       dyn_string_t string = {.capacity = cap};
       dyn_string_init(&string, &lexer->tok_arena_allocator);
       next_char(lexer, out_lines);
-      size_t i = 0;
       while (*lexer->cur_char != '"') {
         dyn_string_add_char(&string, *lexer->cur_char);
         next_char(lexer, out_lines);
@@ -300,7 +299,7 @@ void lexer_tokenize(Lexer *lexer, const char *src, const char *filename,
           .begin = begin,
           .begin_pos = begin_pos,
           .line = lexer->line,
-          .len = i + 2,
+          .len = string.len + 2,
       };
     } else if (isdigit(*lexer->cur_char)) {
       const char *begin = lexer->cur_char;
@@ -310,7 +309,6 @@ void lexer_tokenize(Lexer *lexer, const char *src, const char *filename,
       dyn_string_t int_lit = {.capacity = cap};
       dyn_string_init(&int_lit, &lexer->tok_arena_allocator);
 
-      size_t i = 0;
       while (isdigit(*lexer->cur_char)) {
         dyn_string_add_char(&int_lit, *lexer->cur_char);
 
@@ -327,7 +325,7 @@ void lexer_tokenize(Lexer *lexer, const char *src, const char *filename,
           .begin = begin,
           .begin_pos = begin_pos,
           .line = lexer->line,
-          .len = i,
+          .len = int_lit.len,
       };
     } else if (*lexer->cur_char == ':') {
       if (*(lexer->cur_char + 1) == ':') {

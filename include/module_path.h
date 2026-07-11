@@ -7,17 +7,17 @@ typedef struct {
   Ident *path;
 } ModulePath;
 
-int32_t module_path_ptrv_hash(const void *array);
+int32_t mod_path_ptrv_hash(const void *array);
 
-bool module_path_ptrv_eq(const void *array0, const void *array1);
+bool mod_path_ptrv_eq(const void *array0, const void *array1);
 
-ModulePath module_path_copy(const ModulePath *path, Allocator *allocator);
+ModulePath mod_path_copy(const ModulePath *path, Allocator *allocator);
 
-ModulePath module_path_root(const char *str, Allocator *allocator);
+ModulePath mod_path_root(const char *str, Allocator *allocator);
 
-ModulePath parse_module_path_from_string(const char *str, Allocator *alloc);
+ModulePath mod_path_parse_str(const char *str, Allocator *alloc);
 
-dyn_string_t module_path_fmt(const ModulePath *path);
+dyn_string_t mod_path_fmt(const ModulePath *path);
 
 void mod_path_deinit(ModulePath *mod_path);
 

@@ -11,7 +11,7 @@
 #include <sys/types.h>
 
 #define PRINT_SPACE(str_ptr, amount)                                           \
-  for (size_t i = 0; i < amount; i++) {                                        \
+  for (i32 i = 0; i < amount; i++) {                                           \
     dyn_string_add_char(str_ptr, ' ');                                         \
   }
 
@@ -19,32 +19,34 @@ void error_sink_init(ErrorSink *error_sink) {
   error_sink->msgs = array_new(ErrorMessage, &HEAP_ALLOCATOR);
 }
 
-void error_sink_deinit(ErrorSink *sink) {
-  array_free(sink->msgs);
-}
+void error_sink_deinit(ErrorSink *sink) { array_free(sink->msgs); }
 
 static dyn_string_t error_desc_fmt(const SourceLine *src_lines,
                                    const ErrorMessage *msg) {
   dyn_string_t str = {0};
   dyn_string_init(&str, &HEAP_ALLOCATOR);
 
-  size_t first_line_idx = msg->ctx_first_line - 1;
-  size_t lines_amount = msg->ctx_lines_amount;
+  i32 first_line_idx = msg->ctx_first_line - 1;
 
-  size_t ctx_last_line = msg->ctx_first_line + lines_amount;
+  if (msg->ctx_first_line == 0) {
+    first_line_idx = msg->issue_line - 1;
+  }
+
+  i32 lines_amount = msg->ctx_lines_amount;
+
+  i32 ctx_last_line = msg->ctx_first_line + lines_amount;
 
   dyn_string_t str0 = {0};
   dyn_string_init(&str0, &HEAP_ALLOCATOR);
-  size_t line_number_max_len = snprintf(NULL, 0, "%zu", ctx_last_line);
-  for (size_t i = 0; i < lines_amount; i++) {
-    size_t actual_line_idx = first_line_idx + i;
+  i32 line_number_max_len = snprintf(NULL, 0, "%d", ctx_last_line);
+  for (i32 i = 0; i < lines_amount; i++) {
+    i32 actual_line_idx = first_line_idx + i;
     SourceLine line = src_lines[actual_line_idx];
     char line_number_buf[128] = {0};
-    size_t cur_line_number_len =
-        sprintf(line_number_buf, "%zu", first_line_idx + i + 1);
+    i32 cur_line_number_len =
+        sprintf(line_number_buf, "%d", first_line_idx + i + 1);
     char space_buf[128] = {0};
-    for (ssize_t j = 0;
-         j < (ssize_t)(line_number_max_len - cur_line_number_len); j++) {
+    for (i32 j = 0; j < (i32)(line_number_max_len - cur_line_number_len); j++) {
       strcat(space_buf, " ");
     }
 
@@ -53,32 +55,39 @@ static dyn_string_t error_desc_fmt(const SourceLine *src_lines,
     dyn_string_add_str(&str, str0.string);
     dyn_string_clear(&str0);
 
-    if (msg->issue_len > 1) {
+    if (msg->issue_len > 1 && msg->issue_line == actual_line_idx + 1) {
       PRINT_SPACE(&str, line_number_max_len)
       dyn_string_add_str(&str, " |");
       PRINT_SPACE(&str, msg->issue_pos - 1)
-      for (size_t j = 0; j < msg->issue_len; j++) {
+      dyn_string_add_str(&str, ANSI_CYAN);
+      dyn_string_add_char(&str, '^');
+      for (i32 j = 0; j < msg->issue_len - 1; j++) {
         dyn_string_add_char(&str, '~');
       }
+      dyn_string_add_str(&str, ANSI_RESET);
       dyn_string_add_char(&str, '\n');
     }
 
     // Draw the issue arrow
     if (msg->issue_line == actual_line_idx + 1) {
-      PRINT_SPACE(&str, line_number_max_len)
-      dyn_string_add_str(&str, " |");
-      PRINT_SPACE(&str, msg->issue_pos - 1 + msg->issue_len - 1)
-      dyn_string_add_char(&str, '^');
-      dyn_string_add_char(&str, '\n');
+      if (msg->issue_len <= 1) {
+        PRINT_SPACE(&str, line_number_max_len)
+        dyn_string_add_str(&str, " |");
+        PRINT_SPACE(&str, msg->issue_pos - 1 + msg->issue_len - 1)
+        dyn_string_add_str(&str, ANSI_CYAN);
+        dyn_string_add_char(&str, '^');
+        dyn_string_add_str(&str, ANSI_RESET);
+        dyn_string_add_char(&str, '\n');
+      }
 
       // Print the issue specific tip/message
       if (msg->issue_ctx_msg != NULL) {
-        size_t issue_ctx_msg_len = strlen(msg->issue_ctx_msg);
+        i32 issue_ctx_msg_len = strlen(msg->issue_ctx_msg);
         PRINT_SPACE(&str, line_number_max_len)
         dyn_string_add_str(&str, " |");
         // Issue pos starts at 1 so we subtract 1
         // The first char is fine since arrow is also one char so we add 1
-        size_t spaces_len;
+        i32 spaces_len;
         bool msg_excedes_spaces = false;
         if (issue_ctx_msg_len + 1 > msg->issue_pos - 1) {
           spaces_len = msg->issue_pos - 1;
@@ -121,8 +130,7 @@ static dyn_string_t error_msg_fmt(const SourceLine *src_lines,
   }
 #endif
 
-  dyn_string_printf(&str,
-                    "%s[%s:%zu:%zu]: " ANSI_RED "error:" ANSI_RESET " %s\n",
+  dyn_string_printf(&str, "%s[%s:%d:%d]: " ANSI_RED "error:" ANSI_RESET " %s\n",
                     debug_flags.extra_parse_err_info
                         ? str_fmt_temp("(%s:%d) ", caller_file, caller_line)
                         : "",

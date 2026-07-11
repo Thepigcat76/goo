@@ -1,10 +1,10 @@
 #pragma once
 
 #include "lilc/hashmap0.h"
-#include "types.h"
-#include "module_path.h"
 #include "lilc/numbers.h"
+#include "module_path.h"
 #include "shared.h"
+#include "types.h"
 
 typedef enum {
   PREC_LOWEST,
@@ -71,6 +71,10 @@ typedef struct {
 typedef struct {
   struct _expr *array_expr;
   struct _expr *index_expr;
+  i32 bracket_line;
+  i32 bracket_lines_amount;
+  i32 bracket_begin_pos;
+  i32 bracket_end_pos;
 } ExprArrayAccess;
 
 typedef struct {
@@ -244,10 +248,17 @@ typedef struct {
 typedef struct {
   Ident name;
   OptionalType type;
-  ExpressionVariant value;
+  Expression value;
   bool mut;
   bool comptime;
 } StmtDecl;
+
+typedef struct {
+  Ident name;
+  OptionalType type;
+  TypeExpr value;
+  bool comptime;
+} StmtTypeDecl;
 
 typedef struct {
   Expression expr;
@@ -277,16 +288,20 @@ typedef struct {
   AssignKind assign_kind;
 } StmtAssign;
 
+typedef enum {
+  STMT_DECL,
+  STMT_TYPE_DECL,
+  STMT_EXPR,
+  STMT_RETURN,
+  STMT_FOREIGN,
+  STMT_ASSIGN,
+} StmtKind;
+
 typedef struct _stmt {
-  enum {
-    STMT_DECL,
-    STMT_EXPR,
-    STMT_RETURN,
-    STMT_FOREIGN,
-    STMT_ASSIGN,
-  } kind;
+  StmtKind kind;
   union {
     StmtDecl stmt_decl;
+    StmtTypeDecl stmt_type_decl;
     StmtExpr stmt_expr;
     StmtReturn stmt_return;
     StmtForeign stmt_foreign;

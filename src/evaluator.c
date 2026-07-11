@@ -1,10 +1,10 @@
 #include "../include/evaluator.h"
+#include "../include/shared.h"
 #include "lilc/alloc.h"
 #include "lilc/array.h"
 #include "lilc/eq.h"
 #include "lilc/hash.h"
 #include "lilc/panic.h"
-#include "../include/shared.h"
 #include <lilc/log.h>
 #include <stdio.h>
 #include <string.h>
@@ -84,12 +84,8 @@ static void evaluator_envs_pop(Evaluator *evaluator) {
 }
 
 static void eval_stmt_decl(Evaluator *evaluator, StmtDecl *stmt_decl) {
-  OptionalType type = stmt_decl->type;
-  if (stmt_decl->value.kind == EXPR_VAR_REG_EXPR) {
-    environment_add(evaluator->cur_env, &stmt_decl->name,
-                    evaluator_eval_expr(
-                        evaluator, &stmt_decl->value.var.expr_var_reg_expr));
-  }
+  environment_add(evaluator->cur_env, &stmt_decl->name,
+                  evaluator_eval_expr(evaluator, &stmt_decl->value));
 }
 
 static Object eval_expr_block(Evaluator *evaluator,
@@ -151,7 +147,7 @@ Object eval_expr_call(Evaluator *evaluator, const ExprCall *expr_call) {
   } else {
     fprintf(stderr,
             "Invalid name: %s for function call (func-ptr: %p), type: %d\n",
-            module_path_fmt(&expr_call->function).string, (void *)value,
+            mod_path_fmt(&expr_call->function).string, (void *)value,
             value != NULL ? value->kind : -1);
     // hashmap_foreach(&evaluator->global_env->env, Ident * key, Object * obj,
     //                 { printf("Key: %s\n", *key); });
@@ -198,7 +194,7 @@ Object obj_cast(const Type *type, const Object *obj) {
       return OBJ_INT((long)obj->var.obj_ptr);
     } else if (type_eq(type, &STRING_BUILTIN_TYPE)) {
       char *buf = malloc(128);
-      sprintf(buf, "%p", (void *) obj->var.obj_ptr);
+      sprintf(buf, "%p", (void *)obj->var.obj_ptr);
       return OBJ_STR(buf);
     }
   }
@@ -306,7 +302,7 @@ Object evaluator_eval_expr(Evaluator *evaluator, Expression *expr) {
       return *value;
     } else {
       panic("Error: Unknown identifier: %s\n",
-            module_path_fmt(&expr->var.expr_ident.ident).string);
+            mod_path_fmt(&expr->var.expr_ident.ident).string);
       // fprintf(stderr, "Error: Unknown identifier: %s\n",
       //         expr->var.expr_ident.ident);
       // exit(1);

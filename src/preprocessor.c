@@ -7,6 +7,7 @@
 #include <lilc/eq.h>
 #include <lilc/hash.h>
 #include <lilc/hashmap0.h>
+#include <lilc/todo.h>
 #include <stdio.h>
 
 typedef enum {
@@ -58,7 +59,6 @@ void preprocessor_init(PreProcessor *pp) {
   hashmap_insert(
       &pp->comptime_functions, &println_name,
       &(ComptimeBuiltinFunction){.execute = println_execute, .builtin = true});
-
 }
 
 void preprocessor_deinit(PreProcessor *pp) {
@@ -216,8 +216,8 @@ static Expression expr_eval_comptime(PreProcessor *preprocessor,
   exit(1);
 }
 
-static void pp_dir_process(PreProcessor *preprocessor, const PpDirective *pp_dir,
-                           bool global) {
+static void pp_dir_process(PreProcessor *preprocessor,
+                           const PpDirective *pp_dir, bool global) {
   switch (pp_dir->kind) {
   case PP_DIR_IF: {
     PpDirIf pp_dir_if = pp_dir->var.pp_dir_if;
@@ -246,8 +246,7 @@ static void pp_dir_process(PreProcessor *preprocessor, const PpDirective *pp_dir
       expr_eval_comptime(preprocessor, &pp_dir_comptime.stmt.var.stmt_expr.expr,
                          (PreprocessorExprContext){});
     } else if (pp_dir_comptime.stmt.kind == STMT_DECL) {
-      Expression *expr =
-          &pp_dir_comptime.stmt.var.stmt_decl.value.var.expr_var_reg_expr;
+      Expression *expr = &pp_dir_comptime.stmt.var.stmt_decl.value;
       expr_eval_comptime(
           preprocessor, expr,
           (PreprocessorExprContext){
@@ -367,7 +366,7 @@ static ProcessResult stmt_process(PreProcessor *preprocessor, Statement *stmt,
   switch (stmt->kind) {
   case STMT_DECL: {
     StmtDecl *stmt_decl = &stmt->var.stmt_decl;
-    Expression *expr_value = &stmt_decl->value.var.expr_var_reg_expr;
+    Expression *expr_value = &stmt_decl->value;
     expr_process(preprocessor, expr_value);
 
     if (stmt_decl->comptime) {
@@ -379,19 +378,23 @@ static ProcessResult stmt_process(PreProcessor *preprocessor, Statement *stmt,
 
     break;
   }
+  case STMT_TYPE_DECL: {
+    TODO();
+  } break;
   case STMT_EXPR: {
     expr_process(preprocessor, &stmt->var.stmt_expr.expr);
     break;
   }
   case STMT_RETURN: {
-    break;
-  }
+    if (stmt->var.stmt_return.has_ret_val) {
+      expr_process(preprocessor, &stmt->var.stmt_return.ret_val);
+    }
+  } break;
   case STMT_FOREIGN: {
-    break;
-  }
+  } break;
   case STMT_ASSIGN: {
-    break;
-  }
+    expr_process(preprocessor, &stmt->var.stmt_assign.right_expr);
+  } break;
   }
   //*new_stmt = *stmt;
   return true;
@@ -411,7 +414,8 @@ void preprocessor_process(PreProcessor *preprocessor) {
   }
 }
 
-void module_preprocess(Module *module, PreProcessor *preproc, Statement *stmts, const PpDirective *pp_dirs) {
+void module_preprocess(Module *module, PreProcessor *preproc, Statement *stmts,
+                       const PpDirective *pp_dirs) {
   preproc->pp_dirs = pp_dirs;
   preproc->stmts = stmts;
   preprocessor_process(preproc);

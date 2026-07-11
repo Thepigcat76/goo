@@ -62,7 +62,7 @@ const OptionalType OPT_TYPE_EMPTY = {.present = false};
 void parser_init(Parser *parser) {
   if (mangled_functions._internal_map == NULL) {
     hashmap_init(&mangled_functions, &HEAP_ALLOCATOR, ModulePath, Ident,
-                 module_path_ptrv_hash, module_path_ptrv_eq, NULL);
+                 mod_path_ptrv_hash, mod_path_ptrv_eq, NULL);
   }
 
   hashmap_init(&parser->custom_types, &HEAP_ALLOCATOR, Ident *, TypeExpr,
@@ -72,8 +72,7 @@ void parser_init(Parser *parser) {
   parser->foreign_functions = array_new(ModulePath, &HEAP_ALLOCATOR);
   parser->imported_modules = array_new(ModulePath, &HEAP_ALLOCATOR);
   hashmap_init(&parser->imported_functions, &HEAP_ALLOCATOR, ModulePath,
-               FuncDescriptor, module_path_ptrv_hash, module_path_ptrv_eq,
-               NULL);
+               FuncDescriptor, mod_path_ptrv_hash, mod_path_ptrv_eq, NULL);
   error_sink_init(&parser->sink);
 
   bump_init(&parser->ast_arena, AST_ARENA_SIZE);
@@ -526,7 +525,7 @@ static ModulePath module_path_resolve(Parser *parser, const ModulePath *path,
     Ident last_path_segment = imported_path.path[path_len - 1];
 
     if (strv_eq(path->path[0], last_path_segment)) {
-      ModulePath new_path = module_path_copy(&imported_path, alloc);
+      ModulePath new_path = mod_path_copy(&imported_path, alloc);
       for (size_t i = 1; i < array_len(path->path); i++) {
         array_add(new_path.path, path->path[i]);
       }
@@ -537,19 +536,44 @@ static ModulePath module_path_resolve(Parser *parser, const ModulePath *path,
 }
 
 static ParseResult parse_expr(Parser *parser, Expression *expr) {
+  size_t first_tok_pos = parser->cur_tok->begin_pos;
+  size_t first_tok_line = parser->cur_tok->line;
   switch (parser->cur_tok->kind) {
   case TOKEN_STRING: {
-    *expr = (Expression){.kind = EXPR_STRING_LIT,
-                         .var = {.expr_string_literal = {
-                                     .string = parser->cur_tok->var.string}}};
+    *expr = (Expression){
+        .kind = EXPR_STRING_LIT,
+        .var.expr_string_literal.string = parser->cur_tok->var.string,
+        .line = parser->cur_tok->line,
+        .pos = parser->cur_tok->begin_pos,
+        .end_pos = parser->cur_tok->begin_pos + parser->cur_tok->len,
+        .lines_amount = 1,
+    };
+    return PARSE_RESULT_SUCCESS_AT(parser->cur_tok->line,
+                                   parser->cur_tok->begin_pos,
+                                   parser->cur_tok->len);
+  }
+  case TOKEN_INT: {
+    *expr = (Expression){
+        .kind = EXPR_INTEGER_LIT,
+        .var.expr_integer_literal.integer = parser->cur_tok->var.integer,
+        .line = parser->cur_tok->line,
+        .pos = parser->cur_tok->begin_pos,
+        .end_pos = parser->cur_tok->begin_pos + parser->cur_tok->len,
+        .lines_amount = 1,
+    };
     return PARSE_RESULT_SUCCESS_AT(parser->cur_tok->line,
                                    parser->cur_tok->begin_pos,
                                    parser->cur_tok->len);
   }
   case TOKEN_BOOL: {
-    *expr = (Expression){.kind = EXPR_BOOLEAN_LIT,
-                         .var = {.expr_boolean_literal = {
-                                     .boolean = parser->cur_tok->var.boolean}}};
+    *expr = (Expression){
+        .kind = EXPR_BOOLEAN_LIT,
+        .var.expr_boolean_literal = {.boolean = parser->cur_tok->var.boolean},
+        .line = parser->cur_tok->line,
+        .pos = parser->cur_tok->begin_pos,
+        .end_pos = parser->cur_tok->begin_pos + parser->cur_tok->len,
+        .lines_amount = 1,
+    };
     return PARSE_RESULT_SUCCESS_AT(parser->cur_tok->line,
                                    parser->cur_tok->begin_pos,
                                    parser->cur_tok->len);
@@ -629,6 +653,7 @@ static ParseResult parse_expr(Parser *parser, Expression *expr) {
                          .ctx_lines_amount = cur_line - first_line + 1,
                          .issue_pos = result.pos,
                          .issue_line = result.line,
+                         .issue_len = 1,
                          .err_msg = result.error_msg,
                          .issue_ctx_msg = ")",
                      }));
@@ -636,11 +661,18 @@ static ParseResult parse_expr(Parser *parser, Expression *expr) {
       }
       // end: right parenthesis
 
-      *expr = (Expression){.kind = EXPR_CALL,
-                           .var = {.expr_call = {
-                                       .function = resolved_path,
-                                       .args = exprs,
-                                   }}};
+      *expr = (Expression){
+          .kind = EXPR_CALL,
+          .var.expr_call =
+              {
+                  .function = resolved_path,
+                  .args = exprs,
+              },
+          .line = first_token.line,
+          .lines_amount = parser->cur_tok->line - first_token.line + 1,
+          .pos = first_token.begin_pos,
+          .end_pos = parser->cur_tok->begin_pos + parser->cur_tok->len,
+      };
       return PARSE_RESULT_SUCCESS;
     } else if (parser->peek_tok->kind == TOKEN_LCURLY) {
       if (ident_is_struct(parser, &ident)) {
@@ -682,26 +714,15 @@ static ParseResult parse_expr(Parser *parser, Expression *expr) {
                                                          .args = exprs}}}});
       }
     }*/
-    *expr = (Expression){.kind = EXPR_IDENT,
-                         .var = {.expr_ident = {.ident = raw_path}}};
-    return PARSE_RESULT_SUCCESS;
-  }
-  case TOKEN_INT: {
     *expr = (Expression){
-        .kind = EXPR_INTEGER_LIT,
-        .var =
-            {
-                .expr_integer_literal = {.integer =
-                                             parser->cur_tok->var.integer},
-            },
-        .line = parser->cur_tok->line,
+        .kind = EXPR_IDENT,
+        .var.expr_ident = {.ident = raw_path},
+        .line = first_token.line,
         .lines_amount = 1,
-        .pos = parser->cur_tok->begin_pos,
-        .end_pos = parser->cur_tok->begin_pos + parser->cur_tok->len,
+        .pos = first_token.begin_pos,
+        .end_pos = first_token.begin_pos + parser->cur_tok->len,
     };
-    return PARSE_RESULT_SUCCESS_AT(parser->cur_tok->line,
-                                   parser->cur_tok->begin_pos,
-                                   parser->cur_tok->len);
+    return PARSE_RESULT_SUCCESS;
   }
   case TOKEN_LANGLE: {
     Generic *generics;
@@ -815,10 +836,14 @@ static ParseResult parse_expr(Parser *parser, Expression *expr) {
       // cur_tok is right parenthesis or next expr
       next_token(parser);
     }
-    *expr =
-        (Expression){.kind = EXPR_ARRAY_INIT,
-                     .var = {.expr_array_init = {.type = type.var.type_array,
-                                                 .items = exprs}}};
+    *expr = (Expression){
+        .kind = EXPR_ARRAY_INIT,
+        .var.expr_array_init = {.type = type.var.type_array, .items = exprs},
+        .pos = first_tok_pos,
+        .line = first_tok_line,
+        .lines_amount = parser->cur_tok->line - first_tok_line + 1,
+        .end_pos = parser->cur_tok->begin_pos + parser->cur_tok->len,
+    };
     return PARSE_RESULT_SUCCESS;
   }
   case TOKEN_IF: {
@@ -1220,6 +1245,8 @@ static void token_debug_print(const Token *tok) {
 }
 
 static Expression parse_array_access(Parser *parser, Expression expr) {
+  i32 first_tok_line = parser->cur_tok->line;
+  i32 first_tok_pos = parser->cur_tok->begin_pos;
   // cur_tok is index expression
   next_token(parser);
   token_debug_print(parser->cur_tok);
@@ -1236,10 +1263,20 @@ static Expression parse_array_access(Parser *parser, Expression expr) {
   if (result.success) {
     return (Expression){
         .kind = EXPR_ARRAY_ACCESS,
-        .var = {
-            .expr_array_access = {
+        .var.expr_array_access =
+            {
                 .array_expr = bump_clone(&parser->ast_arena, &expr),
-                .index_expr = bump_clone(&parser->ast_arena, &index_expr)}}};
+                .index_expr = bump_clone(&parser->ast_arena, &index_expr),
+                .bracket_begin_pos = first_tok_pos,
+                .bracket_end_pos = parser->cur_tok->begin_pos + parser->cur_tok->len,
+                .bracket_line = first_tok_line,
+                .bracket_lines_amount = parser->cur_tok->line - first_tok_line + 1,
+            },
+        .line = expr.line,
+        .lines_amount = expr.lines_amount + parser->cur_tok->line - first_tok_line + 1,
+        .pos = expr.pos,
+        .end_pos = parser->cur_tok->begin_pos + parser->cur_tok->len,
+    };
   }
   fprintf(stderr,
           "Failed to parse expression for array access, Error message: %s",
@@ -1345,16 +1382,18 @@ static ExpressionVariant parse_expr_var(Parser *parser) {
   }
 }
 
-static StmtDecl parse_decl_stmt(Parser *parser, bool typed) {
-  StmtDecl stmt_decl = {0};
-  stmt_decl.name = parser->cur_tok->var.ident;
+static StmtKind parse_decl_stmt(Parser *parser, bool typed, StmtDecl *stmt_decl,
+                                StmtTypeDecl *stmt_ty_decl) {
+  Ident name = parser->cur_tok->var.ident;
+  stmt_decl->name = name;
+  stmt_ty_decl->name = name;
 
   if (typed) {
     // cur_tok is colon
     next_token(parser);
     // cur_tok is first token of type
     next_token(parser);
-    stmt_decl.type = (OptionalType){
+    stmt_decl->type = (OptionalType){
         .type = parse_type(parser),
         .present = true,
     };
@@ -1364,7 +1403,7 @@ static StmtDecl parse_decl_stmt(Parser *parser, bool typed) {
       // cur_tok is assign/colon
       next_token(parser);
 
-      stmt_decl.mut = parser->cur_tok->kind == TOKEN_ASSIGN;
+      stmt_decl->mut = parser->cur_tok->kind == TOKEN_ASSIGN;
     } else {
       EXPECTED_TOKEN_ERR(TOKEN_ASSIGN | TOKEN_COLON, parser->peek_tok);
     }
@@ -1372,44 +1411,44 @@ static StmtDecl parse_decl_stmt(Parser *parser, bool typed) {
     next_token(parser);
     Expression value;
     ParseResult result = parse_expr1(parser, &value, PREC_LOWEST);
-    if (result.success) {
-      stmt_decl.value = (ExpressionVariant){
-          .kind = EXPR_VAR_REG_EXPR,
-          .var = {.expr_var_reg_expr = value},
-      };
-    } else {
+    if (!result.success) {
       fprintf(stderr, "Failed to parse decl stmt value, error message: %s",
               result.error_msg);
       exit(1);
     }
+
+    stmt_decl->value = value;
+    return STMT_DECL;
   } else {
     bool mutable = parser->peek_tok->kind == TOKEN_DECL_VAR;
-    stmt_decl.mut = mutable;
+    stmt_decl->mut = mutable;
     // cur token is DECL
     next_token(parser);
     // cur token is EXPR
     next_token(parser);
 
     ExpressionVariant expr_var = parse_expr_var(parser);
-    stmt_decl.value = expr_var;
 
     switch (expr_var.kind) {
     case EXPR_VAR_TYPE_EXPR: {
-      hashmap_insert(&parser->custom_types, &stmt_decl.name,
+      stmt_ty_decl->value = expr_var.var.expr_var_type_expr;
+      hashmap_insert(&parser->custom_types, &name,
                      &expr_var.var.expr_var_type_expr);
-      break;
-    }
+      return STMT_TYPE_DECL;
+    } break;
     case EXPR_VAR_REG_EXPR: {
-      if (expr_var.var.expr_var_reg_expr.kind == EXPR_FUNCTION) {
+      stmt_decl->value = expr_var.var.expr_var_reg_expr;
+
+      if (stmt_decl->value.kind == EXPR_FUNCTION) {
         // FIXME: Gets freed when parser_deinit is called due to it using an
         // arena
-        ModulePath module_path = module_path_copy(&parser->cur_module->path,
-                                                  &parser->ast_arena_allocator);
-        array_add(module_path.path, stmt_decl.name);
+        ModulePath module_path = mod_path_copy(&parser->cur_module->path,
+                                               &parser->ast_arena_allocator);
+        array_add(module_path.path, name);
 
         if (debug_flags.print_parse_info) {
           log_debug("Parser Module path: %s",
-                    module_path_fmt(&module_path).string);
+                    mod_path_fmt(&module_path).string);
         }
 
         if (array_len(module_path.path) > 0 &&
@@ -1424,22 +1463,24 @@ static StmtDecl parse_decl_stmt(Parser *parser, bool typed) {
             log_debug("Mangled function mod path len: %zu, %s",
                       array_len(module_path.path), module_path.path[0]);
             log_info("[PARSER] Mangled function: %s, mangled name: %s",
-                     module_path_fmt(&module_path).string, mangled_function);
+                     dyn_string_temp_copy_and_free(mod_path_fmt(&module_path)),
+                     mangled_function);
           }
         }
       } else {
+        // TODO: What is this doing? isnt this also saving local variables
         TypedIdent decl = {
-            .ident = stmt_decl.name,
-            .type = stmt_decl.type.present ? stmt_decl.type.type
-                                           : (Type){.kind = TYPE_UNIT},
+            .ident = name,
+            .type = stmt_decl->type.present ? stmt_decl->type.type
+                                            : (Type){.kind = TYPE_UNIT},
         };
         array_add(parser->cur_module->decls, decl);
       }
-      break;
-    }
+
+      return STMT_DECL;
+    } break;
     }
   }
-  return stmt_decl;
 }
 
 static bool expr_is_comptime(const Parser *parser, const Expression *expr) {
@@ -1564,15 +1605,33 @@ static bool parse_stmt(Parser *parser, Statement *out_stmt) {
     size_t begin_pos = parser->cur_tok->begin_pos;
 
     if (peek_kind == TOKEN_DECL_CONST || peek_kind == TOKEN_DECL_VAR || typed) {
-      StmtDecl stmt_decl = parse_decl_stmt(parser, typed);
+      StmtDecl stmt_decl = {0};
+      StmtTypeDecl stmt_ty_decl = {0};
+      StmtKind stmt_kind =
+          parse_decl_stmt(parser, typed, &stmt_decl, &stmt_ty_decl);
+
       size_t end_pos = parser->cur_tok->begin_pos + parser->cur_tok->len;
-      *out_stmt = (Statement){
-          .kind = STMT_DECL,
-          .var = {.stmt_decl = stmt_decl},
-          .pos = begin_pos,
-          .len = end_pos - begin_pos,
-          .line = line,
-      };
+      DEBUG_TOK(parser->cur_tok, "TOKEN AT ENDPOS");
+
+      log_debug("endpos token len: %zu", parser->cur_tok->len);
+
+      Statement stmt = {.kind = stmt_kind};
+      if (stmt.kind == STMT_DECL) {
+        stmt.var.stmt_decl = stmt_decl;
+      } else if (stmt.kind == STMT_TYPE_DECL) {
+        stmt.var.stmt_type_decl = stmt_ty_decl;
+      } else {
+        panic("Invalid return value for parse_decl_stmt function");
+        return false;
+      }
+
+      stmt.pos = begin_pos;
+      stmt.len = end_pos - begin_pos;
+      stmt.line = line;
+
+      log_debug("Stmt len: %zu", end_pos - begin_pos);
+
+      *out_stmt = stmt;
       return true;
     } else {
       goto parse_expr;
@@ -1692,8 +1751,8 @@ static bool parse_stmt(Parser *parser, Statement *out_stmt) {
                             module_name);
         }
 
-        ModulePath mod_path = parse_module_path_from_string(
-            module_name, &parser->ast_arena_allocator);
+        ModulePath mod_path =
+            mod_path_parse_str(module_name, &parser->ast_arena_allocator);
 
         array_add(parser->imported_modules, mod_path);
 
@@ -1709,7 +1768,7 @@ static bool parse_stmt(Parser *parser, Statement *out_stmt) {
 
         if (debug_flags.print_parse_info) {
           log_info("[PARSER] Loaded imported module %s",
-                   module_path_fmt(&mod_path).string);
+                   dyn_string_temp_copy_and_free(mod_path_fmt(&mod_path)));
         }
 
         Module mod = {0};
@@ -1767,7 +1826,7 @@ static bool parse_stmt(Parser *parser, Statement *out_stmt) {
   }
 }
 
-void parser_parse(Parser *parser) {
+bool parser_parse(Parser *parser) {
   parser->cur_tok = parser->tokens;
   parser->peek_tok = parser->tokens + 1;
 
@@ -1783,7 +1842,11 @@ void parser_parse(Parser *parser) {
     next_token(parser);
   }
 
+  bool errors = array_len(parser->sink.msgs) > 0;
+
   sink_print_errors(parser->lines, parser->cur_module->filename, &parser->sink);
+
+  return !errors;
 }
 
 static void parser_reset(Parser *parser) {
@@ -1807,7 +1870,7 @@ static void parser_reset(Parser *parser) {
   // TODO: Clear hashmaps
 }
 
-void module_parse(Module *module, Parser *parser, Statement **out_stmts,
+bool module_parse(Module *module, Parser *parser, Statement **out_stmts,
                   PpDirective **out_pp_dirs, const TokenStream tokens,
                   const SourceLines lines) {
   parser_reset(parser);
@@ -1820,5 +1883,5 @@ void module_parse(Module *module, Parser *parser, Statement **out_stmts,
   parser->pp_dirs = out_pp_dirs;
   parser->statements = out_stmts;
 
-  parser_parse(parser);
+  return parser_parse(parser);
 }

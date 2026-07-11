@@ -98,7 +98,7 @@ static ExprBlock *transform_generic_block(TypeChecker *checker,
         stmt_decl->type.type =
             try_transform_generic_type(&stmt_decl->type.type, generics_lookup);
       }
-      transform_generic_expr(checker, &stmt_decl->value.var.expr_var_reg_expr,
+      transform_generic_expr(checker, &stmt_decl->value,
                              generics_lookup);
       break;
     }

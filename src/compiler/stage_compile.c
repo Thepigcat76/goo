@@ -206,8 +206,8 @@ static ExprCompileResult expr_call_compile(Compiler *compiler,
           &func_val->expr_variant.var.expr_var_reg_expr.var.expr_function.desc
                .args[i]
                .var.typed_arg.type;
-      log_debug("Arg type: %s",
-                dyn_string_temp_copy_and_free(type_format(&(TypeFormatter){0}, arg_type)));
+      log_debug("Arg type: %s", dyn_string_temp_copy_and_free(type_format(
+                                    &(TypeFormatter){0}, arg_type)));
     }
 
     Expression arg = expr_call->args[i];
@@ -1234,123 +1234,120 @@ static void stmt_compile(Compiler *compiler, const Statement *stmt) {
   }
   case STMT_DECL: {
     StmtDecl stmt_decl = stmt->var.stmt_decl;
-    if (stmt_decl.value.kind == EXPR_VAR_REG_EXPR) {
-      Expression expr = stmt_decl.value.var.expr_var_reg_expr;
-      if (compiler->context.level == COMPILE_LEVEL_GLOBAL) {
-        DataSection *data_section =
-            stmt_decl.mut ? &compiler->data_section : &compiler->rodata_section;
-        if (expr.kind == EXPR_FUNCTION) {
-          ModulePath func_name_mod_path = module_path_copy(
-              &compiler->mod_path, &compiler->compiler_arena_allocator);
-          array_add(func_name_mod_path.path, stmt_decl.name);
-          Ident *module_func_name =
-              hashmap_value(&compiler->mangled_functions, &func_name_mod_path);
+    Expression expr = stmt_decl.value;
+    if (compiler->context.level == COMPILE_LEVEL_GLOBAL) {
+      DataSection *data_section =
+          stmt_decl.mut ? &compiler->data_section : &compiler->rodata_section;
+      if (expr.kind == EXPR_FUNCTION) {
+        ModulePath func_name_mod_path = mod_path_copy(
+            &compiler->mod_path, &compiler->compiler_arena_allocator);
+        array_add(func_name_mod_path.path, stmt_decl.name);
+        Ident *module_func_name =
+            hashmap_value(&compiler->mangled_functions, &func_name_mod_path);
 
-          Ident mangled_func_name;
-          if (module_func_name != NULL) {
-            mangled_func_name = *module_func_name;
-          } else {
-            mangled_func_name = stmt_decl.name;
-          }
-          hashmap_insert(&compiler->function_symbols, &mangled_func_name,
-                         &compiler->program_size);
-          expr_func_compile(compiler, &expr.var.expr_function,
-                            (CompileContext){.level = COMPILE_LEVEL_GLOBAL,
-                                             .function_name = stmt_decl.name});
-        } else if (expr.kind == EXPR_INTEGER_LIT) {
-          uint64_t val = expr.var.expr_integer_literal.integer;
-          uint64_t le = htole64(val);
-
-          uint8_t *bytes = malloc(8);
-          memcpy(bytes, &le, sizeof(le));
-
-          size_t offset =
-              data_section_add(data_section, &stmt_decl.name, bytes, 8);
-          GlobalDataLocation loc = {
-              .kind = stmt_decl.mut ? GLOB_DATA_LOC_DATA : GLOB_DATA_LOC_RODATA,
-              .data_type = DATA_IMMEDIATE,
-              .data_offset = offset,
-          };
-          hashmap_insert(&compiler->globals, &stmt_decl.name, &loc);
-
-          log_debug("Added data to section: %zu", val);
-        } else if (expr.kind == EXPR_STRING_LIT) {
-          char *string = expr.var.expr_string_literal.string;
-          size_t offset =
-              data_section_add(data_section, &stmt_decl.name, (uint8_t *)string,
-                               strlen(string) + 1);
-          GlobalDataLocation loc = {
-              .kind = stmt_decl.mut ? GLOB_DATA_LOC_DATA : GLOB_DATA_LOC_RODATA,
-              .data_type = DATA_POINTER,
-              .data_offset = offset,
-          };
-          hashmap_insert(&compiler->globals, &stmt_decl.name, &loc);
+        Ident mangled_func_name;
+        if (module_func_name != NULL) {
+          mangled_func_name = *module_func_name;
+        } else {
+          mangled_func_name = stmt_decl.name;
         }
-      } else {
-        ExprCompileResult res = expr_compile(
-            compiler, &expr,
-            stmt_decl.type.present
-                ? EXPR_COMPILE_CTX(.variable_type = &stmt_decl.type.type)
-                : EXPR_COMPILE_CTX_EMPTY);
-        switch (res.kind) {
-        case EXPR_COMPILE_RES_IMM: {
-          switch (res.var.imm.size) {
-          case 1: {
-            compiler_stack_alloc_imm8(compiler, &stmt_decl.name,
-                                      res.var.imm.value);
-          } break;
-          case 2: {
-            compiler_stack_alloc_imm16(compiler, &stmt_decl.name,
-                                       res.var.imm.value);
-          } break;
-          case 4: {
-            compiler_stack_alloc_imm32(compiler, &stmt_decl.name,
-                                       res.var.imm.value);
-          } break;
-          case 8: {
-            compiler_stack_alloc_imm64(compiler, &stmt_decl.name,
-                                       res.var.imm.value);
-          } break;
-          }
+        hashmap_insert(&compiler->function_symbols, &mangled_func_name,
+                       &compiler->program_size);
+        expr_func_compile(compiler, &expr.var.expr_function,
+                          (CompileContext){.level = COMPILE_LEVEL_GLOBAL,
+                                           .function_name = stmt_decl.name});
+      } else if (expr.kind == EXPR_INTEGER_LIT) {
+        uint64_t val = expr.var.expr_integer_literal.integer;
+        uint64_t le = htole64(val);
+
+        uint8_t *bytes = malloc(8);
+        memcpy(bytes, &le, sizeof(le));
+
+        size_t offset =
+            data_section_add(data_section, &stmt_decl.name, bytes, 8);
+        GlobalDataLocation loc = {
+            .kind = stmt_decl.mut ? GLOB_DATA_LOC_DATA : GLOB_DATA_LOC_RODATA,
+            .data_type = DATA_IMMEDIATE,
+            .data_offset = offset,
+        };
+        hashmap_insert(&compiler->globals, &stmt_decl.name, &loc);
+
+        log_debug("Added data to section: %zu", val);
+      } else if (expr.kind == EXPR_STRING_LIT) {
+        char *string = expr.var.expr_string_literal.string;
+        size_t offset = data_section_add(data_section, &stmt_decl.name,
+                                         (uint8_t *)string, strlen(string) + 1);
+        GlobalDataLocation loc = {
+            .kind = stmt_decl.mut ? GLOB_DATA_LOC_DATA : GLOB_DATA_LOC_RODATA,
+            .data_type = DATA_POINTER,
+            .data_offset = offset,
+        };
+        hashmap_insert(&compiler->globals, &stmt_decl.name, &loc);
+      }
+    } else {
+      ExprCompileResult res = expr_compile(
+          compiler, &expr,
+          stmt_decl.type.present
+              ? EXPR_COMPILE_CTX(.variable_type = &stmt_decl.type.type)
+              : EXPR_COMPILE_CTX_EMPTY);
+      switch (res.kind) {
+      case EXPR_COMPILE_RES_IMM: {
+        switch (res.var.imm.size) {
+        case 1: {
+          compiler_stack_alloc_imm8(compiler, &stmt_decl.name,
+                                    res.var.imm.value);
         } break;
-        case EXPR_COMPILE_RES_DATA_OFFSET: {
-          compiler->cur_frame.sp_offset += sizeof(char *);
-          hashmap_insert(
-              &compiler->cur_frame.symbol_table, &stmt_decl.name,
-              &STACK_OBJ(compiler->cur_frame.sp_offset, sizeof(char *)));
-          RELOCATIONS_ADD(compiler, {.sec = SECTION_FROM_EXPR_RES(res.kind),
-                                     .data_offset = res.var.data_offset.offset,
-                                     .r_offset = 3});
-          insns_add(compiler, ins_lea_abs_addr32_r64(0, REG_EAX));
+        case 2: {
+          compiler_stack_alloc_imm16(compiler, &stmt_decl.name,
+                                     res.var.imm.value);
+        } break;
+        case 4: {
+          compiler_stack_alloc_imm32(compiler, &stmt_decl.name,
+                                     res.var.imm.value);
+        } break;
+        case 8: {
+          compiler_stack_alloc_imm64(compiler, &stmt_decl.name,
+                                     res.var.imm.value);
+        } break;
+        }
+      } break;
+      case EXPR_COMPILE_RES_DATA_OFFSET: {
+        compiler->cur_frame.sp_offset += sizeof(char *);
+        hashmap_insert(
+            &compiler->cur_frame.symbol_table, &stmt_decl.name,
+            &STACK_OBJ(compiler->cur_frame.sp_offset, sizeof(char *)));
+        RELOCATIONS_ADD(compiler, {.sec = SECTION_FROM_EXPR_RES(res.kind),
+                                   .data_offset = res.var.data_offset.offset,
+                                   .r_offset = 3});
+        insns_add(compiler, ins_lea_abs_addr32_r64(0, REG_EAX));
+        insns_add(compiler,
+                  ins_mov_r64_r64_disp32(REG_EAX, REG_EBP,
+                                         -compiler->cur_frame.sp_offset));
+      } break;
+      case EXPR_COMPILE_RES_REG: {
+        compiler_stack_alloc_reg(compiler, &stmt_decl.name, res.var.reg.reg);
+      } break;
+      case EXPR_COMPILE_RES_STACK_OBJ: {
+        StackObject stack_obj = res.var.stack_obj;
+        // Alloc as a stack variable if the value should not be inlined
+        compiler->cur_frame.sp_offset += stack_obj.size;
+        log_debug("Size: %zu", stack_obj.size);
+        StackObject ret_obj;
+        if (!stack_obj.inline_val) {
+          insns_add(compiler, ins_mov_r64_disp32_r64(REG_EBP, -stack_obj.offset,
+                                                     REG_EAX));
           insns_add(compiler,
                     ins_mov_r64_r64_disp32(REG_EAX, REG_EBP,
                                            -compiler->cur_frame.sp_offset));
-        } break;
-        case EXPR_COMPILE_RES_REG: {
-          compiler_stack_alloc_reg(compiler, &stmt_decl.name, res.var.reg.reg);
-        } break;
-        case EXPR_COMPILE_RES_STACK_OBJ: {
-          StackObject stack_obj = res.var.stack_obj;
-          // Alloc as a stack variable if the value should not be inlined
-          compiler->cur_frame.sp_offset += stack_obj.size;
-          log_debug("Size: %zu", stack_obj.size);
-          StackObject ret_obj;
-          if (!stack_obj.inline_val) {
-            insns_add(compiler, ins_mov_r64_disp32_r64(
-                                    REG_EBP, -stack_obj.offset, REG_EAX));
-            insns_add(compiler,
-                      ins_mov_r64_r64_disp32(REG_EAX, REG_EBP,
-                                             -compiler->cur_frame.sp_offset));
-            ret_obj = STACK_OBJ(compiler->cur_frame.sp_offset, stack_obj.size);
-          } else {
-            ret_obj = stack_obj;
-          }
-          hashmap_insert(&compiler->cur_frame.symbol_table, &stmt_decl.name,
-                         &stack_obj);
-        } break;
-        default: {
-        } break;
+          ret_obj = STACK_OBJ(compiler->cur_frame.sp_offset, stack_obj.size);
+        } else {
+          ret_obj = stack_obj;
         }
+        hashmap_insert(&compiler->cur_frame.symbol_table, &stmt_decl.name,
+                       &stack_obj);
+      } break;
+      default: {
+      } break;
       }
     }
   } break;
@@ -1358,7 +1355,7 @@ static void stmt_compile(Compiler *compiler, const Statement *stmt) {
     StmtReturn stmt_return = stmt->var.stmt_return;
     if (stmt_return.has_ret_val) {
       ModulePath func_name =
-          module_path_root(compiler->context.function_name, &HEAP_ALLOCATOR);
+          mod_path_root(compiler->context.function_name, &HEAP_ALLOCATOR);
       TypeTableValue *type_table_val =
           hashmap_value(&compiler->type_tables[0].type_table, &func_name);
 

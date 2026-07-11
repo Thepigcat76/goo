@@ -48,6 +48,7 @@ void checker_init(TypeChecker *checker);
 
 void checker_deinit(TypeChecker *checker);
 
-void module_check(Module *module, TypeChecker *checker, Statement *stmts, const SourceLine *lines, ModulePath *imported_modules);
+// Return false if errors occured
+bool module_check(Module *module, TypeChecker *checker, Statement *stmts, const SourceLine *lines, ModulePath *imported_modules);
 
 void checker_gen_functions(TypeChecker *checker);

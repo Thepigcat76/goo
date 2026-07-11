@@ -6,7 +6,7 @@
 #include "lilc/numbers.h"
 #include <lilc/alloc.h>
 
-i32 module_path_ptrv_hash(const void *array) {
+i32 mod_path_ptrv_hash(const void *array) {
   const ModulePath *path = array;
 
   i32 hash = 1;
@@ -43,7 +43,7 @@ Ident mangle_function_name(const ModulePath *module_path, Allocator *alloc) {
   return mangled_ident.string;
 }
 
-ModulePath parse_module_path_from_string(const char *str, Allocator *alloc) {
+ModulePath mod_path_parse_str(const char *str, Allocator *alloc) {
   ModulePath path = {.path = array_new(Ident, alloc)};
 
   if (str == NULL || strlen(str) == 0) return path;
@@ -72,7 +72,7 @@ ModulePath parse_module_path_from_string(const char *str, Allocator *alloc) {
   return path;
 }
 
-bool module_path_ptrv_eq(const void *array0, const void *array1) {
+bool mod_path_ptrv_eq(const void *array0, const void *array1) {
   const ModulePath *path0 = array0;
   const ModulePath *path1 = array1;
 
@@ -93,7 +93,7 @@ bool module_path_ptrv_eq(const void *array0, const void *array1) {
   return true;
 }
 
-ModulePath module_path_copy(const ModulePath *path, Allocator *allocator) {
+ModulePath mod_path_copy(const ModulePath *path, Allocator *allocator) {
   if (path->path == NULL) {
     return (ModulePath){.path = array_new(Ident, allocator)};
   }
@@ -107,13 +107,13 @@ ModulePath module_path_copy(const ModulePath *path, Allocator *allocator) {
   return new_path;
 }
 
-ModulePath module_path_root(const char *str, Allocator *allocator) {
+ModulePath mod_path_root(const char *str, Allocator *allocator) {
   ModulePath path = {.path = array_new(Ident, allocator)};
   array_add(path.path, str);
   return path;
 }
 
-dyn_string_t module_path_fmt(const ModulePath *path) {
+dyn_string_t mod_path_fmt(const ModulePath *path) {
   dyn_string_t str = {0};
   dyn_string_init(&str, &HEAP_ALLOCATOR);
 

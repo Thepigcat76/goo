@@ -88,7 +88,7 @@ void builtin_types_deinit(void) {
 }
 
 bool type_eq(const Type *a, const Type *b) {
-  if (a->kind != b->kind)
+  if (a == NULL || b == NULL || a->kind != b->kind)
     return false;
 
   switch (a->kind) {

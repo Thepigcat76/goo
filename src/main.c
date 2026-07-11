@@ -27,7 +27,7 @@ void compile_input(const char *input_path, const char *output_path,
                    const char *raw_module_path) {
   builtin_types_init();
 
-  ModulePath module_path = parse_module_path_from_string(raw_module_path, &HEAP_ALLOCATOR);
+  ModulePath module_path = mod_path_parse_str(raw_module_path, &HEAP_ALLOCATOR);
 
   dyn_string_t file_content = file_read_to_string(input_path, &HEAP_ALLOCATOR);
 
@@ -97,7 +97,11 @@ void compile_input(const char *input_path, const char *output_path,
                    (OptionalType){.present = false});
   }
 
-  module_check(&module, &checker, stmts, lines, parser.imported_modules);
+  bool check_success = module_check(&module, &checker, stmts, lines, parser.imported_modules);
+
+  if (!check_success) {
+    return;
+  }
 
   checker_gen_functions(&checker);
 

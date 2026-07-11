@@ -66,7 +66,8 @@ void parser_init(Parser *parser);
 
 void parser_deinit(Parser *parser);
 
-void module_parse(Module *module, Parser *parser, Statement **out_stmts, PpDirective **out_pp_dirs, const TokenStream tokens, const SourceLines lines);
+// Return false if errors occured
+bool module_parse(Module *module, Parser *parser, Statement **out_stmts, PpDirective **out_pp_dirs, const TokenStream tokens, const SourceLines lines);
 
 TypeTableValue *type_table_get(TypeTable *table, ModulePath *path,
                                TypeTable *global_table);

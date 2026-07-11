@@ -3,6 +3,7 @@
 #include <lilc/array.h>
 #include <lilc/dynstr.h>
 #include <lilc/log.h>
+#include <lilc/str.h>
 #include <string.h>
 
 typedef struct {
@@ -81,6 +82,61 @@ static dyn_string_t expr_range_format(AstFormatter *fmt,
   return s;
 }
 
+static dyn_string_t func_args_format(AstFormatter *fmt, Argument *args) {
+  dyn_string_t str = {0};
+  dyn_string_init(&str, &fmt->fmt_allocator);
+
+  Argument *arg;
+  array_foreach(args, arg) {
+    if (arg->kind == ARG_TYPED_ARG) {
+      dyn_string_add_str(&str,
+                         str_fmt_temp("%s: %s", arg->var.typed_arg.ident,
+                                      type_format(&TYPE_FORMATTER_DEFAULT,
+                                                  &arg->var.typed_arg.type)
+                                          .string));
+    } else if (arg->kind == ARG_VARARG) {
+      dyn_string_add_str(&str, str_fmt_temp("%s: ...", arg->var.vararg));
+    }
+
+    if (_arr_foreach_idx < array_len(args) - 1) {
+      dyn_string_add_str(&str, ", ");
+    }
+  }
+
+  return str;
+}
+
+static dyn_string_t func_desc_format0(AstFormatter *fmt,
+                                      const FuncDescriptor *func_desc) {
+  dyn_string_t str = {0};
+  dyn_string_init(&str, &fmt->fmt_allocator);
+
+  dyn_string_add_char(&str, '(');
+
+  dyn_string_t args_str = func_args_format(fmt, func_desc->args);
+
+  dyn_string_add_str(&str, args_str.string);
+
+  dyn_string_free(&args_str);
+
+  dyn_string_add_char(&str, ')');
+
+  if (func_desc->has_ret_type) {
+    dyn_string_add_str(
+        &str,
+        str_fmt_temp(
+            " -> %s",
+            type_format(&TYPE_FORMATTER_DEFAULT, &func_desc->ret_type).string));
+  }
+
+  return str;
+}
+
+dyn_string_t func_desc_format(const FuncDescriptor *func_desc) {
+  return func_desc_format0(&(AstFormatter){.fmt_allocator = HEAP_ALLOCATOR},
+                           func_desc);
+}
+
 static dyn_string_t expr_format0(AstFormatter *fmt, const Expression *expr) {
   dyn_string_t str = {0};
   dyn_string_init(&str, &fmt->fmt_allocator);
@@ -98,7 +154,8 @@ static dyn_string_t expr_format0(AstFormatter *fmt, const Expression *expr) {
   }
   case EXPR_FUNCTION: {
     dyn_string_printf(
-        &str, "ExprFunction{args=, expr=%s}",
+        &str, "ExprFunction{args=%s, expr=%s}",
+        func_args_format(fmt, expr->var.expr_function.desc.args).string,
         expr_block_format(fmt, expr->var.expr_function.block).string);
     break;
   }
@@ -256,21 +313,21 @@ static dyn_string_t stmt_format(AstFormatter *fmt, const Statement *stmt) {
 
   switch (stmt->kind) {
   case STMT_DECL: {
-    dyn_string_printf(
-        &str, "%sStmtDecl{name=%s, val=%s}", indent_buf,
-        stmt->var.stmt_decl.name,
-        expr_format0(fmt, &stmt->var.stmt_decl.value.var.expr_var_reg_expr)
-            .string);
-    break;
-  }
+    dyn_string_printf(&str, "%sStmtDecl{name=%s, val=%s}", indent_buf,
+                      stmt->var.stmt_decl.name,
+                      expr_format0(fmt, &stmt->var.stmt_decl.value).string);
+  } break;
+  case STMT_TYPE_DECL: {
+    dyn_string_printf(&str, "%sStmtTypeDecl{name=%s, val=%s}", indent_buf,
+                      stmt->var.stmt_type_decl.name, "NYI");
+  } break;
   case STMT_EXPR: {
     dyn_string_printf(&str, "%sStmtExpr{expr=%s}", indent_buf,
-                          expr_format0(fmt, &stmt->var.stmt_expr.expr).string);
-    break;
-  }
+                      expr_format0(fmt, &stmt->var.stmt_expr.expr).string);
+  } break;
   case STMT_RETURN: {
     dyn_string_printf(&str, "%sStmtReturn{val=%s}", indent_buf,
-                          expr_format0(fmt, &stmt->var.stmt_return.ret_val).string);
+                      expr_format0(fmt, &stmt->var.stmt_return.ret_val).string);
     break;
   }
   case STMT_FOREIGN: {
