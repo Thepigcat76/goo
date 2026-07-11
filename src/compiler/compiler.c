@@ -2,11 +2,11 @@
 #include "lilc/array.h"
 #include "lilc/eq.h"
 #include "lilc/hash.h"
+#include "lilc/hashmap0.h"
 #include <complex.h>
 #include <elf.h>
 #include <endian.h>
 #include <lilc/alloc.h>
-#include "lilc/hashmap0.h"
 #include <lilc/log.h>
 #include <limits.h>
 #include <stdint.h>
@@ -26,23 +26,17 @@ static inline void data_section_deinit(DataSection *section) {
   hashmap_deinit(&section->section_lookup);
 }
 
-void compiler_init(Compiler *compiler, const Statement *statements,
-                   TypeTable *type_tables, Hashmap mangled_functions,
-                   ModulePath mod_path) {
-  compiler->stmts = statements;
-  compiler->type_tables = type_tables;
+void compiler_init(Compiler *compiler) {
   compiler->relocations = array_new(Relocation, &HEAP_ALLOCATOR);
   compiler->insns = array_new_capacity(Instruction, 512, &HEAP_ALLOCATOR);
   hashmap_init(&compiler->function_symbols, &HEAP_ALLOCATOR, Ident *, size_t,
                str_ptrv_hash, str_ptrv_eq, NULL);
   hashmap_init(&compiler->globals, &HEAP_ALLOCATOR, Ident *, GlobalDataLocation,
                str_ptrv_hash, str_ptrv_eq, NULL);
-  compiler->mangled_functions = mangled_functions;
   data_section_init(&compiler->data_section);
   data_section_init(&compiler->rodata_section);
   compiler->elf64_relocations =
       array_new_capacity(Elf64_Relocation, 64, &HEAP_ALLOCATOR);
-  compiler->mod_path = mod_path;
   bump_init(&compiler->compiler_arena, 80000);
   bump_allocator_init(&compiler->compiler_arena_allocator,
                       &compiler->compiler_arena);
@@ -58,4 +52,20 @@ void compiler_deinit(Compiler *compiler) {
   array_free(compiler->elf64_relocations);
 
   bump_free(&compiler->compiler_arena);
+}
+
+void module_compile(Module *module, Compiler *compiler, const Statement *stmts,
+                    TypeTable *type_tables,
+                    Hashmap mangled_functions /* ModulePath -> Ident */,
+                    FILE *out_file) {
+  compiler->stmts = stmts;
+  compiler->type_tables = type_tables;
+  compiler->mangled_functions = mangled_functions;
+  compiler->mod_path = module->path;
+  
+  compiler_compile(compiler);
+
+  compiler_generate(compiler);
+
+  compiler_write(compiler, out_file);
 }

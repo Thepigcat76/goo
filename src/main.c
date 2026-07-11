@@ -104,16 +104,11 @@ void compile_input(const char *input_path, const char *output_path,
   // ** COMPILER **
 
   Compiler compiler = {0};
-  compiler_init(&compiler, stmts, checker.type_tables,
-                mangled_functions, module_path);
-                
-  compiler_compile(&compiler);
-
-  compiler_generate(&compiler);
+  compiler_init(&compiler);
 
   FILE *out_file = fopen(output_path, "w");
 
-  compiler_write(&compiler, out_file);
+  module_compile(&module, &compiler, stmts, checker.type_tables, mangled_functions, out_file);
 
   fclose(out_file);
 

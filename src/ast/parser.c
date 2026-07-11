@@ -1354,8 +1354,10 @@ static StmtDecl parse_decl_stmt(Parser *parser, bool typed) {
     next_token(parser);
     // cur_tok is first token of type
     next_token(parser);
-    stmt_decl.type =
-        (OptionalType){.type = parse_type(parser), .present = true};
+    stmt_decl.type = (OptionalType){
+        .type = parse_type(parser),
+        .present = true,
+    };
 
     if (parser->peek_tok->kind == TOKEN_ASSIGN ||
         parser->peek_tok->kind == TOKEN_COLON) {
@@ -1372,7 +1374,9 @@ static StmtDecl parse_decl_stmt(Parser *parser, bool typed) {
     ParseResult result = parse_expr1(parser, &value, PREC_LOWEST);
     if (result.success) {
       stmt_decl.value = (ExpressionVariant){
-          .kind = EXPR_VAR_REG_EXPR, .var = {.expr_var_reg_expr = value}};
+          .kind = EXPR_VAR_REG_EXPR,
+          .var = {.expr_var_reg_expr = value},
+      };
     } else {
       fprintf(stderr, "Failed to parse decl stmt value, error message: %s",
               result.error_msg);
@@ -1514,7 +1518,8 @@ static dyn_string_t get_exec_dir(const char *exec_filename, Allocator *alloc) {
   const char *const exec_filename_only = strrchr(exec_filename, '/');
   if (exec_filename_only != NULL) {
     size_t exec_dir_path_length = exec_filename_only - exec_filename + 1;
-    dyn_string_copy_str_len(&_exec_dir_path, exec_filename, exec_dir_path_length);
+    dyn_string_copy_str_len(&_exec_dir_path, exec_filename,
+                            exec_dir_path_length);
   } else {
     dyn_string_printf(&_exec_dir_path, "./");
   }
@@ -1555,11 +1560,18 @@ static bool parse_stmt(Parser *parser, Statement *out_stmt) {
     TokenKind peek_kind = parser->peek_tok->kind;
     bool typed = peek_kind == TOKEN_COLON;
 
+    size_t line = parser->cur_tok->line;
+    size_t begin_pos = parser->cur_tok->begin_pos;
+
     if (peek_kind == TOKEN_DECL_CONST || peek_kind == TOKEN_DECL_VAR || typed) {
       StmtDecl stmt_decl = parse_decl_stmt(parser, typed);
+      size_t end_pos = parser->cur_tok->begin_pos + parser->cur_tok->len;
       *out_stmt = (Statement){
           .kind = STMT_DECL,
           .var = {.stmt_decl = stmt_decl},
+          .pos = begin_pos,
+          .len = end_pos - begin_pos,
+          .line = line,
       };
       return true;
     } else {
@@ -1668,14 +1680,16 @@ static bool parse_stmt(Parser *parser, Statement *out_stmt) {
         next_token(parser);
 
         char *module_name = parser->cur_tok->var.string;
-        dyn_string_t exec_file_dir_path = get_exec_dir(parser->cur_module->filename, &parser->ast_arena_allocator);
+        dyn_string_t exec_file_dir_path = get_exec_dir(
+            parser->cur_module->filename, &parser->ast_arena_allocator);
         dyn_string_t path = {0};
         dyn_string_init(&path, &HEAP_ALLOCATOR);
 
         if (strncmp(module_name, "core/", 5) == 0) {
           dyn_string_printf(&path, "%s/%s.goo", CORE_LIB_PATH, module_name + 5);
         } else {
-          dyn_string_printf(&path, "%s%s.goo", exec_file_dir_path.string, module_name);
+          dyn_string_printf(&path, "%s%s.goo", exec_file_dir_path.string,
+                            module_name);
         }
 
         ModulePath mod_path = parse_module_path_from_string(

@@ -2,8 +2,10 @@
 
 #include "ast.h"
 #include "ins.h"
-#include "shared.h"
 #include "lilc/alloc.h"
+#include "module.h"
+#include "shared.h"
+#include <lilc/hashmap0.h>
 #include <stdio.h>
 
 typedef struct {
@@ -113,10 +115,10 @@ typedef struct {
   size_t stmt_index;
   Instruction *insns;
   Relocation *relocations;
-  Hashmap globals; // Ident -> GlobalDataLocation
-  Hashmap function_symbols; // Ident -> size_t
+  Hashmap globals;           // Ident -> GlobalDataLocation
+  Hashmap function_symbols;  // Ident -> size_t
   Hashmap mangled_functions; // ModulePath -> Ident
-  
+
   Frame cur_frame;
   size_t program_size;
   /* Data */
@@ -139,10 +141,7 @@ typedef struct {
   Allocator compiler_arena_allocator;
 } Compiler;
 
-void compiler_init(Compiler *compiler, const Statement *stmts,
-                   TypeTable *type_tables,
-                   Hashmap mangled_functions /* ModulePath -> Ident */,
-                   ModulePath mod_path);
+void compiler_init(Compiler *compiler);
 
 void compiler_deinit(Compiler *compiler);
 
@@ -151,3 +150,8 @@ void compiler_compile(Compiler *compiler);
 void compiler_generate(Compiler *compiler);
 
 void compiler_write(Compiler *compiler, FILE *file);
+
+void module_compile(Module *module, Compiler *compiler, const Statement *stmts,
+                    TypeTable *type_tables,
+                    Hashmap mangled_functions /* ModulePath -> Ident */,
+                    FILE *out_file);
