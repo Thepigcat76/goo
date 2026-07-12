@@ -4,6 +4,7 @@
 #include <lilc/dynstr.h>
 #include <lilc/log.h>
 #include <lilc/str.h>
+#include <lilc/todo.h>
 #include <string.h>
 
 typedef struct {
@@ -11,6 +12,12 @@ typedef struct {
   Allocator fmt_allocator;
   Bump fmt_arena;
 } AstFormatter;
+
+static void dyn_string_add_ident(dyn_string_t *str, size_t indent) {
+  for (size_t i = 0; i < indent; i++) {
+    dyn_string_add_char(str, ' ');
+  }
+}
 
 static void ast_fmt_init(AstFormatter *fmt) {
   fmt->stmt_indent = 0;
@@ -43,9 +50,12 @@ static dyn_string_t expr_block_format(AstFormatter *fmt,
   dyn_string_t wrapped_string = {0};
   dyn_string_init(&wrapped_string, &fmt->fmt_allocator);
 
-  dyn_string_printf(&wrapped_string, "ExprBlock{stmts=[\n%s]}", str.string);
+  dyn_string_printf(&wrapped_string, "ExprBlock{stmts=[\n%s", str.string);
 
   fmt->stmt_indent -= 2;
+
+  dyn_string_add_ident(&wrapped_string, fmt->stmt_indent);
+  dyn_string_add_str(&wrapped_string, "]}");
 
   return wrapped_string;
 }
@@ -154,7 +164,7 @@ static dyn_string_t expr_format0(AstFormatter *fmt, const Expression *expr) {
   }
   case EXPR_FUNCTION: {
     dyn_string_printf(
-        &str, "ExprFunction{args=%s, expr=%s}",
+        &str, "ExprFunction{args=[%s], block=%s}",
         func_args_format(fmt, expr->var.expr_function.desc.args).string,
         expr_block_format(fmt, expr->var.expr_function.block).string);
     break;
@@ -254,15 +264,18 @@ static dyn_string_t expr_format0(AstFormatter *fmt, const Expression *expr) {
     break;
   }
   case EXPR_IF: {
-    dyn_string_printf(&str, "ExprIf");
+    dyn_string_printf(&str, "ExprIf{block=%s}",
+                      expr_block_format(fmt, &expr->var.expr_if.block).string);
     break;
   }
   case EXPR_FOR: {
     ExprFor expr_for = expr->var.expr_for;
-    dyn_string_printf(
-        &str, "ExprFor{iter_var_name=%s, range=%s}", expr_for.variable_name,
-        expr_for.has_range ? expr_range_format(fmt, &expr_for.range).string
-                           : "(null)");
+    dyn_string_printf(&str, "ExprFor{iter_var_name=%s, range=%s, block=%s}",
+                      expr_for.variable_name,
+                      expr_for.has_range
+                          ? expr_range_format(fmt, &expr_for.range).string
+                          : "(null)",
+                      expr_block_format(fmt, &expr->var.expr_for.block).string);
     break;
   }
   case EXPR_IT: {
@@ -291,17 +304,51 @@ static dyn_string_t expr_list_format(AstFormatter *fmt,
   for (size_t i = 0; i < array_len(exprs); i++) {
     dyn_string_add_str(&str, expr_format0(fmt, &exprs[i]).string);
     if (i < array_len(exprs) - 1) {
-      dyn_string_add_char(&str, ',');
+      dyn_string_add_str(&str, ", ");
     }
   }
 
   return str;
 }
 
-static void dyn_string_add_ident(dyn_string_t *str, size_t indent) {
-  for (size_t i = 0; i < indent; i++) {
-    dyn_string_add_char(str, ' ');
+static dyn_string_t typed_ident_list_format(AstFormatter *fmt, const TypedIdent *typed_idents) {
+  dyn_string_t str = {0};
+  dyn_string_init(&str, &fmt->fmt_allocator);
+
+  const TypedIdent *ti;
+  array_foreach((TypedIdent *) typed_idents, ti) {
+    dyn_string_t type_str = type_format(&TYPE_FORMATTER_DEFAULT, &ti->type);
+    dyn_string_add_str(&str, ti->ident);
+    dyn_string_add_str(&str, ": ");
+    dyn_string_add_str(&str, type_str.string);
+  
+    dyn_string_free(&type_str);
+
+    if (_arr_foreach_idx < array_len(ti)) {
+      dyn_string_add_str(&str, ", ");
+    }
+
   }
+
+  return str;
+}
+
+static dyn_string_t type_expr_format(AstFormatter *fmt,
+                                     const TypeExpr *type_expr) {
+  dyn_string_t str = {0};
+  dyn_string_init(&str, &fmt->fmt_allocator);
+
+  switch (type_expr->kind) {
+  case TYPE_EXPR_STRUCT: {
+    dyn_string_t fields = typed_ident_list_format(fmt, type_expr->var.type_expr_struct.fields);
+    dyn_string_printf(&str, "TypeExprStruct{fields=[%s]}", fields.string);
+  } break;
+  case TYPE_EXPR_OVERLOAD_SET: {
+    TODO();
+  } break;
+  }
+
+  return str;
 }
 
 static dyn_string_t stmt_format(AstFormatter *fmt, const Statement *stmt) {
@@ -319,7 +366,7 @@ static dyn_string_t stmt_format(AstFormatter *fmt, const Statement *stmt) {
   } break;
   case STMT_TYPE_DECL: {
     dyn_string_printf(&str, "%sStmtTypeDecl{name=%s, val=%s}", indent_buf,
-                      stmt->var.stmt_type_decl.name, "NYI");
+                      stmt->var.stmt_type_decl.name, type_expr_format(fmt, &stmt->var.stmt_type_decl.value).string);
   } break;
   case STMT_EXPR: {
     dyn_string_printf(&str, "%sStmtExpr{expr=%s}", indent_buf,
@@ -335,9 +382,27 @@ static dyn_string_t stmt_format(AstFormatter *fmt, const Statement *stmt) {
     break;
   }
   case STMT_ASSIGN: {
+    char *op = "=";
+    switch (stmt->var.stmt_assign.assign_kind) {
+    case ASSIGN_REGULAR: {
+      op = "=";
+    } break;
+    case ASSIGN_ADD: {
+      op = "+=";
+    } break;
+    case ASSIGN_SUB: {
+      op = "-=";
+    } break;
+    case ASSIGN_MUL: {
+      op = "*=";
+    } break;
+    case ASSIGN_DIV: {
+      op = "/=";
+    } break;
+    }
     dyn_string_printf(
-        &str, "%sStmtAssign{left=%s, right=%s}", indent_buf,
-        expr_format0(fmt, &stmt->var.stmt_assign.left_expr).string,
+        &str, "%sStmtAssign{left=%s, op='%s', right=%s}", indent_buf,
+        expr_format0(fmt, &stmt->var.stmt_assign.left_expr).string, op,
         expr_format0(fmt, &stmt->var.stmt_assign.right_expr).string);
     break;
   }

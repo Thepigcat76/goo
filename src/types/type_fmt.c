@@ -51,7 +51,9 @@ dyn_string_t type_format(const TypeFormatter *fmt, const Type *type) {
       dyn_string_printf(&str, "*%s", type_str);
     }
   } break;
-  case TYPE_STRUCT:
+  case TYPE_STRUCT: {
+    dyn_string_printf(&str, "STRUCT");
+  } break;
   case TYPE_FUNCTION:
   case TYPE_TUPLE: {
     TODO("Formatting not implemented for type of kind %d", type->kind);

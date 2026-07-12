@@ -48,10 +48,6 @@ void checker_init(TypeChecker *checker) {
 }
 
 void checker_deinit(TypeChecker *checker) {
-  TypeTable *table;
-  array_foreach(checker->type_tables, table) {
-    hashmap_deinit(&table->type_table);
-  }
   array_free(checker->type_tables);
   hashmap_deinit(&checker->generic_functions_table.table);
   hashmap_deinit(&checker->generated_generic_functions);
@@ -348,7 +344,7 @@ static Type check_call_expr(TypeChecker *checker, ExprCall *expr_call, i32 line,
     }
 
     Type arg_type = check_expr(checker, &expr_call->args[i]);
-    
+
     checker->hint.hint = NULL;
 
     array_add(arg_types, arg_type);
@@ -504,13 +500,14 @@ static Type check_expr(TypeChecker *checker, Expression *expr) {
           .ctx_first_line = arr_access_expr->array_expr->line,
           .issue_line = arr_access_expr->bracket_line,
           .issue_pos = arr_access_expr->bracket_begin_pos,
-          .ctx_lines_amount = arr_access_expr->index_expr->line - arr_access_expr->array_expr->line + 1,
+          .ctx_lines_amount = arr_access_expr->index_expr->line -
+                              arr_access_expr->array_expr->line + 1,
           .issue_len = 1,
       };
       if (checker->hint.hint != NULL &&
           type_eq(checker->hint.hint, &array_ty)) {
-        err_msg.issue_ctx_msg =
-            "Try removing the indexing operation, it will result in the expected type";
+        err_msg.issue_ctx_msg = "Try removing the indexing operation, it will "
+                                "result in the expected type";
       }
       sink_add_err(&checker->sink, err_msg);
       valid_arr_expr = false;
@@ -689,9 +686,11 @@ static Type check_expr(TypeChecker *checker, Expression *expr) {
   }
   case EXPR_STRUCT_INIT: {
     ExprStructInit *expr_struct_init = &expr->var.expr_struct_init;
-    TypeTableValue *value = type_table_get(
-        checker->cur_type_table, NULL, //&expr_struct_init->struct_name,
-        checker->global_type_table);
+    ModulePath struct_name_mod_path = mod_path_root(
+        expr_struct_init->struct_name, &checker->checker_arena_allocator);
+    TypeTableValue *value =
+        type_table_get(checker->cur_type_table, &struct_name_mod_path,
+                       checker->global_type_table);
     if (value != NULL) {
       if (value->expr_variant.kind == EXPR_VAR_TYPE_EXPR) {
         TypeExprStruct ty_expr_struct =
@@ -729,9 +728,10 @@ static Type check_expr(TypeChecker *checker, Expression *expr) {
             expr_struct_init->struct_name);
     exit(1);
   }
-  case EXPR_STRUCT_ACCESS:
+  case EXPR_FOR: {
     return UNIT_BUILTIN_TYPE;
-  case EXPR_FOR:
+  } break;
+  case EXPR_STRUCT_ACCESS:
   case EXPR_IT: {
     TODO();
   } break;
@@ -917,6 +917,9 @@ static CheckResult check_stmt(TypeChecker *checker, Statement *stmt, Type *type,
     return CHECK_RESULT_SUCCESS;
   } break;
   case STMT_TYPE_DECL: {
+    ModulePath name_mod_path = mod_path_root(stmt->var.stmt_type_decl.name,
+                                             &checker->checker_arena_allocator);
+
     OptionalType opt_type = stmt->var.stmt_type_decl.type;
     TypeExpr type_expr = stmt->var.stmt_type_decl.value;
     if (type_expr.kind == TYPE_EXPR_STRUCT) {
@@ -943,7 +946,7 @@ static CheckResult check_stmt(TypeChecker *checker, Statement *stmt, Type *type,
         }
       }
     }
-    type_table_add(checker->cur_type_table, NULL, //&stmt->var.stmt_decl.name,
+    type_table_add(checker->cur_type_table, &name_mod_path,
                    EXPR_VAR_TYPE(type_expr), opt_type);
     return CHECK_RESULT_SUCCESS;
   } break;

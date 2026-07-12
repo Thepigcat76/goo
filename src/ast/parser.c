@@ -46,7 +46,8 @@ typedef struct {
   do {                                                                         \
     char print_buf[64];                                                        \
     lexer_tok_print(print_buf, received_ptr);                                  \
-    fprintf(stderr, "Expected " #expected ", received: %s\n", print_buf);      \
+    fprintf(stderr, "%s:%d Expected " #expected ", received: %s\n", __FILE__,  \
+            __LINE__, print_buf);                                              \
     exit(1);                                                                   \
   } while (0)
 
@@ -243,20 +244,75 @@ static TypedIdent *parse_typed_ident_list(Parser *parser, TokenKind end) {
 static ParseResult parse_expr1(Parser *parser, Expression *expr,
                                Precedence prec);
 
-// begin: cur_tok must be first ident or end
-// end: cur_tok is end
-static LabeledExpr *parse_labeled_expr_list(Parser *parser, TokenKind end) {
-  LabeledExpr *labels = array_new_capacity(LabeledExpr, 8, &HEAP_ALLOCATOR);
-  while (parser->cur_tok->kind != end) {
-    LabeledExpr le;
-    if (parser->cur_tok->kind == TOKEN_IDENT) {
-      le.field = parser->cur_tok->var.ident;
-    }
-    // cur_tok is colon
+static bool check_seperator_tok(Parser *parser, TokenKind seperator_tok,
+                                TokenKind end_tok) {
+  bool continue_loop = false;
+  bool can_parse_next_elem = false;
+  if (parser->peek_tok->kind == seperator_tok) {
+    // cur_tok is seperator_tok
     next_token(parser);
+    can_parse_next_elem = true;
+  }
+
+  if (parser->peek_tok->kind == end_tok) {
+    // cur_tok is end_tok
+    next_token(parser);
+    continue_loop = false;
+  } else if (can_parse_next_elem) {
+    // cur_tok is first tok of parse_elem
+    continue_loop = true;
+  } else {
+    sink_add_err(&parser->sink, ERR_MSG({
+      .err_msg = "Missing end token after list",
+      .issue_line = parser->cur_tok->line,
+      .issue_pos = parser->cur_tok->begin_pos + parser->cur_tok->len,
+      .ctx_lines_amount = 1,
+      .ctx_first_line = parser->cur_tok->line,
+      .issue_len = 1,
+      .issue_ctx_msg = "Expected end token"
+    }));
+  }
+
+  return continue_loop;
+}
+
+#define parse_list(parser_ptr, seperator_tok, end_tok)                         \
+                                                                               \
+  for (bool _continue_loop = parser_ptr->peek_tok->kind != end_tok;             \
+       _continue_loop;                                                         \
+       _continue_loop = check_seperator_tok(parser, seperator_tok, end_tok))
+
+// begin: cur_tok must be token before first_elem or end_tok
+// end: cur_tok is end
+static LabeledExpr *parse_labeled_expr_list(Parser *parser, TokenKind end_tok) {
+  LabeledExpr *labels = array_new_capacity(LabeledExpr, 8, &HEAP_ALLOCATOR);
+
+  parse_list(parser, TOKEN_COMMA, end_tok) {
+    LabeledExpr le = {0};
+
+    if (parser->peek_tok->kind == TOKEN_IDENT) {
+      next_token(parser);
+      le.field = parser->cur_tok->var.ident;
+    } else {
+      sink_add_err(&parser->sink, ERR_MSG({
+        .err_msg = "Expected field or '}'",
+        .issue_line = parser->cur_tok->line,
+        .issue_pos = parser->cur_tok->begin_pos + parser->cur_tok->len,
+        .ctx_lines_amount = 1,
+        .ctx_first_line = parser->cur_tok->line,
+        .issue_ctx_msg = "Add field or '}'",
+        .issue_len = 1,
+      }));
+      return labels;
+    }
+
+    // cur_tok is color
+    next_token(parser);
+
     if (parser->cur_tok->kind != TOKEN_COLON) {
       EXPECTED_TOKEN_ERR(TOKEN_COLON, parser->cur_tok);
     }
+
     // cur_tok is expr
     next_token(parser);
     Expression expr;
@@ -270,17 +326,10 @@ static LabeledExpr *parse_labeled_expr_list(Parser *parser, TokenKind end) {
       exit(1);
     }
 
-    if (parser->peek_tok->kind == TOKEN_COMMA) {
-      // cur_tok is comma
-      next_token(parser);
-      // cur_tok is ident or end
-      next_token(parser);
-    } else if (parser->peek_tok->kind == end) {
-      // cur_tok is end
-      next_token(parser);
-    }
     array_add(labels, le);
+  
   }
+
   return labels;
 }
 
@@ -677,8 +726,6 @@ static ParseResult parse_expr(Parser *parser, Expression *expr) {
     } else if (parser->peek_tok->kind == TOKEN_LCURLY) {
       if (ident_is_struct(parser, &ident)) {
         // cur_tok is lcurly
-        next_token(parser);
-        // cur_tok is first field name or rcurly
         next_token(parser);
 
         LabeledExpr *field_inits =
@@ -1268,12 +1315,15 @@ static Expression parse_array_access(Parser *parser, Expression expr) {
                 .array_expr = bump_clone(&parser->ast_arena, &expr),
                 .index_expr = bump_clone(&parser->ast_arena, &index_expr),
                 .bracket_begin_pos = first_tok_pos,
-                .bracket_end_pos = parser->cur_tok->begin_pos + parser->cur_tok->len,
+                .bracket_end_pos =
+                    parser->cur_tok->begin_pos + parser->cur_tok->len,
                 .bracket_line = first_tok_line,
-                .bracket_lines_amount = parser->cur_tok->line - first_tok_line + 1,
+                .bracket_lines_amount =
+                    parser->cur_tok->line - first_tok_line + 1,
             },
         .line = expr.line,
-        .lines_amount = expr.lines_amount + parser->cur_tok->line - first_tok_line + 1,
+        .lines_amount =
+            expr.lines_amount + parser->cur_tok->line - first_tok_line + 1,
         .pos = expr.pos,
         .end_pos = parser->cur_tok->begin_pos + parser->cur_tok->len,
     };
@@ -1671,7 +1721,29 @@ static bool parse_stmt(Parser *parser, Statement *out_stmt) {
     Expression expr;
     ParseResult result = parse_expr1(parser, &expr, PREC_LOWEST);
     if (result.success) {
-      if (parser->peek_tok->kind == TOKEN_ASSIGN) {
+      bool is_assign_stmt = true;
+      AssignKind assign_kind = ASSIGN_REGULAR;
+      switch (parser->peek_tok->kind) {
+      case TOKEN_ASSIGN: {
+        assign_kind = ASSIGN_REGULAR;
+      } break;
+      case TOKEN_ADD_ASSIGN: {
+        assign_kind = ASSIGN_ADD;
+      } break;
+      case TOKEN_SUB_ASSIGN: {
+        assign_kind = ASSIGN_SUB;
+      } break;
+      case TOKEN_MUL_ASSIGN: {
+        assign_kind = ASSIGN_MUL;
+      } break;
+      case TOKEN_DIV_ASSIGN: {
+        assign_kind = ASSIGN_DIV;
+      } break;
+      default: {
+        is_assign_stmt = false;
+      } break;
+      }
+      if (is_assign_stmt) {
         if (is_expr_assignable(&expr)) {
           // cur_tok is TOKEN_ASSIGN
           next_token(parser);
@@ -1687,15 +1759,12 @@ static bool parse_stmt(Parser *parser, Statement *out_stmt) {
             exit(1);
           }
 
-          *out_stmt = (Statement){
-              .kind = STMT_ASSIGN,
-              .var = {.stmt_assign =
-                          {
-                              .left_expr = expr,
-                              .right_expr = right_expr,
-                              .assign_kind = ASSIGN_REGULAR,
-                          }},
-          };
+          *out_stmt = (Statement){.kind = STMT_ASSIGN,
+                                  .var.stmt_assign = {
+                                      .left_expr = expr,
+                                      .right_expr = right_expr,
+                                      .assign_kind = assign_kind,
+                                  }};
 
           return true;
         } else {
@@ -1818,8 +1887,8 @@ static bool parse_stmt(Parser *parser, Statement *out_stmt) {
             .ctx_lines_amount = 1,
             .issue_line = parser->cur_tok->line,
             .issue_pos = parser->cur_tok->begin_pos,
-            .err_msg = str_fmt_temp(
-                "Illegal Token %s at beginning of statement", cur_tok_buf),
+            .err_msg = dyn_string_makef(&parser->ast_arena_allocator, 
+                "Illegal Token %s at beginning of statement", cur_tok_buf).string,
             .issue_ctx_msg = cur_tok_buf,
         }));
   } break;

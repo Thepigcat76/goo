@@ -379,7 +379,6 @@ static ProcessResult stmt_process(PreProcessor *preprocessor, Statement *stmt,
     break;
   }
   case STMT_TYPE_DECL: {
-    TODO();
   } break;
   case STMT_EXPR: {
     expr_process(preprocessor, &stmt->var.stmt_expr.expr);

@@ -110,7 +110,9 @@ typedef struct {
   bool color;
 } TypeFormatter;
 
-#define TYPE_FORMATTER_DEFAULT (TypeFormatter){.debug = false, .color = true}
+#define TYPE_FORMATTER_DEFAULT_COLOR (TypeFormatter){.debug = false, .color = true}
+
+#define TYPE_FORMATTER_DEFAULT (TypeFormatter){0}
 
 #define TYPE_FORMATTER_DEBUG (TypeFormatter){.debug = true}
 

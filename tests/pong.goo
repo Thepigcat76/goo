@@ -43,19 +43,19 @@ main :: () {
     }
 
     if IsKeyDown(KEY_S) {
-      platform_y = platform_y + 5
+      platform_y += 50
     }
 
     if IsKeyDown(KEY_W) {
-     platform_y = platform_y - 5
+     platform_y -= 5
     }
 
     if IsKeyDown(KEY_DOWN) {
-      platform_y1 = platform_y1 + 5
+      platform_y1 += 5
     }
 
     if IsKeyDown(KEY_UP) {
-     platform_y1 = platform_y1 - 5
+     platform_y1 -= 5
     }
 
     draw_rect(0, platform_y, 200, 40)

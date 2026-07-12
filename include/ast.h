@@ -129,22 +129,6 @@ typedef struct {
 } TypeExprOverloadSet;
 
 typedef struct {
-  Generic *generics;
-  TypedIdent *fields;
-} TypeExprStruct;
-
-typedef struct {
-  enum {
-    TYPE_EXPR_OVERLOAD_SET,
-    TYPE_EXPR_STRUCT,
-  } kind;
-  union {
-    TypeExprOverloadSet type_expr_overload_set;
-    TypeExprStruct type_expr_struct;
-  } var;
-} TypeExpr;
-
-typedef struct {
   ModulePath ident;
 } ExprIdent;
 
@@ -209,6 +193,29 @@ typedef struct _expr {
   i32 pos;
   i32 end_pos;
 } Expression;
+
+typedef struct {
+  Ident ident;
+  Type type;
+  Expression *value;
+  bool has_value;
+} TypedIdentOptValue;
+
+typedef struct {
+  Generic *generics;
+  TypedIdentOptValue *fields;
+} TypeExprStruct;
+
+typedef struct {
+  enum {
+    TYPE_EXPR_OVERLOAD_SET,
+    TYPE_EXPR_STRUCT,
+  } kind;
+  union {
+    TypeExprOverloadSet type_expr_overload_set;
+    TypeExprStruct type_expr_struct;
+  } var;
+} TypeExpr;
 
 typedef struct _labeled_expr {
   Ident field;

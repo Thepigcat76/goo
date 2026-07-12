@@ -1,7 +1,7 @@
 #include "../../include/types.h"
 #include "lilc/array.h"
-#include "lilc/todo.h"
 #include "lilc/eq.h"
+#include "lilc/todo.h"
 #include <lilc/alloc.h>
 #include <stdio.h>
 #include <string.h>
@@ -12,9 +12,11 @@ static ModulePath module_path_primitive(char *ident) {
   return path;
 }
 
-#define BUILTIN_TYPE_IDENT(_ident, ...)                                             \
+#define BUILTIN_TYPE_IDENT(_ident, ...)                                        \
   (Type) {                                                                     \
-    .kind = TYPE_IDENT, .var = {.type_ident = module_path_primitive(_ident) __VA_OPT__(,) __VA_ARGS__ }  \
+    .kind = TYPE_IDENT, .var = {                                               \
+      .type_ident = module_path_primitive(_ident) __VA_OPT__(, ) __VA_ARGS__   \
+    }                                                                          \
   }
 
 #define BUILTIN_TYPE_ARRAY(_ident, _variant, _type)                            \
@@ -132,25 +134,19 @@ bool type_eq(const Type *a, const Type *b) {
     TypeStruct a_struct = a->var.type_struct;
     TypeStruct b_struct = b->var.type_struct;
 
-    for (size_t i = 0; i < array_len(a_struct.fields); i++) {
-      for (size_t j = 0; j < array_len(b_struct.fields); j++) {
-        if (strv_eq(a_struct.fields[i].ident, b_struct.fields[j].ident)) {
-          if (!type_eq(&a_struct.fields[i].type, &b_struct.fields[j].type)) {
-            return false;
-          } else {
-            goto outer_continue;
-          }
-        }
-        // struct B contains a field that is not in struct A
-        return false;
-      }
-
-      // struct A contains a field that is not in struct B
+    size_t a_fields = array_len(a_struct.fields);
+    size_t b_fields = array_len(b_struct.fields);
+    if (a_fields != b_fields)
       return false;
 
-    // Continue to next field
-    outer_continue:
-      continue;
+    for (size_t i = 0; i < array_len(a_struct.fields); i++) {
+      if (strv_eq(a_struct.fields[i].ident, b_struct.fields[i].ident)) {
+        if (!type_eq(&a_struct.fields[i].type, &b_struct.fields[i].type)) {
+          return false;
+        }
+      } else {
+        return false;
+      }
     }
 
     return true;

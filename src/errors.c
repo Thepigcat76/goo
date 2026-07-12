@@ -105,7 +105,9 @@ static dyn_string_t error_desc_fmt(const SourceLine *src_lines,
           PRINT_SPACE(&str, spaces_len)
         }
         PRINT_SPACE(&str, msg->issue_len - 1)
+        dyn_string_add_str(&str, ANSI_CYAN);
         dyn_string_add_str(&str, msg->issue_ctx_msg);
+        dyn_string_add_str(&str, ANSI_RESET);
         dyn_string_add_char(&str, '\n');
       }
     }

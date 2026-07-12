@@ -31,6 +31,9 @@ typedef struct {
     char *module_path;
     struct debug_flags debug_flags;
   } compile_file;
+
+  Allocator cli_arena_allocator;
+  Bump cli_arena;
 } CliArgs;
 
 #define NEXT_ARG(i, argc)                                                      \
@@ -166,10 +169,10 @@ static void args_handle(CliArgs *args) {
     }
     if (args->compile_file.output_path == NULL) {
       dyn_string_t default_out_path = {0};
-      dyn_string_init(&default_out_path, &HEAP_ALLOCATOR);
+      dyn_string_init(&default_out_path, &args->cli_arena_allocator);
 
       dyn_string_t input_name =
-          file_name(args->compile_file.input_path, &HEAP_ALLOCATOR);
+          file_name(args->compile_file.input_path, &args->cli_arena_allocator);
 
       log_debug("Input name: %s", input_name.string);
 
@@ -191,17 +194,15 @@ static void args_handle(CliArgs *args) {
   }
 }
 
-static void args_free(CliArgs *args) {
-  if (args->kind == ARG_COMPILE_FILE) {
-    heap_dealloc(args->compile_file.output_path);
-  }
-}
-
 void cli_run(char **argv, size_t argc) {
   CliArgs args = {0};
+  bump_init(&args.cli_arena, 1024);
+  bump_allocator_init(&args.cli_arena_allocator, &args.cli_arena);
+
   args_parse(&args, argv, argc);
   args_handle(&args);
-  args_free(&args);
+
+  bump_free(&args.cli_arena);
 }
 
 #ifndef GOO_VERSION

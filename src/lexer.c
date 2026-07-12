@@ -186,7 +186,8 @@ static bool next_char_count_newline(Lexer *lexer, SourceLine **out_lines) {
     lexer->line++;
     size_t lines = array_len(*out_lines);
     if (lines > 0) {
-      (*out_lines)[lines - 1].len = lexer->cur_char - (*out_lines)[lines - 1].begin;
+      (*out_lines)[lines - 1].len =
+          lexer->cur_char - (*out_lines)[lines - 1].begin;
     }
     lines_add(out_lines, (SourceLine){.begin = lexer->cur_char + 1});
   } else {
@@ -305,7 +306,7 @@ void lexer_tokenize(Lexer *lexer, const char *src, const char *filename,
       const char *begin = lexer->cur_char;
       size_t begin_pos = lexer->pos;
       size_t cap = 32;
-      
+
       dyn_string_t int_lit = {.capacity = cap};
       dyn_string_init(&int_lit, &lexer->tok_arena_allocator);
 
@@ -410,11 +411,24 @@ void lexer_tokenize(Lexer *lexer, const char *src, const char *filename,
                     .begin = lexer->cur_char,
                     .len = 1};
     } else if (*lexer->cur_char == '+') {
-      tok = (Token){.kind = TOKEN_PLUS,
-                    .begin_pos = lexer->pos,
-                    .line = lexer->line,
-                    .begin = lexer->cur_char,
-                    .len = 1};
+      if (*(lexer->cur_char + 1) == '=') {
+        tok = (Token){
+            .kind = TOKEN_ADD_ASSIGN,
+            .begin_pos = lexer->pos,
+            .line = lexer->line,
+            .begin = lexer->cur_char,
+            .len = 2,
+        };
+        next_char(lexer, out_lines);
+      } else {
+        tok = (Token){
+            .kind = TOKEN_PLUS,
+            .begin_pos = lexer->pos,
+            .line = lexer->line,
+            .begin = lexer->cur_char,
+            .len = 1,
+        };
+      }
     } else if (*lexer->cur_char == '#') {
       tok = (Token){.kind = TOKEN_HASH,
                     .begin_pos = lexer->pos,
@@ -428,6 +442,15 @@ void lexer_tokenize(Lexer *lexer, const char *src, const char *filename,
                       .line = lexer->line,
                       .begin = lexer->cur_char,
                       .len = 2};
+        next_char(lexer, out_lines);
+      } else if (*(lexer->cur_char + 1) == '=') {
+        tok = (Token){
+            .kind = TOKEN_SUB_ASSIGN,
+            .begin_pos = lexer->pos,
+            .line = lexer->line,
+            .begin = lexer->cur_char,
+            .len = 2,
+        };
         next_char(lexer, out_lines);
       } else {
         tok = (Token){.kind = TOKEN_MINUS,
@@ -479,17 +502,37 @@ void lexer_tokenize(Lexer *lexer, const char *src, const char *filename,
                     .begin = lexer->cur_char,
                     .len = 1};
     } else if (*lexer->cur_char == '*') {
+      if (*(lexer->cur_char + 1) == '=') {
+        tok = (Token){
+            .kind = TOKEN_MUL_ASSIGN,
+            .begin_pos = lexer->pos,
+            .line = lexer->line,
+            .begin = lexer->cur_char,
+            .len = 2,
+        };
+        next_char(lexer, out_lines);
+      }else {
       tok = (Token){.kind = TOKEN_ASTERISK,
                     .begin_pos = lexer->pos,
                     .line = lexer->line,
                     .begin = lexer->cur_char,
-                    .len = 1};
+                    .len = 1};}
     } else if (*lexer->cur_char == '/') {
+      if (*(lexer->cur_char + 1) == '=') {
+        tok = (Token){
+            .kind = TOKEN_DIV_ASSIGN,
+            .begin_pos = lexer->pos,
+            .line = lexer->line,
+            .begin = lexer->cur_char,
+            .len = 2,
+        };
+        next_char(lexer, out_lines);
+      }else {
       tok = (Token){.kind = TOKEN_SLASH,
                     .begin_pos = lexer->pos,
                     .line = lexer->line,
                     .begin = lexer->cur_char,
-                    .len = 1};
+                    .len = 1};}
     } else if (*lexer->cur_char == '~') {
       tok = (Token){.kind = TOKEN_TILDE,
                     .begin_pos = lexer->pos,
@@ -518,7 +561,8 @@ void lexer_tokenize(Lexer *lexer, const char *src, const char *filename,
   }
   size_t lines = array_len(*out_lines);
   if (lines > 0) {
-    (*out_lines)[lines - 1].len = lexer->cur_char - (*out_lines)[lines - 1].begin;
+    (*out_lines)[lines - 1].len =
+        lexer->cur_char - (*out_lines)[lines - 1].begin;
   }
   tokens_add(out_tokens, (Token){.kind = TOKEN_EOF});
 }

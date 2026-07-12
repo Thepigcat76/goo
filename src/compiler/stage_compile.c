@@ -369,7 +369,7 @@ static void compiler_stack_alloc_expr_res(Compiler *compiler,
     switch (expr_res.var.imm.size) {
     case 4: {
       insns_add(compiler,
-                ins_mov_i32_r32_disp8(REG_EBP, compiler->cur_frame.sp_offset,
+                ins_mov_i32_r32_disp8(REG_EBP, -compiler->cur_frame.sp_offset,
                                       expr_res.var.imm.value));
     } break;
     case 8: {
@@ -394,7 +394,7 @@ static void compiler_stack_alloc_reg(Compiler *compiler, Ident *name,
   hashmap_insert(&compiler->cur_frame.symbol_table, name,
                  &STACK_OBJ(compiler->cur_frame.sp_offset, sizeof(uint64_t)));
   insns_add(compiler, ins_mov_r64_r64_disp8(
-                          reg, REG_EBP, 256 - compiler->cur_frame.sp_offset));
+                          reg, REG_EBP, -compiler->cur_frame.sp_offset));
 }
 
 // Returns whether there is a reg for this arg
@@ -1404,31 +1404,57 @@ static void stmt_compile(Compiler *compiler, const Statement *stmt) {
       if (stack_obj != NULL) {
         hashmap_insert(&compiler->cur_frame.symbol_table, &ident.path[0],
                        &STACK_OBJ(stack_obj->offset, right_expr_res.size));
+        log_debug("ASSIGN: %d", right_expr_res.kind);
         switch (right_expr_res.kind) {
         case EXPR_COMPILE_RES_DATA_OFFSET: {
           TODO();
         } break;
         case EXPR_COMPILE_RES_IMM: {
-          insns_add(compiler,
-                    ins_mov_i32_r32_disp8(REG_EBP, stack_obj->offset,
-                                          right_expr_res.var.imm.value));
+          log_debug("ASSIGN imm: %d", stmt_assign.assign_kind);
+          if (stmt_assign.assign_kind == ASSIGN_REGULAR) {
+            insns_add(compiler, ins_mov_i32_r32_disp8(
+                                    REG_EBP, right_expr_res.var.imm.value,
+                                    -stack_obj->offset));
+          } else if (stmt_assign.assign_kind == ASSIGN_ADD) {
+            insns_add(compiler,
+                      ins_add_i32_r32_disp8(right_expr_res.var.imm.value,
+                                            REG_EBP, -stack_obj->offset));
+          } else if (stmt_assign.assign_kind == ASSIGN_SUB) {
+            insns_add(compiler,
+                      ins_sub_i32_r32_disp8(right_expr_res.var.imm.value,
+                                            REG_EBP, -stack_obj->offset));
+          } else {
+            TODO();
+          }
         } break;
         case EXPR_COMPILE_RES_STACK_OBJ: {
           insns_add(compiler, ins_mov_r64_disp32_r64(
                                   REG_EBP, -right_expr_res.var.stack_obj.offset,
                                   REG_EAX));
-          insns_add(compiler, ins_mov_r64_r64_disp32(REG_EAX, REG_EBP,
-                                                     -stack_obj->offset));
+          if (stmt_assign.assign_kind == ASSIGN_REGULAR) {
+            insns_add(compiler, ins_mov_r32_r32_disp32(REG_EAX, REG_EBP,
+                                                       -stack_obj->offset));
+          } else if (stmt_assign.assign_kind == ASSIGN_ADD) {
+            insns_add(compiler, ins_add_r32_r32_disp8(REG_EAX, REG_EBP,
+                                                      -stack_obj->offset));
+          }
         } break;
         case EXPR_COMPILE_RES_REG: {
-          insns_add(compiler,
-                    ins_mov_r64_r64_disp32(right_expr_res.var.reg.reg, REG_EBP,
-                                           -stack_obj->offset));
+          if (stmt_assign.assign_kind == ASSIGN_REGULAR) {
+            insns_add(compiler,
+                      ins_mov_r32_r32_disp32(right_expr_res.var.reg.reg,
+                                             REG_EBP, -stack_obj->offset));
+          } else if (stmt_assign.assign_kind == ASSIGN_ADD) {
+            insns_add(compiler, ins_add_r32_r32_disp8(right_expr_res.var.reg.reg, REG_EBP,
+                                                      -stack_obj->offset));
+          }
         } break;
         case EXPR_COMPILE_RES_COMPARISON:
           TODO();
         }
+        break;
       }
+
     } else if (stmt_assign.left_expr.kind == EXPR_PTR_DEREF) {
       log_debug("Assigning to deref");
       Expression *expr = stmt_assign.left_expr.var.expr_ptr_deref.expr;
@@ -1450,8 +1476,10 @@ static void stmt_compile(Compiler *compiler, const Statement *stmt) {
   }
   // We ignore dis
   case STMT_FOREIGN: {
-    break;
-  }
+  } break;
+  case STMT_TYPE_DECL: {
+    log_debug("Stmt type decl");
+  } break;
   }
 }
 

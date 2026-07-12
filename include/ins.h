@@ -145,7 +145,7 @@ typedef struct {
       [4] = ((imm) >> 32) & 0xFF, [5] = ((imm) >> 40) & 0xFF,                  \
       [6] = ((imm) >> 48) & 0xFF, [7] = ((imm) >> 56) & 0xFF,                  \
   }
-
+  
 #ifdef INS_IMPL
 #define INS(name, args, ...)                                                   \
   Instruction ins_##name args { return (Instruction)__VA_ARGS__; }
@@ -163,262 +163,312 @@ static const Instruction INS_CALL = INS_MAKE({
     .flags = {.has_imm = true},
 });
 
-INS(jmp_disp8, (i8 disp), {
-  .opcode = OPCODE1(0xeb),
-  .disp = {(u8)disp, 0, 0, 0},
-  .flags = {
-    .has_disp = true,
-  },
-})
+INS(jmp_disp8, (i8 disp),
+    {
+        .opcode = OPCODE1(0xeb),
+        .disp = {(u8)disp, 0, 0, 0},
+        .flags =
+            {
+                .has_disp = true,
+            },
+    })
 
-INS(jne_disp32, (u32 disp), {
-  .opcode = OPCODE2(0x0f, 0x85),
-  .disp = IMM32_PACK(disp),
-  .flags = {
-    .has_disp = true,
-  },
-})
+INS(jne_disp32, (u32 disp),
+    {
+        .opcode = OPCODE2(0x0f, 0x85),
+        .disp = IMM32_PACK(disp),
+        .flags =
+            {
+                .has_disp = true,
+            },
+    })
 
-INS(je_disp8, (i8 disp), {
-  .opcode = OPCODE1(0x74),
-  .disp = {(u8)disp, 0, 0, 0},
-  .flags = {
-    .has_disp = true,
-    .explicit_disp8 = true,
-  },
-})
+INS(je_disp8, (i8 disp),
+    {
+        .opcode = OPCODE1(0x74),
+        .disp = {(u8)disp, 0, 0, 0},
+        .flags =
+            {
+                .has_disp = true,
+                .explicit_disp8 = true,
+            },
+    })
 
-INS(jmp_disp32, (u32 disp), {
-  .opcode = OPCODE1(0xe9),
-  .disp = IMM32_PACK(disp),
-  .flags = {
-    .has_disp = true,
-  },
-})
+INS(jmp_disp32, (u32 disp),
+    {
+        .opcode = OPCODE1(0xe9),
+        .disp = IMM32_PACK(disp),
+        .flags =
+            {
+                .has_disp = true,
+            },
+    })
 
-INS(jle_disp32, (u32 disp), {
-  .opcode = OPCODE2(0x0f, 0x8e),
-  .disp = IMM32_PACK(disp),
-  .flags = {
-    .has_disp = true,
-  },
-})
+INS(jle_disp32, (u32 disp),
+    {
+        .opcode = OPCODE2(0x0f, 0x8e),
+        .disp = IMM32_PACK(disp),
+        .flags =
+            {
+                .has_disp = true,
+            },
+    })
 
-INS(jl_disp32, (u32 disp), {
-  .opcode = OPCODE2(0x0f, 0x8c),
-  .disp = IMM32_PACK(disp),
-  .flags = {
-    .has_disp = true,
-  },
-})
+INS(jl_disp32, (u32 disp),
+    {
+        .opcode = OPCODE2(0x0f, 0x8c),
+        .disp = IMM32_PACK(disp),
+        .flags =
+            {
+                .has_disp = true,
+            },
+    })
 
-INS(push_r32, (Register reg), {
-  .opcode = OPCODE1(0x50 + reg),
-})
+INS(push_r32, (Register reg),
+    {
+        .opcode = OPCODE1(0x50 + reg),
+    })
 
-INS(pop_r32, (Register reg), {
-  .opcode = OPCODE1(0x58 + reg),
-})
+INS(pop_r32, (Register reg),
+    {
+        .opcode = OPCODE1(0x58 + reg),
+    })
 
-INS(mov_i32_r32, (Register reg, u32 imm), {
-  .opcode = OPCODE1(0xb8 + reg),
-  .imm = IMM32_PACK(imm),
-  .flags = {
-    .has_imm = true,
-  },
-})
+INS(mov_i32_r32, (Register reg, u32 imm),
+    {
+        .opcode = OPCODE1(0xb8 + reg),
+        .imm = IMM32_PACK(imm),
+        .flags =
+            {
+                .has_imm = true,
+            },
+    })
 
-INS(mov_i32_r64, (Register reg, u32 imm), {
-  .opcode = OPCODE2(0x48, 0xc7),
-  .mod_rm = {.mod = MOD_REG_DIRECT, .rm = reg},
-  .imm = IMM32_PACK(imm),
-  .flags = {
-    .has_imm = true,
-    .has_mod_rm = true,
-  },
-})
+INS(mov_i32_r64, (Register reg, u32 imm),
+    {
+        .opcode = OPCODE2(0x48, 0xc7),
+        .mod_rm = {.mod = MOD_REG_DIRECT, .rm = reg},
+        .imm = IMM32_PACK(imm),
+        .flags =
+            {
+                .has_imm = true,
+                .has_mod_rm = true,
+            },
+    })
 
-INS(mov_i8_r32_disp8, (Register reg, i8 disp, u8 imm), {
-  .prefix = PREFIX_EMPTY,
-  .opcode = OPCODE1(0xc6),
-  .mod_rm = {.mod = MOD_MEM_8BIT_DISP, .reg = 0b00, .rm = reg},
-  .sib = SIB_EMPTY,
-  .disp = {(u8)disp, 0, 0, 0},
-  .imm = {[0] = imm},
-  .imm_size = 1,
-  .flags = {
-    .has_imm = true,
-    .has_disp = true,
-    .has_mod_rm = true,
-  },
-})
+INS(mov_i8_r32_disp8, (Register reg, i8 disp, u8 imm),
+    {
+        .prefix = PREFIX_EMPTY,
+        .opcode = OPCODE1(0xc6),
+        .mod_rm = {.mod = MOD_MEM_8BIT_DISP, .reg = 0b00, .rm = reg},
+        .sib = SIB_EMPTY,
+        .disp = {(u8)disp, 0, 0, 0},
+        .imm = {[0] = imm},
+        .imm_size = 1,
+        .flags =
+            {
+                .has_imm = true,
+                .has_disp = true,
+                .has_mod_rm = true,
+            },
+    })
 
-INS(mov_i16_r32_disp8, (Register reg, i8 disp, u16 imm), {
-  .prefix = PREFIX_EMPTY,
-  .opcode = OPCODE2(0x66, 0xc7),
-  .mod_rm = {.mod = MOD_MEM_8BIT_DISP, .reg = 0b00, .rm = reg},
-  .sib = SIB_EMPTY,
-  .disp = {(u8)disp, 0, 0, 0},
-  .imm = {[0] = (u8)(imm & 0xff), [1] = (u8)((imm >> 8) & 0xff)},
-  .imm_size = 2,
-  .flags = {
-    .has_imm = true,
-    .has_disp = true,
-    .has_mod_rm = true,
-  },
-})
+INS(mov_i16_r32_disp8, (Register reg, i8 disp, u16 imm),
+    {
+        .prefix = PREFIX_EMPTY,
+        .opcode = OPCODE2(0x66, 0xc7),
+        .mod_rm = {.mod = MOD_MEM_8BIT_DISP, .reg = 0b00, .rm = reg},
+        .sib = SIB_EMPTY,
+        .disp = {(u8)disp, 0, 0, 0},
+        .imm = {[0] = (u8)(imm & 0xff), [1] = (u8)((imm >> 8) & 0xff)},
+        .imm_size = 2,
+        .flags =
+            {
+                .has_imm = true,
+                .has_disp = true,
+                .has_mod_rm = true,
+            },
+    })
 
-INS(mov_i32_r32_disp8, (Register reg, i8 disp, u32 imm), {
-  .prefix = PREFIX_EMPTY,
-  .opcode = OPCODE1(0xc7),
-  .mod_rm = {.mod = MOD_MEM_8BIT_DISP, .reg = 0b00, .rm = reg},
-  .sib = SIB_EMPTY,
-  .disp = {(u8)disp, 0, 0, 0},
-  .imm = IMM32_PACK(imm),
-  .flags = {
-    .has_imm = true,
-    .has_disp = true,
-    .has_mod_rm = true,
-  },
-})
+INS(mov_i32_r32_disp8, (Register reg, i8 disp, u32 imm),
+    {
+        .prefix = PREFIX_EMPTY,
+        .opcode = OPCODE1(0xc7),
+        .mod_rm = {.mod = MOD_MEM_8BIT_DISP, .reg = 0b00, .rm = reg},
+        .sib = SIB_EMPTY,
+        .disp = {(u8)disp, 0, 0, 0},
+        .imm = IMM32_PACK(imm),
+        .flags =
+            {
+                .has_imm = true,
+                .has_disp = true,
+                .has_mod_rm = true,
+            },
+    })
 
-INS(mov_i64_r64, (Register reg, u64 imm), {
-  .prefix = PREFIX_EMPTY,
-  .opcode = OPCODE2(0x48, 0xb8 + reg),
-  .sib = SIB_EMPTY,
-  .imm = IMM64_PACK(imm),
-  .imm_size = 8,
-  .flags = {
-    .has_imm = true,
-  },
-})
+INS(mov_i64_r64, (Register reg, u64 imm),
+    {
+        .prefix = PREFIX_EMPTY,
+        .opcode = OPCODE2(0x48, 0xb8 + reg),
+        .sib = SIB_EMPTY,
+        .imm = IMM64_PACK(imm),
+        .imm_size = 8,
+        .flags =
+            {
+                .has_imm = true,
+            },
+    })
 
-INS(cmp_i32_r64, (Register reg, u32 imm), {
-  .opcode = OPCODE2(0x48, 0x81),
-  .mod_rm = {.mod = MOD_REG_DIRECT, .reg = 0b111, .rm = reg},
-  .imm = IMM32_PACK(imm),
-  .flags = {
-    .has_imm = true,
-    .has_mod_rm = true,
-  },
-})
+INS(cmp_i32_r64, (Register reg, u32 imm),
+    {
+        .opcode = OPCODE2(0x48, 0x81),
+        .mod_rm = {.mod = MOD_REG_DIRECT, .reg = 0b111, .rm = reg},
+        .imm = IMM32_PACK(imm),
+        .flags =
+            {
+                .has_imm = true,
+                .has_mod_rm = true,
+            },
+    })
 
-INS(cmp_i32_r64_disp32, (u32 imm, Register reg, u32 disp), {
-  .opcode = OPCODE2(0x48, 0x81),
-  .mod_rm = {.mod = MOD_MEM_32BIT_DISP, .reg = 0b111, .rm = reg},
-  .imm = IMM32_PACK(imm),
-  .disp = IMM32_PACK(disp),
-  .flags = {
-    .has_imm = true,
-    .has_mod_rm = true,
-    .has_disp = true,
-  },
-})
+INS(cmp_i32_r64_disp32, (u32 imm, Register reg, u32 disp),
+    {
+        .opcode = OPCODE2(0x48, 0x81),
+        .mod_rm = {.mod = MOD_MEM_32BIT_DISP, .reg = 0b111, .rm = reg},
+        .imm = IMM32_PACK(imm),
+        .disp = IMM32_PACK(disp),
+        .flags =
+            {
+                .has_imm = true,
+                .has_mod_rm = true,
+                .has_disp = true,
+            },
+    })
 
-INS(cmp_i8_r64, (Register reg, u8 imm), {
-  .opcode = OPCODE1(0x83),
-  .mod_rm = {.mod = MOD_REG_DIRECT, .reg = 0b111, .rm = reg},
-  .imm = {[0] = imm},
-  .imm_size = 1,
-  .flags = {
-    .has_imm = true,
-    .has_mod_rm = true,
-    .imm8 = true,
-  },
-})
+INS(cmp_i8_r64, (Register reg, u8 imm),
+    {
+        .opcode = OPCODE1(0x83),
+        .mod_rm = {.mod = MOD_REG_DIRECT, .reg = 0b111, .rm = reg},
+        .imm = {[0] = imm},
+        .imm_size = 1,
+        .flags =
+            {
+                .has_imm = true,
+                .has_mod_rm = true,
+                .imm8 = true,
+            },
+    })
 
-INS(xor_r32_r32, (Register r_src, Register r_dest), {
-  .prefix = PREFIX_EMPTY,
-  .opcode = OPCODE1(0x31),
-  .mod_rm = {.mod = MOD_REG_DIRECT, .reg = r_src, .rm = r_dest},
-  .sib = SIB_EMPTY,
-  .flags = {
-    .has_mod_rm = true,
-  },
-})
+INS(xor_r32_r32, (Register r_src, Register r_dest),
+    {
+        .prefix = PREFIX_EMPTY,
+        .opcode = OPCODE1(0x31),
+        .mod_rm = {.mod = MOD_REG_DIRECT, .reg = r_src, .rm = r_dest},
+        .sib = SIB_EMPTY,
+        .flags =
+            {
+                .has_mod_rm = true,
+            },
+    })
 
-INS(lea_r32_r32_disp32, (Register r_src, Register r_dest, u32 disp), {
-  .opcode = OPCODE1(0x8D),
-  .mod_rm = {.mod = MOD_MEM_32BIT_DISP, .reg = r_dest, .rm = r_src},
-  .disp = IMM32_PACK(disp),
-  .imm = IMM32_PACK(0),
-  .flags = {
-    .has_mod_rm = true,
-    .has_disp = true,
-  },
-})
+INS(lea_r32_r32_disp32, (Register r_src, Register r_dest, u32 disp),
+    {
+        .opcode = OPCODE1(0x8D),
+        .mod_rm = {.mod = MOD_MEM_32BIT_DISP, .reg = r_dest, .rm = r_src},
+        .disp = IMM32_PACK(disp),
+        .imm = IMM32_PACK(0),
+        .flags =
+            {
+                .has_mod_rm = true,
+                .has_disp = true,
+            },
+    })
 
-INS(lea_abs_addr32_r32, (u32 disp, Register r_dest), {
-  .opcode = OPCODE1(0x8D),
-  .mod_rm = {.mod = MOD_MEM_NO_DISP, .reg = r_dest, .rm = 101},
-  .disp = IMM32_PACK(disp),
-  .imm = IMM32_PACK(0),
-  .flags = {
-    .has_mod_rm = true,
-    .has_disp = true,
-  },
-})
+INS(lea_abs_addr32_r32, (u32 disp, Register r_dest),
+    {
+        .opcode = OPCODE1(0x8D),
+        .mod_rm = {.mod = MOD_MEM_NO_DISP, .reg = r_dest, .rm = 101},
+        .disp = IMM32_PACK(disp),
+        .imm = IMM32_PACK(0),
+        .flags =
+            {
+                .has_mod_rm = true,
+                .has_disp = true,
+            },
+    })
 
-INS(lea_abs_addr32_r64, (u32 disp, Register r_dest), {
-  .opcode = OPCODE2(0x48, 0x8D),
-  .mod_rm = {.mod = MOD_MEM_NO_DISP, .reg = r_dest, .rm = 101},
-  .disp = IMM32_PACK(disp),
-  .imm = IMM32_PACK(0),
-  .flags = {
-    .has_mod_rm = true,
-    .has_disp = true,
-  },
-})
+INS(lea_abs_addr32_r64, (u32 disp, Register r_dest),
+    {
+        .opcode = OPCODE2(0x48, 0x8D),
+        .mod_rm = {.mod = MOD_MEM_NO_DISP, .reg = r_dest, .rm = 101},
+        .disp = IMM32_PACK(disp),
+        .imm = IMM32_PACK(0),
+        .flags =
+            {
+                .has_mod_rm = true,
+                .has_disp = true,
+            },
+    })
 
-INS(lea_r32_r32_disp8, (Register r_src, Register r_dest, i8 disp), {
-  .opcode = OPCODE1(0x8d),
-  .mod_rm = {.mod = MOD_MEM_8BIT_DISP, .reg = r_dest, .rm = r_src},
-  .disp = {(u8)disp, 0, 0, 0},
-  .flags = {
-    .has_mod_rm = true,
-    .has_disp = true,
-  },
-})
+INS(lea_r32_r32_disp8, (Register r_src, Register r_dest, i8 disp),
+    {
+        .opcode = OPCODE1(0x8d),
+        .mod_rm = {.mod = MOD_MEM_8BIT_DISP, .reg = r_dest, .rm = r_src},
+        .disp = {(u8)disp, 0, 0, 0},
+        .flags =
+            {
+                .has_mod_rm = true,
+                .has_disp = true,
+            },
+    })
 
-INS(mov_r32_disp8_r32_hacky, (Register r_src, i8 disp, Register r_dest), {
-  .opcode = OPCODE1(0x8b),
-  .mod_rm = {.mod = MOD_MEM_8BIT_DISP, .reg = r_dest, .rm = r_src},
-  .disp = {(u8)disp, 0, 0, 0},
-  .flags = {
-    .has_mod_rm = true,
-    .has_disp = true,
-  },
-})
+INS(mov_r32_disp8_r32_hacky, (Register r_src, i8 disp, Register r_dest),
+    {
+        .opcode = OPCODE1(0x8b),
+        .mod_rm = {.mod = MOD_MEM_8BIT_DISP, .reg = r_dest, .rm = r_src},
+        .disp = {(u8)disp, 0, 0, 0},
+        .flags =
+            {
+                .has_mod_rm = true,
+                .has_disp = true,
+            },
+    })
 
-INS(mov_byte_r64_disp8_r64, (Register r_src, i8 disp, Register r_dest), {
-  .opcode = OPCODE2(0x0f, 0xb6),
-  .mod_rm = {.mod = MOD_MEM_8BIT_DISP, .reg = r_dest, .rm = r_src},
-  .disp = {(u8)disp, 0, 0, 0},
-  .flags = {
-    .has_mod_rm = true,
-    .has_disp = true,
-  },
-})
+INS(mov_byte_r64_disp8_r64, (Register r_src, i8 disp, Register r_dest),
+    {
+        .opcode = OPCODE2(0x0f, 0xb6),
+        .mod_rm = {.mod = MOD_MEM_8BIT_DISP, .reg = r_dest, .rm = r_src},
+        .disp = {(u8)disp, 0, 0, 0},
+        .flags =
+            {
+                .has_mod_rm = true,
+                .has_disp = true,
+            },
+    })
 
-INS(mov_word_r64_disp8_r64, (Register r_src, i8 disp, Register r_dest), {
-  .opcode = OPCODE2(0x0f, 0xb7),
-  .mod_rm = {.mod = MOD_MEM_8BIT_DISP, .reg = r_dest, .rm = r_src},
-  .disp = {(u8)disp, 0, 0, 0},
-  .flags = {
-    .has_mod_rm = true,
-    .has_disp = true,
-  },
-})
+INS(mov_word_r64_disp8_r64, (Register r_src, i8 disp, Register r_dest),
+    {
+        .opcode = OPCODE2(0x0f, 0xb7),
+        .mod_rm = {.mod = MOD_MEM_8BIT_DISP, .reg = r_dest, .rm = r_src},
+        .disp = {(u8)disp, 0, 0, 0},
+        .flags =
+            {
+                .has_mod_rm = true,
+                .has_disp = true,
+            },
+    })
 
-INS(mov_r64_disp8_r64_hacky, (Register r_src, i8 disp, Register r_dest), {
-  .opcode = OPCODE2(0x48, 0x8b),
-  .mod_rm = {.mod = MOD_MEM_8BIT_DISP, .reg = r_dest, .rm = r_src},
-  .disp = {(u8)disp, 0, 0, 0},
-  .flags = {
-    .has_mod_rm = true,
-    .has_disp = true,
-  },
-})
+INS(mov_r64_disp8_r64_hacky, (Register r_src, i8 disp, Register r_dest),
+    {
+        .opcode = OPCODE2(0x48, 0x8b),
+        .mod_rm = {.mod = MOD_MEM_8BIT_DISP, .reg = r_dest, .rm = r_src},
+        .disp = {(u8)disp, 0, 0, 0},
+        .flags =
+            {
+                .has_mod_rm = true,
+                .has_disp = true,
+            },
+    })
 
 INS(mov_indexed_r64_disp32,
     (Register r_src, u32 disp, Register r_index, u8 scale, Register r_dest),
@@ -663,6 +713,20 @@ INS(add_i32_r64_disp32, (u32 imm, Register r_dest, u32 disp),
             },
     })
 
+INS(add_i32_r32_disp8, (u32 imm, Register r_dest, u32 disp),
+    {
+        .opcode = OPCODE1(0x81),
+        .mod_rm = {.mod = MOD_MEM_8BIT_DISP, .rm = r_dest},
+        .imm = IMM32_PACK(imm),
+        .disp = IMM32_PACK(disp),
+        .flags =
+            {
+                .has_mod_rm = true,
+                .has_imm = true,
+                .has_disp = true,
+            },
+    })
+
 INS(add_r64_r64, (Register r_src, Register r_dest),
     {
         .opcode = OPCODE2(0x48, 0x01),
@@ -670,6 +734,30 @@ INS(add_r64_r64, (Register r_src, Register r_dest),
         .flags =
             {
                 .has_mod_rm = true,
+            },
+    })
+
+INS(add_r32_r32_disp8, (Register r_src, Register r_dest, u8 disp),
+    {
+        .opcode = OPCODE1(0x01),
+        .mod_rm = {.mod = MOD_MEM_8BIT_DISP, .rm = r_dest, .reg = r_src},
+        .disp = IMM32_PACK(disp),
+        .flags =
+            {
+                .has_mod_rm = true,
+                .has_disp = true,
+            },
+    })
+
+INS(add_r64_r64_disp8, (Register r_src, Register r_dest, u8 disp),
+    {
+        .opcode = OPCODE2(0x48, 0x01),
+        .mod_rm = {.mod = MOD_MEM_8BIT_DISP, .rm = r_dest, .reg = r_src},
+        .disp = IMM32_PACK(disp),
+        .flags =
+            {
+                .has_mod_rm = true,
+                .has_disp = true,
             },
     })
 
@@ -682,6 +770,21 @@ INS(sub_i32_r64, (u32 imm, Register r_dest),
             {
                 .has_mod_rm = true,
                 .has_imm = true,
+            },
+    })
+
+INS(sub_i32_r32_disp8, (u32 imm, Register r_dest, i8 disp),
+    {
+        .opcode = OPCODE1(0x81),
+        .mod_rm = {.mod = MOD_MEM_8BIT_DISP, .reg = r_dest, .rm = 0b101},
+        .imm = IMM32_PACK(imm),
+        .disp = IMM32_PACK(disp),
+        .flags =
+            {
+                .has_disp = true,
+                .has_mod_rm = true,
+                .has_imm = true,
+                .explicit_disp8 = true,
             },
     })
 
