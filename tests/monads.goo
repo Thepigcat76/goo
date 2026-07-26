@@ -1,0 +1,21 @@
+result :: (#comptime T: type, #comptime E: type) {
+  return enum : union {
+    Ok { T value, },
+    Err { E error, },
+  }
+}
+
+compute :: (a: i32) -> result(i32, string) {
+  if a == 0 {
+    return Err("Failed lol")
+  }
+  return Ok(a + 237)
+}
+
+main :: () {
+  r: result(i32, string) = compute(231)
+
+  if r0 ::= compute(126) {
+  }
+
+}

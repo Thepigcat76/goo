@@ -28,12 +28,20 @@ void module_parse_standalone(Module *module) {
 
   Statement *stmts = array_new(Statement, &HEAP_ALLOCATOR);
   PpDirective *pp_dirs = array_new(PpDirective, &HEAP_ALLOCATOR);
-  module_parse(module, &parser, &stmts, &pp_dirs, tokens, lines);
+
+  ModuleParse mod_parse = {
+      .tokens = tokens,
+      .lines = lines,
+      .stmts = &stmts,
+      .pp_dirs = &pp_dirs,
+  };
+
+  module_parse(module, &parser, mod_parse);
 
   PreProcessor preproc = {0};
   preprocessor_init(&preproc);
 
-  module_preprocess(module, &preproc, stmts, pp_dirs);
+  module_preprocess(module, &preproc, stmts, NULL, pp_dirs);
 
   TypeChecker checker = {0};
   checker_init(&checker);
@@ -43,10 +51,10 @@ void module_parse_standalone(Module *module) {
   array_free(lines);
   array_free(tokens);
 
-  //checker_deinit(&checker);
-  //preprocessor_deinit(&preproc);
-  //parser_deinit(&parser);
-  //lexer_deinit(&lexer);
+  // checker_deinit(&checker);
+  // preprocessor_deinit(&preproc);
+  // parser_deinit(&parser);
+  // lexer_deinit(&lexer);
 }
 
 void module_deinit(Module *module) {

@@ -6,6 +6,15 @@
 #include "lilc/numbers.h"
 #include <lilc/alloc.h>
 
+ModulePath _internal_mod_path_make(const char *parts[], size_t len, Allocator *alloc) {
+  ModulePath mod_path = {.path = array_new(char *, alloc)};
+  for (size_t i = 0; i < len; i++) {
+    array_add(mod_path.path, parts[i]);
+  }
+
+  return mod_path;
+}
+
 i32 mod_path_ptrv_hash(const void *array) {
   const ModulePath *path = array;
 

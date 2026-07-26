@@ -1,4 +1,5 @@
 #include "../../include/types.h"
+#include "../../include/builtins/types.h"
 #include <lilc/alloc.h>
 #include <lilc/ansi.h>
 #include <lilc/assert.h>
@@ -28,7 +29,7 @@ dyn_string_t type_format(const TypeFormatter *fmt, const Type *type) {
     dyn_string_free(&path);
   } break;
   case TYPE_ARRAY: {
-    if (!fmt->debug && type_eq(type, &STRING_BUILTIN_TYPE)) {
+    if (!fmt->debug && type_eq(type, &BUILTIN_TYPES[BUILTIN_TYPE_STRING])) {
       dyn_string_printf(&str, "string");
     } else {
       dyn_string_printf(&str, "ARRAY");

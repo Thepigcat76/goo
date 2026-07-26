@@ -99,43 +99,73 @@ typedef enum {
 typedef struct {
   CompileLevel level;
   const char *function_name;
+
+  const Type *cur_variable_type;
 } CompileContext;
 
-typedef struct {
-  const Type *variable_type;
-} ExprCompileContext;
+typedef Frame *FrameDeque;
 
 typedef struct {
+  // Input
   const Statement *stmts;
-  TypeTable *type_tables;
-  CompilerStep step;
+  Hashmap function_type_tables; /* Ident -> TypeTables */
+  TypeTable global_type_table;
+  Hashmap mangled_functions; /* ModulePath -> Ident */
 
-  /* Type size cache*/
-
-  size_t stmt_index;
-  Instruction *insns;
-  Relocation *relocations;
+  Instruction **insns;
+  Relocation **relocs;
   Hashmap globals;           // Ident -> GlobalDataLocation
   Hashmap function_symbols;  // Ident -> size_t
-  Hashmap mangled_functions; // ModulePath -> Ident
+} ModuleCompile;
 
-  Frame cur_frame;
+void module_compile_init(ModuleCompile *mod_compile);
+
+typedef struct {
+  size_t stmt_index;
+  FrameDeque frames;
   size_t program_size;
-  /* Data */
+
+  // Data Sections
   DataSection data_section;
   DataSection rodata_section;
+
   /* Relocations */
   Elf64_Relocation *elf64_relocations;
   /* Program */
   uint8_t *program_data;
   size_t program_data_size;
   size_t program_data_capacity;
+} ModuleCompileInfo;
 
-  /* Module info */
-  ModulePath mod_path;
+typedef struct {
+  Module *cur_module;
+  ModuleCompile cur_mod_compile;
+  ModuleCompileInfo cur_mod_compile_info;
+  CompilerStep cur_step;
 
-  /* Context */
-  CompileContext context;
+  const Statement *_stmts;
+  TypeTable *_type_tables;
+
+  /* Type size cache */
+
+  size_t _stmt_index;
+  Instruction *_insns;
+  Relocation *_relocations;
+  Hashmap _globals;           // Ident -> GlobalDataLocation
+  Hashmap _function_symbols;  // Ident -> size_t
+  Hashmap _mangled_functions; // ModulePath -> Ident
+
+  Frame _cur_frame;
+  size_t _program_size;
+  /* Data */
+  DataSection _data_section;
+  DataSection _rodata_section;
+  /* Relocations */
+  Elf64_Relocation *_elf64_relocations;
+  /* Program */
+  uint8_t *_program_data;
+  size_t _program_data_size;
+  size_t _program_data_capacity;
 
   Bump compiler_arena;
   Allocator compiler_arena_allocator;
@@ -151,7 +181,5 @@ void compiler_generate(Compiler *compiler);
 
 void compiler_write(Compiler *compiler, FILE *file);
 
-void module_compile(Module *module, Compiler *compiler, const Statement *stmts,
-                    TypeTable *type_tables,
-                    Hashmap mangled_functions /* ModulePath -> Ident */,
-                    FILE *out_file);
+void module_compile(Module *module, Compiler *compiler,
+                    ModuleCompile mod_compile, FILE *out_file);

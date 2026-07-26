@@ -7,6 +7,10 @@ typedef struct {
   Ident *path;
 } ModulePath;
 
+#define mod_path_make(alloc_ptr, ...) _internal_mod_path_make((const char*[]){__VA_ARGS__}, sizeof((char*[]){__VA_ARGS__}) / sizeof(char *), alloc_ptr)
+
+ModulePath _internal_mod_path_make(const char *parts[], size_t len, Allocator *alloc);
+
 int32_t mod_path_ptrv_hash(const void *array);
 
 bool mod_path_ptrv_eq(const void *array0, const void *array1);

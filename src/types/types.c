@@ -1,93 +1,11 @@
 #include "../../include/types.h"
+#include "../../include/builtins/types.h"
 #include "lilc/array.h"
 #include "lilc/eq.h"
-#include "lilc/todo.h"
 #include <lilc/alloc.h>
+#include <lilc/panic.h>
 #include <stdio.h>
 #include <string.h>
-
-static ModulePath module_path_primitive(char *ident) {
-  ModulePath path = {.path = array_new(Ident, &HEAP_ALLOCATOR)};
-  array_add(path.path, ident);
-  return path;
-}
-
-#define BUILTIN_TYPE_IDENT(_ident, ...)                                        \
-  (Type) {                                                                     \
-    .kind = TYPE_IDENT, .var = {                                               \
-      .type_ident = module_path_primitive(_ident) __VA_OPT__(, ) __VA_ARGS__   \
-    }                                                                          \
-  }
-
-#define BUILTIN_TYPE_ARRAY(_ident, _variant, _type)                            \
-  (Type) {                                                                     \
-    .kind = TYPE_ARRAY, .var = {                                               \
-      .type_array = {.variant = _variant, .type = _type}                       \
-    }                                                                          \
-  }
-
-const Type UNIT_BUILTIN_TYPE = {.kind = TYPE_UNIT};
-/* Integers */
-Type I8_BUILTIN_TYPE;
-Type I16_BUILTIN_TYPE;
-Type I32_BUILTIN_TYPE;
-Type I64_BUILTIN_TYPE;
-/* Unsigned Integers */
-Type U8_BUILTIN_TYPE;
-Type U16_BUILTIN_TYPE;
-Type U32_BUILTIN_TYPE;
-Type U64_BUILTIN_TYPE;
-
-Type ANY_BUILTIN_TYPE;
-Type STRING_BUILTIN_TYPE;
-Type BOOL_BUILTIN_TYPE;
-
-static void type_deinit(Type *type) {
-  switch (type->kind) {
-  case TYPE_IDENT: {
-    array_free(type->var.type_ident.path);
-  } break;
-  case TYPE_ARRAY: {
-  } break;
-  default: {
-    TODO("Cannot free type: %d", type->kind);
-    break;
-  }
-  }
-}
-
-void builtin_types_init(void) {
-  I8_BUILTIN_TYPE = BUILTIN_TYPE_IDENT("i8");
-  I16_BUILTIN_TYPE = BUILTIN_TYPE_IDENT("i16");
-  I32_BUILTIN_TYPE = BUILTIN_TYPE_IDENT("i32");
-  I64_BUILTIN_TYPE = BUILTIN_TYPE_IDENT("i64");
-  /* Unsigned Integers */
-  U8_BUILTIN_TYPE = BUILTIN_TYPE_IDENT("u8");
-  U16_BUILTIN_TYPE = BUILTIN_TYPE_IDENT("u16");
-  U32_BUILTIN_TYPE = BUILTIN_TYPE_IDENT("u32");
-  U64_BUILTIN_TYPE = BUILTIN_TYPE_IDENT("u64");
-  ANY_BUILTIN_TYPE = BUILTIN_TYPE_IDENT("any");
-  STRING_BUILTIN_TYPE = BUILTIN_TYPE_ARRAY(
-      "string", TYPE_ARRAY_VARIANT_SIZE_UNKNOWN, &U8_BUILTIN_TYPE);
-  BOOL_BUILTIN_TYPE = BUILTIN_TYPE_IDENT("bool");
-}
-
-void builtin_types_deinit(void) {
-  type_deinit(&I8_BUILTIN_TYPE);
-  type_deinit(&I16_BUILTIN_TYPE);
-  type_deinit(&I32_BUILTIN_TYPE);
-  type_deinit(&I64_BUILTIN_TYPE);
-
-  type_deinit(&U8_BUILTIN_TYPE);
-  type_deinit(&U16_BUILTIN_TYPE);
-  type_deinit(&U32_BUILTIN_TYPE);
-  type_deinit(&U64_BUILTIN_TYPE);
-
-  type_deinit(&ANY_BUILTIN_TYPE);
-  type_deinit(&BOOL_BUILTIN_TYPE);
-
-  type_deinit(&STRING_BUILTIN_TYPE);
-}
 
 bool type_eq(const Type *a, const Type *b) {
   if (a == NULL || b == NULL || a->kind != b->kind)

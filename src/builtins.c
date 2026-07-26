@@ -1,6 +1,10 @@
-#include "../include/builtins.h"
+#include "../include/builtins/functions.h"
+#include "../include/builtins/types.h"
 #include "../include/parser.h"
-#include "lilc/array.h"
+#include <lilc/alloc.h>
+#include <lilc/array.h>
+#include <lilc/panic.h>
+#include <lilc/todo.h>
 #include <stdio.h>
 
 #define BUILTIN_FUNCTION_DEFINE(_ret_type, _native_function)                   \
@@ -17,8 +21,8 @@
     Argument *args = _expr.var.expr_function.desc.args;                        \
     Argument provided[] = {__VA_ARGS__ __VA_OPT__(, )(Argument){0}};           \
     size_t i;                                                                  \
-    for (i = 0; provided[i].kind != ARG_VARARG &&                              \
-                provided[i].var.typed_arg.ident != NULL;                       \
+    for (i = 0;                                                                \
+         provided[i].kind != ARG_VARARG && provided[i].arg_name != NULL;       \
          i++) {                                                                \
       array_add(args, provided[i]);                                            \
     }                                                                          \
@@ -37,155 +41,145 @@
   } while (0)
 
 #define ARG(_ident, _type)                                                     \
-  (Argument) {                                                                 \
-    .kind = ARG_TYPED_ARG, .var = {                                            \
-      .typed_arg = {.ident = _ident, .type = _type}                            \
-    }                                                                          \
-  }
+  (Argument) { .kind = ARG_REGULAR_ARG, .arg_name = _ident, .arg_type = _type }
 
 #define VARARG(_ident)                                                         \
-  (Argument) {                                                                 \
-    .kind = ARG_VARARG, .var = {.vararg = _ident }                             \
-  }
+  (Argument) { .kind = ARG_VARARG, .arg_name = _ident }
 
-BuiltinFunction *BUILTIN_FUNCTIONS;
+BuiltinFunction BUILTIN_FUNCTIONS[_amount_builtin_funcs] = {0};
 
-BuiltinFunction PRINTLN_FUNCTION;
-BuiltinFunction PRINTFN_FUNCTION;
-BuiltinFunction FORMAT_FUNCTION;
-BuiltinFunction PRINT_INT_FUNCTION;
-BuiltinFunction PRINT_INT_PTR_FUNCTION;
-BuiltinFunction EXIT_FUNCTION;
+void builtin_functions_init(Allocator *alloc, TypeTable *type_table) {
+  for (BuiltinFunctionKind i = 0; i < _amount_builtin_funcs; i++) {
+    BuiltinFunction func = {0};
+    func.expr.kind = EXPR_FUNCTION;
+    FuncDescriptor *func_desc = &func.expr.var.expr_function.desc;
+    func_desc->args = array_new(Argument, alloc);
+    func_desc->has_ret_type = true;
+    func_desc->ret_type = BUILTIN_TYPES[BUILTIN_TYPE_UNIT];
 
-char println_buf[1024] = {'\0'};
+    Ident name = NULL;
 
-static Object execute_println(Object *objects) {
-  char *string = obj_cast_string(&objects[0]);
-  strcat(println_buf, string);
-  strcat(println_buf, "\n");
-  puts(string);
-  return UNIT_OBJ;
-}
+    switch (i) {
+    case BUILTIN_FUNC_PRINTFN: {
+      name = "printfn";
 
-static Object execute_exit(Object *objects) {
-  int code = obj_cast_int(&objects[0]);
-  exit(code);
-  return UNIT_OBJ;
-}
+      array_add(func_desc->args,
+                ARG("value", BUILTIN_TYPES[BUILTIN_TYPE_STRING]));
+    } break;
+    case BUILTIN_FUNC_FORMAT: {
+      name = "format";
+      func_desc->ret_type = BUILTIN_TYPES[BUILTIN_TYPE_STRING];
 
-static Object execute_printfn(Object *objects) {
-  char *fmt_string = obj_cast_string(&objects[0]);
+      array_add(func_desc->args,
+                ARG("format", BUILTIN_TYPES[BUILTIN_TYPE_STRING]));
+      array_add(func_desc->args, VARARG("args"));
+    } break;
+    case BUILTIN_FUNC_EXIT: {
+      name = "exit";
 
-  size_t arg_index = 0;
-  char *c = &fmt_string[0];
-  while (*c != '\0') {
-    if (*c == '%') {
-      Object cast_obj = obj_cast(&STRING_BUILTIN_TYPE, &objects[arg_index + 1]);
-
-      printf("%s", obj_cast_string(&cast_obj));
-      arg_index++;
-    } else {
-      printf("%c", *c);
+      array_add(func_desc->args,
+                ARG("code", BUILTIN_TYPES[BUILTIN_TYPE_STRING]));
+    } break;
+    default: {
+      panic("Illegal value %d for builtin type", i);
+    } break;
     }
-    c++;
+
+    func.name = mod_path_make(alloc, name);
+
+    BUILTIN_FUNCTIONS[i] = func;
+
+    type_table_add(type_table, &func.name, EXPR_VAR_EXPR(func.expr),
+                   OPT_TYPE_EMPTY);
   }
-
-  puts("");
-
-  return UNIT_OBJ;
-}
-
-static Object execute_format(Object *objects) {
-  size_t new_string_capacity = 256;
-  char *new_string = malloc(new_string_capacity);
-  size_t new_string_len = 0;
-
-  char *fmt_string = obj_cast_string(&objects[0]);
-
-  size_t arg_index = 0;
-  char *c = &fmt_string[0];
-  while (*c != '\0') {
-    if (*c == '%') {
-      Object cast_obj = obj_cast(&STRING_BUILTIN_TYPE, &objects[arg_index + 1]);
-      char *cast_obj_str = obj_cast_string(&cast_obj);
-      size_t cast_obj_str_len = strlen(cast_obj_str);
-      if (new_string_len + cast_obj_str_len >= new_string_capacity) {
-        new_string_capacity *= 2;
-        new_string = realloc(new_string, new_string_capacity);
-      }
-      for (size_t i = 0; i < cast_obj_str_len; i++) {
-        new_string[new_string_len++] = cast_obj_str[i];
-      }
-      arg_index++;
-    } else if (*c == '\\') {
-      char next_c = *(c + 1);
-      if (next_c == '%') {
-        new_string[new_string_len++] = '%';
-        c++;
-        next_c = *(c + 1);
-      }
-    } else {
-      new_string[new_string_len++] = *c;
-      if (new_string_len >= new_string_capacity) {
-        new_string_capacity *= 2;
-        new_string = realloc(new_string, new_string_capacity);
-      }
-    }
-    c++;
-  }
-
-  new_string[new_string_len] = '\0';
-  return OBJ_STR(new_string);
-}
-
-static ModulePath PRINTLN_PATH;
-
-void builtin_functions_init(TypeTable *type_table) {
-  BUILTIN_FUNCTIONS = array_new(BuiltinFunction, &HEAP_ALLOCATOR);
-
-  BUILTIN_FUNCTION(PRINTLN_FUNCTION, "println", execute_println,
-                   UNIT_BUILTIN_TYPE, ARG("value", STRING_BUILTIN_TYPE));
-  BUILTIN_FUNCTION(PRINTFN_FUNCTION, "printfn", execute_printfn,
-                   UNIT_BUILTIN_TYPE, ARG("format", STRING_BUILTIN_TYPE),
-                   VARARG("args"));
-  BUILTIN_FUNCTION(FORMAT_FUNCTION, "format", execute_format,
-                   STRING_BUILTIN_TYPE, ARG("format", STRING_BUILTIN_TYPE),
-                   VARARG("args"));
-  BUILTIN_FUNCTION(PRINT_INT_FUNCTION, "print_int", NULL, UNIT_BUILTIN_TYPE,
-                   ARG("i", I32_BUILTIN_TYPE));
-  BUILTIN_FUNCTION(PRINT_INT_PTR_FUNCTION, "print_int_ptr", NULL,
-                   UNIT_BUILTIN_TYPE, ARG("i", I32_BUILTIN_TYPE));
-  BUILTIN_FUNCTION(EXIT_FUNCTION, "exit", execute_exit, UNIT_BUILTIN_TYPE,
-                   ARG("code", I32_BUILTIN_TYPE));
-
-  PRINTLN_PATH = (ModulePath){.path = array_new(Ident, &HEAP_ALLOCATOR)};
-  array_add(PRINTLN_PATH.path, "println");
-  type_table_add(type_table, &PRINTLN_PATH,
-                 EXPR_VAR_EXPR(PRINTLN_FUNCTION.expr), OPT_TYPE_EMPTY);
-  /*
-  type_table_add(type_table, &PRINTFN_FUNCTION.name,
-                 EXPR_VAR_EXPR(PRINTFN_FUNCTION.expr), OPT_TYPE_EMPTY);
-  type_table_add(type_table, &EXIT_FUNCTION.name,
-                 EXPR_VAR_EXPR(EXIT_FUNCTION.expr), OPT_TYPE_EMPTY);
-  type_table_add(type_table, &PRINT_INT_FUNCTION.name,
-                 EXPR_VAR_EXPR(PRINT_INT_FUNCTION.expr), OPT_TYPE_EMPTY);
-  type_table_add(type_table, &PRINT_INT_PTR_FUNCTION.name,
-                 EXPR_VAR_EXPR(PRINT_INT_PTR_FUNCTION.expr), OPT_TYPE_EMPTY);
-  type_table_add(type_table, &FORMAT_FUNCTION.name,
-                 EXPR_VAR_EXPR(FORMAT_FUNCTION.expr), OPT_TYPE_EMPTY);
-                 */
 }
 
 void builtin_functions_deinit(TypeTable *global_type_table) {
-  BuiltinFunction *func;
-  array_foreach(BUILTIN_FUNCTIONS, func) {
-    ExprFunction expr_func = func->expr.var.expr_function;
+  for (BuiltinFunctionKind i = 0; i < _amount_builtin_funcs; i++) {
+    ExprFunction expr_func = BUILTIN_FUNCTIONS[i].expr.var.expr_function;
     if (expr_func.desc.generics != NULL) {
       array_free(expr_func.desc.generics);
     }
     array_free(expr_func.desc.args);
   }
+}
 
-  array_free(BUILTIN_FUNCTIONS);
-  array_free(PRINTLN_PATH.path);
+Type BUILTIN_TYPES[_amount_builtin_types] = {0};
+
+static inline void type_deinit(Type *type) {
+  if (type->kind == TYPE_IDENT) {
+    mod_path_deinit(&type->var.type_ident);
+  }
+}
+
+void builtin_types_init(Allocator *alloc) {
+  for (BuiltinType i = 0; i < _amount_builtin_types; i++) {
+    Type type = {0};
+
+    switch (i) {
+    case BUILTIN_TYPE_I8: {
+      type.kind = TYPE_IDENT;
+      type.var.type_ident = mod_path_make(alloc, "i8");
+    } break;
+    case BUILTIN_TYPE_I16: {
+      type.kind = TYPE_IDENT;
+      type.var.type_ident = mod_path_make(alloc, "i16");
+    } break;
+    case BUILTIN_TYPE_I32: {
+      type.kind = TYPE_IDENT;
+      type.var.type_ident = mod_path_make(alloc, "i32");
+    } break;
+    case BUILTIN_TYPE_I64: {
+      type.kind = TYPE_IDENT;
+      type.var.type_ident = mod_path_make(alloc, "i64");
+    } break;
+    case BUILTIN_TYPE_U8: {
+      type.kind = TYPE_IDENT;
+      type.var.type_ident = mod_path_make(alloc, "u8");
+    } break;
+    case BUILTIN_TYPE_U16: {
+      type.kind = TYPE_IDENT;
+      type.var.type_ident = mod_path_make(alloc, "u16");
+    } break;
+    case BUILTIN_TYPE_U32: {
+      type.kind = TYPE_IDENT;
+      type.var.type_ident = mod_path_make(alloc, "u32");
+    } break;
+    case BUILTIN_TYPE_U64: {
+      type.kind = TYPE_IDENT;
+      type.var.type_ident = mod_path_make(alloc, "u64");
+    } break;
+    case BUILTIN_TYPE_UNIT: {
+      type.kind = TYPE_UNIT;
+    } break;
+    case BUILTIN_TYPE_ANY: {
+      type.kind = TYPE_IDENT;
+      type.var.type_ident = mod_path_make(alloc, "any");
+    } break;
+    case BUILTIN_TYPE_STRING: {
+      type.kind = TYPE_ARRAY;
+      type.var.type_array.type = &BUILTIN_TYPES[BUILTIN_TYPE_U8];
+      type.var.type_array.variant = TYPE_ARRAY_VARIANT_SIZE_UNKNOWN;
+    } break;
+    case BUILTIN_TYPE_BOOL: {
+      type.kind = TYPE_IDENT;
+      type.var.type_ident = mod_path_make(alloc, "bool");
+    } break;
+    case BUILTIN_TYPE_TYPE: {
+      type.kind = TYPE_IDENT;
+      type.var.type_ident = mod_path_make(alloc, "type");
+    } break;
+    default: {
+      panic("Illegal value %d for builtin type", i);
+    } break;
+    }
+
+    BUILTIN_TYPES[i] = type;
+  }
+}
+
+void builtin_types_deinit(void) {
+  for (BuiltinType i = 0; i < _amount_builtin_types; i++) {
+    type_deinit(&BUILTIN_TYPES[i]);
+  }
 }

@@ -1,5 +1,6 @@
 #include "../../include/compiler.h"
 #include "lilc/array.h"
+#include "lilc/deque.h"
 #include "lilc/eq.h"
 #include "lilc/hash.h"
 #include "lilc/hashmap0.h"
@@ -26,43 +27,50 @@ static inline void data_section_deinit(DataSection *section) {
   hashmap_deinit(&section->section_lookup);
 }
 
-void compiler_init(Compiler *compiler) {
-  compiler->relocations = array_new(Relocation, &HEAP_ALLOCATOR);
-  compiler->insns = array_new_capacity(Instruction, 512, &HEAP_ALLOCATOR);
-  hashmap_init(&compiler->function_symbols, &HEAP_ALLOCATOR, Ident *, size_t,
+void module_compile_init(ModuleCompile *mod_compile) {
+  hashmap_init(&mod_compile->function_symbols, &HEAP_ALLOCATOR, Ident *, size_t,
                str_ptrv_hash, str_ptrv_eq, NULL);
-  hashmap_init(&compiler->globals, &HEAP_ALLOCATOR, Ident *, GlobalDataLocation,
-               str_ptrv_hash, str_ptrv_eq, NULL);
-  data_section_init(&compiler->data_section);
-  data_section_init(&compiler->rodata_section);
-  compiler->elf64_relocations =
+  hashmap_init(&mod_compile->globals, &HEAP_ALLOCATOR, Ident *,
+               GlobalDataLocation, str_ptrv_hash, str_ptrv_eq, NULL);
+}
+
+static void module_compile_info_init(ModuleCompileInfo *info) {
+  data_section_init(&info->data_section);
+  data_section_init(&info->rodata_section);
+  info->elf64_relocations =
       array_new_capacity(Elf64_Relocation, 64, &HEAP_ALLOCATOR);
+  deque_init(info->frames, &HEAP_ALLOCATOR);
+}
+
+static void module_compile_info_deinit(ModuleCompileInfo *info) {
+  data_section_deinit(&info->data_section);
+  data_section_deinit(&info->rodata_section);
+  array_free(info->elf64_relocations);
+  deque_deinit(info->frames);
+}
+
+void compiler_init(Compiler *compiler) {
   bump_init(&compiler->compiler_arena, 80000);
   bump_allocator_init(&compiler->compiler_arena_allocator,
                       &compiler->compiler_arena);
 }
 
 void compiler_deinit(Compiler *compiler) {
-  array_free(compiler->relocations);
-  array_free(compiler->insns);
-  hashmap_deinit(&compiler->function_symbols);
-  hashmap_deinit(&compiler->globals);
-  data_section_deinit(&compiler->data_section);
-  data_section_deinit(&compiler->rodata_section);
-  array_free(compiler->elf64_relocations);
-
   bump_free(&compiler->compiler_arena);
 }
 
-void module_compile(Module *module, Compiler *compiler, const Statement *stmts,
-                    TypeTable *type_tables,
-                    Hashmap mangled_functions /* ModulePath -> Ident */,
-                    FILE *out_file) {
-  compiler->stmts = stmts;
-  compiler->type_tables = type_tables;
-  compiler->mangled_functions = mangled_functions;
-  compiler->mod_path = module->path;
-  
+void module_compile(Module *module, Compiler *compiler,
+                    ModuleCompile mod_compile, FILE *out_file) {
+  if (compiler->cur_step != COMPILE_STEP_COMPILE_SRC) {
+    module_compile_info_deinit(&compiler->cur_mod_compile_info);
+    bump_reset(&compiler->compiler_arena);
+  }
+
+  module_compile_info_init(&compiler->cur_mod_compile_info);
+
+  compiler->cur_module = module;
+  compiler->cur_mod_compile = mod_compile;
+
   compiler_compile(compiler);
 
   compiler_generate(compiler);

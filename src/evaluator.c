@@ -1,4 +1,5 @@
 #include "../include/evaluator.h"
+#include "../include/builtins/types.h"
 #include "../include/shared.h"
 #include "lilc/alloc.h"
 #include "lilc/array.h"
@@ -10,7 +11,7 @@
 #include <string.h>
 
 static char *obj_to_string(Object *val_ptr) {
-  Object obj = obj_cast(&STRING_BUILTIN_TYPE, val_ptr);
+  Object obj = obj_cast(&BUILTIN_TYPES[BUILTIN_TYPE_STRING], val_ptr);
   return obj_cast_string(&obj);
 }
 
@@ -129,8 +130,7 @@ Object eval_expr_call(Evaluator *evaluator, const ExprCall *expr_call) {
         for (size_t i = 0; i < array_len(call_args); i++) {
           if (obj_function.args[i].kind != ARG_VARARG &&
               i < array_len(obj_function.args)) {
-            environment_add(evaluator->cur_env,
-                            &obj_function.args[i].var.typed_arg.ident,
+            environment_add(evaluator->cur_env, &obj_function.args[i].arg_name,
                             call_args[i]);
           }
         }
@@ -161,11 +161,11 @@ Object obj_cast(const Type *type, const Object *obj) {
   case OBJECT_INT: {
     switch (type->kind) {
     case TYPE_IDENT: {
-      if (type_eq(type, &STRING_BUILTIN_TYPE)) {
+      if (type_eq(type, &BUILTIN_TYPES[BUILTIN_TYPE_STRING])) {
         char *string = malloc(32);
         sprintf(string, "%d", obj->var.obj_int);
         return (Object){.kind = OBJECT_STRING, .var = {.obj_string = string}};
-      } else if (type_eq(type, &I32_BUILTIN_TYPE)) {
+      } else if (type_eq(type, &BUILTIN_TYPES[BUILTIN_TYPE_I32])) {
         return *obj;
       } else {
         fprintf(stderr, "Casting to custom types is currently not supported\n");
@@ -173,7 +173,7 @@ Object obj_cast(const Type *type, const Object *obj) {
       }
     }
     case TYPE_ARRAY: {
-      if (type_eq(type, &STRING_BUILTIN_TYPE)) {
+      if (type_eq(type, &BUILTIN_TYPES[BUILTIN_TYPE_STRING])) {
         char *string = malloc(32);
         sprintf(string, "%d", obj->var.obj_int);
         return OBJ_STR(string);
@@ -190,9 +190,9 @@ Object obj_cast(const Type *type, const Object *obj) {
     }
   }
   case OBJECT_PTR: {
-    if (type_eq(type, &I32_BUILTIN_TYPE)) {
+    if (type_eq(type, &BUILTIN_TYPES[BUILTIN_TYPE_I32])) {
       return OBJ_INT((long)obj->var.obj_ptr);
-    } else if (type_eq(type, &STRING_BUILTIN_TYPE)) {
+    } else if (type_eq(type, &BUILTIN_TYPES[BUILTIN_TYPE_STRING])) {
       char *buf = malloc(128);
       sprintf(buf, "%p", (void *)obj->var.obj_ptr);
       return OBJ_STR(buf);
@@ -201,10 +201,10 @@ Object obj_cast(const Type *type, const Object *obj) {
   case OBJECT_STRING: {
     switch (type->kind) {
     case TYPE_IDENT: {
-      if (type_eq(type, &I32_BUILTIN_TYPE)) {
+      if (type_eq(type, &BUILTIN_TYPES[BUILTIN_TYPE_I32])) {
         return (Object){.kind = OBJECT_INT,
                         .var = {.obj_int = atoi(obj->var.obj_string)}};
-      } else if (type_eq(type, &STRING_BUILTIN_TYPE)) {
+      } else if (type_eq(type, &BUILTIN_TYPES[BUILTIN_TYPE_STRING])) {
         return *obj;
       } else {
         fprintf(stderr, "Casting to custom types is currently not supported\n");
@@ -228,12 +228,12 @@ Object obj_cast(const Type *type, const Object *obj) {
     }
   }
   case OBJECT_ARRAY: {
-    if (type_eq(type, &STRING_BUILTIN_TYPE)) {
+    if (type_eq(type, &BUILTIN_TYPES[BUILTIN_TYPE_STRING])) {
       char *string = malloc(1024);
       string[0] = '\0';
       const ObjectArray *obj_array = &obj->var.obj_array;
       for (size_t i = 0; i < array_len(obj_array->items); i++) {
-        Object item_obj = obj_cast(&STRING_BUILTIN_TYPE, &obj_array->items[i]);
+        Object item_obj = obj_cast(&BUILTIN_TYPES[BUILTIN_TYPE_STRING], &obj_array->items[i]);
         if (item_obj.kind == OBJECT_STRING) {
           strcat(string, item_obj.var.obj_string);
         } else {
@@ -258,14 +258,15 @@ Object obj_cast(const Type *type, const Object *obj) {
   case OBJECT_BOOL: {
     switch (type->kind) {
     case TYPE_IDENT: {
-      if (type_eq(type, &BOOL_BUILTIN_TYPE)) {
+      if (type_eq(type, &BUILTIN_TYPES[BUILTIN_TYPE_BOOL])) {
         return *obj;
-      } else if (type_eq(type, &I32_BUILTIN_TYPE)) {
+      } else if (type_eq(type, &BUILTIN_TYPES[BUILTIN_TYPE_BOOL])) {
         return OBJ_INT(obj->var.obj_bool ? 1 : 0);
-      } else if (type_eq(type, &STRING_BUILTIN_TYPE)) {
+      } else if (type_eq(type, &BUILTIN_TYPES[BUILTIN_TYPE_BOOL])) {
         return (Object){
             .kind = OBJECT_STRING,
-            .var = {.obj_string = obj->var.obj_bool ? "true" : "false"}};
+            .var.obj_string = obj->var.obj_bool ? "true" : "false",
+        };
       }
     }
     default: {
@@ -313,10 +314,12 @@ Object evaluator_eval_expr(Evaluator *evaluator, Expression *expr) {
     ExprBlock *block = expr->var.expr_function.block;
     return (Object){
         .kind = OBJECT_FUNCTION,
-        .var = {.obj_function = {.args = expr->var.expr_function.desc.args,
-                                 .block = block,
-                                 .native_function =
-                                     expr->var.expr_function.native_function}}};
+        .var.obj_function =
+            {
+                .args = expr->var.expr_function.desc.args,
+                .block = block,
+            },
+    };
   }
   case EXPR_CALL: {
     ExprCall expr_call = expr->var.expr_call;

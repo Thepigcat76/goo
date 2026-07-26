@@ -1,0 +1,3 @@
+test :: (#comptime T: type, i: i32) {
+  printfn("hi")
+}

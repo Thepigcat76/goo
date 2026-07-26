@@ -91,18 +91,20 @@ static inline void data_section_write_bytes(const DataSection *section,
 
 static void obj_add_data(Object *obj, const Compiler *compiler,
                          Bump *obj_bump) {
-  obj->text_section_data = compiler->program_data;
-  obj->text_section_size = compiler->program_data_size;
+  const ModuleCompileInfo *info = &compiler->cur_mod_compile_info;
+
+  obj->text_section_data = info->program_data;
+  obj->text_section_size = info->program_data_size;
 
   obj->data_section_data =
-      bump_alloc(obj_bump, compiler->data_section.data_len);
-  obj->data_section_size = compiler->data_section.data_len;
-  data_section_write_bytes(&compiler->data_section, obj->data_section_data);
+      bump_alloc(obj_bump, info->data_section.data_len);
+  obj->data_section_size = info->data_section.data_len;
+  data_section_write_bytes(&info->data_section, obj->data_section_data);
 
   obj->rodata_section_data =
-      bump_alloc(obj_bump, compiler->rodata_section.data_len);
-  obj->rodata_section_size = compiler->rodata_section.data_len;
-  data_section_write_bytes(&compiler->rodata_section, obj->rodata_section_data);
+      bump_alloc(obj_bump, info->rodata_section.data_len);
+  obj->rodata_section_size = info->rodata_section.data_len;
+  data_section_write_bytes(&info->rodata_section, obj->rodata_section_data);
 }
 
 static size_t obj_string_table_add(Object *obj, char *symbol,
@@ -135,9 +137,11 @@ static void obj_symbol_table_add_foreign_func(Object *obj, char *func_name,
 }
 
 void compiler_write(Compiler *compiler, FILE *file) {
-  if (compiler->step != COMPILE_STEP_GENERATE_MACHINE)
+  if (compiler->cur_step != COMPILE_STEP_GENERATE_MACHINE)
     return;
-  compiler->step = COMPILE_STEP_OUTPUT_OBJECT;
+  compiler->cur_step = COMPILE_STEP_OUTPUT_OBJECT;
+
+  const ModuleCompileInfo *info = &compiler->cur_mod_compile_info;
 
   if (debug_flags.print_obj_write_info) {
     log_info("[COMPILER] Start writing object file");
@@ -183,7 +187,7 @@ void compiler_write(Compiler *compiler, FILE *file) {
   /* Symbols */
   Ident *key;
   size_t *val;
-  hashmap_foreach(&compiler->function_symbols, key, val) {
+  hashmap_foreach(&compiler->cur_mod_compile.function_symbols, key, val) {
     size_t name_idx = obj_string_table_add(&obj, *key, &obj_bump_alloc);
 
     Elf64_Sym sym = {0};
@@ -197,8 +201,8 @@ void compiler_write(Compiler *compiler, FILE *file) {
   }
 
   /* Relocations */
-  for (size_t i = 0; i < array_len(compiler->elf64_relocations); i++) {
-    Elf64_Relocation reloc = compiler->elf64_relocations[i];
+  for (size_t i = 0; i < array_len(info->elf64_relocations); i++) {
+    Elf64_Relocation reloc = info->elf64_relocations[i];
 
     Elf64_Rela rela = {0};
     switch (reloc.rel_type) {
@@ -326,7 +330,7 @@ void compiler_write(Compiler *compiler, FILE *file) {
   sh_rela_text->sh_type = SHT_RELA;
   sh_rela_text->sh_offset = rela_text_off;
   sh_rela_text->sh_size =
-      sizeof(Elf64_Rela) * array_len(compiler->elf64_relocations);
+      sizeof(Elf64_Rela) * array_len(info->elf64_relocations);
   sh_rela_text->sh_link = SYMTAB_INDEX;
   sh_rela_text->sh_info = TEXT_INDEX;
   sh_rela_text->sh_addralign = 8;
@@ -344,5 +348,5 @@ void compiler_write(Compiler *compiler, FILE *file) {
 
   bump_free(&obj_bump);
 
-  free(compiler->program_data);
+  free(info->program_data);
 }

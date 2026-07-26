@@ -1,0 +1,46 @@
+// Comptime constants, type-aliasing, structs, struct default values, arrays
+
+#comptime DEFAULT_MAX_HEALTH :: 100
+#comptime ENTITIES_MAX_AMOUNT :: 512
+
+EntityId :: u64
+
+CompPosition :: struct {
+  x: i32,
+  y: i32,
+
+  present: bool,
+}
+
+CompVelocity :: struct {
+  x: i32,
+  y: i32,
+
+  present: bool,
+}
+
+CompHealth :: struct {
+  health: u32 = 0,
+  max_health: u32 = DEFAULT_MAX_HEALTH,
+
+  present: bool,
+}
+
+ComponentStorage :: struct {
+  positions: [ENTITIES_MAX_AMOUNT]CompPosition,
+  velocities: [ENTITIES_MAX_AMOUNT]CompVelocity,
+  health: [ENTITIES_MAX_AMOUNT]CompHealth,
+}
+
+EntityManager :: struct {
+  enities_amount: EntityId = 0,
+
+  comp_storage: ComponentStorage,
+}
+
+main :: () {
+  entities: EntityManager
+
+  for id in 0..entities.entities_amount {
+  }
+}

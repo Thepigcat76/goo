@@ -21,6 +21,10 @@ void error_sink_init(ErrorSink *error_sink) {
 
 void error_sink_deinit(ErrorSink *sink) { array_free(sink->msgs); }
 
+void error_sink_reset(ErrorSink *sink) {
+  array_clear(sink->msgs);
+}
+
 static dyn_string_t error_desc_fmt(const SourceLine *src_lines,
                                    const ErrorMessage *msg) {
   dyn_string_t str = {0};

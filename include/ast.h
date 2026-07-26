@@ -15,13 +15,13 @@ typedef enum {
 
 typedef struct {
   enum {
-    ARG_TYPED_ARG,
+    ARG_REGULAR_ARG,
     ARG_VARARG,
+    ARG_TYPE_ARG,
   } kind;
-  union {
-    TypedIdent typed_arg;
-    Ident vararg;
-  } var;
+  Ident arg_name;
+  Type arg_type;
+  bool comptime;
 } Argument;
 
 typedef struct {
@@ -38,7 +38,6 @@ typedef struct {
 typedef struct {
   FuncDescriptor desc;
   ExprBlock *block;
-  struct _obj (*native_function)(struct _obj *objects);
 } ExprFunction;
 
 typedef struct {
@@ -202,7 +201,6 @@ typedef struct {
 } TypedIdentOptValue;
 
 typedef struct {
-  Generic *generics;
   TypedIdentOptValue *fields;
 } TypeExprStruct;
 
@@ -248,14 +246,28 @@ typedef struct {
   bool is_generic;
 } TypeTableValue;
 
+/* ModulePath -> TypeTableValue */
 typedef struct {
   Hashmap type_table; // ModulePath -> TypeTableValue
 } TypeTable;
+
+void type_table_init(TypeTable *table, Allocator *alloc);
+
+TypeTableValue *type_table_get(TypeTable *table, ModulePath *path,
+                               TypeTable *global_table);
+
+TypeTableValue *
+tables_type_get(Hashmap func_type_tables /* Ident -> TypeTables */,
+                TypeTable global_type_table, Ident func_name, size_t scope_idx,
+                ModulePath *name);
+
+typedef TypeTable *TypeTables;
 
 typedef struct {
   Ident name;
   OptionalType type;
   Expression value;
+  bool has_value;
   bool mut;
   bool comptime;
 } StmtDecl;

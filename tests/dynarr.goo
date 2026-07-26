@@ -1,0 +1,24 @@
+dynarray :: (#comptime #no_type_param_infer T: type) -> type {
+  return struct {
+    // TODO: Allocator
+    capacity: u64,
+    len: u64,
+    items: *T,
+  }
+}
+
+#comptime DYN_ARRAY_CAPACITY :: 1024
+
+dynarray_init :: (#comptime T: type, array: dynarray(T), capacity: u64 = DYN_ARRAY_CAPACITY) {
+  array.capacity = capacity
+  array.length = 0
+  array.items = mem.alloc(context.allocator, T.size)
+}
+
+main :: () {
+  my_arr: dynarray(i32)
+
+  dynarray_init(my_arr, 256)
+
+  dynarray_add(my_arr, 0)
+}

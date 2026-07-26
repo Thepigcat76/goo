@@ -7,6 +7,7 @@
 #include <lilc/eq.h>
 #include <lilc/hash.h>
 #include <lilc/hashmap0.h>
+#include <lilc/panic.h>
 #include <lilc/todo.h>
 #include <stdio.h>
 
@@ -23,11 +24,14 @@ typedef struct {
 static ProcessResult stmt_process(PreProcessor *preprocessor, Statement *stmt,
                                   Statement *new_stmt);
 
-static void expr_process(PreProcessor *preprocessor, Expression *expr);
-
 typedef struct {
-  char *variable_name;
-} PreprocessorExprContext;
+  Ident decl_name;
+} ExprProcessContext;
+
+#define EXPR_PROC_CTX(...) (ExprProcessContext) __VA_ARGS__
+
+static void expr_process(PreProcessor *preprocessor, Expression *expr,
+                         ExprProcessContext ctx);
 
 static Expression println_execute(Expression *args) {
   if (array_len(args) != 1) {
@@ -92,30 +96,30 @@ static uint32_t apply_lit_bin_op(uint32_t a, uint32_t b, BinOperator op) {
 
 static Expression expr_eval_comptime(PreProcessor *preprocessor,
                                      const Expression *expr,
-                                     PreprocessorExprContext context);
+                                     ExprProcessContext context);
 
 static void expr_block_eval_comptime(PreProcessor *preprocessor,
                                      const ExprBlock *expr) {
   for (size_t i = 0; i < array_len(expr->statements); i++) {
     if (expr->statements[i].kind == STMT_EXPR) {
       expr_eval_comptime(preprocessor, &expr->statements[i].var.stmt_expr.expr,
-                         (PreprocessorExprContext){});
+                         EXPR_PROC_CTX({0}));
     }
   }
 }
 
 static Expression expr_eval_comptime(PreProcessor *preprocessor,
                                      const Expression *expr,
-                                     PreprocessorExprContext context) {
+                                     ExprProcessContext context) {
   switch (expr->kind) {
   case EXPR_BIN_OP: {
     ExprBinOp expr_bin_op = expr->var.expr_bin_op;
-    uint32_t a = expr_eval_comptime(preprocessor, expr_bin_op.left,
-                                    (PreprocessorExprContext){})
-                     .var.expr_integer_literal.integer;
-    uint32_t b = expr_eval_comptime(preprocessor, expr_bin_op.right,
-                                    (PreprocessorExprContext){})
-                     .var.expr_integer_literal.integer;
+    u32 a =
+        expr_eval_comptime(preprocessor, expr_bin_op.left, EXPR_PROC_CTX({0}))
+            .var.expr_integer_literal.integer;
+    u32 b =
+        expr_eval_comptime(preprocessor, expr_bin_op.right, EXPR_PROC_CTX({0}))
+            .var.expr_integer_literal.integer;
 
     return (Expression){
         .kind = EXPR_INTEGER_LIT,
@@ -142,8 +146,8 @@ static Expression expr_eval_comptime(PreProcessor *preprocessor,
     array_foreach(expr->var.expr_function.block->statements, block_stmt) {
       ProcessResult res = stmt_process(preprocessor, block_stmt, block_stmt);
     }
-    log_debug("Comptime function: %s", context.variable_name);
-    hashmap_insert(&preprocessor->comptime_functions, &context.variable_name,
+    log_debug("Comptime function: %s", context.decl_name);
+    hashmap_insert(&preprocessor->comptime_functions, &context.decl_name,
                    &(ComptimeBuiltinFunction){.builtin = false,
                                               .expr_function = expr_function});
     return *expr;
@@ -196,11 +200,9 @@ static Expression expr_eval_comptime(PreProcessor *preprocessor,
       }
     } else {
       ExprRange range = expr_for.range;
-      int min = expr_eval_comptime(preprocessor, range.min,
-                                   (PreprocessorExprContext){})
+      int min = expr_eval_comptime(preprocessor, range.min, EXPR_PROC_CTX({0}))
                     .var.expr_integer_literal.integer;
-      int max = expr_eval_comptime(preprocessor, range.max,
-                                   (PreprocessorExprContext){})
+      int max = expr_eval_comptime(preprocessor, range.max, EXPR_PROC_CTX({0}))
                     .var.expr_integer_literal.integer;
       for (int i = min; i < max; i++) {
         expr_block_eval_comptime(preprocessor, &expr_for.block);
@@ -222,7 +224,7 @@ static void pp_dir_process(PreProcessor *preprocessor,
   case PP_DIR_IF: {
     PpDirIf pp_dir_if = pp_dir->var.pp_dir_if;
     Expression cond_expr = expr_eval_comptime(
-        preprocessor, &pp_dir_if.condition, (PreprocessorExprContext){0});
+        preprocessor, &pp_dir_if.condition, EXPR_PROC_CTX({0}));
     bool evaluated_cond_expr = false;
     if (cond_expr.kind == EXPR_INTEGER_LIT) {
       evaluated_cond_expr = cond_expr.var.expr_integer_literal.integer;
@@ -244,13 +246,13 @@ static void pp_dir_process(PreProcessor *preprocessor,
     PpDirComptime pp_dir_comptime = pp_dir->var.pp_dir_comptime;
     if (pp_dir_comptime.stmt.kind == STMT_EXPR) {
       expr_eval_comptime(preprocessor, &pp_dir_comptime.stmt.var.stmt_expr.expr,
-                         (PreprocessorExprContext){});
+                         EXPR_PROC_CTX({0}));
     } else if (pp_dir_comptime.stmt.kind == STMT_DECL) {
       Expression *expr = &pp_dir_comptime.stmt.var.stmt_decl.value;
       expr_eval_comptime(
           preprocessor, expr,
-          (PreprocessorExprContext){
-              .variable_name = pp_dir_comptime.stmt.var.stmt_decl.name});
+          EXPR_PROC_CTX(
+              {.decl_name = pp_dir_comptime.stmt.var.stmt_decl.name}));
       if (global) {
         log_debug("Added comptime constant: %s",
                   pp_dir_comptime.stmt.var.stmt_decl.name);
@@ -268,7 +270,8 @@ static void pp_dir_process(PreProcessor *preprocessor,
 static ProcessResult stmt_process(PreProcessor *preprocessor, Statement *stmt,
                                   Statement *new_stmt);
 
-static void expr_process(PreProcessor *preprocessor, Expression *expr) {
+static void expr_process(PreProcessor *preprocessor, Expression *expr,
+                         ExprProcessContext ctx) {
   switch (expr->kind) {
   case EXPR_CAST: {
     break;
@@ -281,6 +284,26 @@ static void expr_process(PreProcessor *preprocessor, Expression *expr) {
   }
   case EXPR_FUNCTION: {
     ExprFunction *expr_function = &expr->var.expr_function;
+
+    bool comptime_params = false;
+    Argument *arg;
+    array_foreach(expr_function->desc.args, arg) {
+      if (arg->comptime) {
+        comptime_params = true;
+        break;
+      }
+    }
+
+    if (comptime_params) {
+      if (ctx.decl_name == NULL) {
+        panic("Comptime preprocessor directive not supported for anonymous "
+              "functions");
+      }
+
+      if (preprocessor->comptime_param_functions != NULL)
+        array_add(*preprocessor->comptime_param_functions, ctx.decl_name);
+    }
+
     for (size_t i = 0; i < array_len(expr_function->block->statements); i++) {
       stmt_process(preprocessor, &expr_function->block->statements[i], NULL);
     }
@@ -292,7 +315,7 @@ static void expr_process(PreProcessor *preprocessor, Expression *expr) {
   case EXPR_CALL: {
     ExprCall expr_call = expr->var.expr_call;
     for (size_t i = 0; i < array_len(expr_call.args); i++) {
-      expr_process(preprocessor, &expr_call.args[i]);
+      expr_process(preprocessor, &expr_call.args[i], EXPR_PROC_CTX({0}));
     }
     break;
   }
@@ -340,7 +363,7 @@ static void expr_process(PreProcessor *preprocessor, Expression *expr) {
   case EXPR_IF: {
     log_debug("[PREPROCESSOR] - Processing if expression");
     ExprIf *expr_if = &expr->var.expr_if;
-    expr_process(preprocessor, expr_if->condition);
+    expr_process(preprocessor, expr_if->condition, EXPR_PROC_CTX({0}));
     for (size_t i = 0; i < array_len(expr_if->block.statements); i++) {
       stmt_process(preprocessor, &expr_if->block.statements[i], NULL);
     }
@@ -367,7 +390,8 @@ static ProcessResult stmt_process(PreProcessor *preprocessor, Statement *stmt,
   case STMT_DECL: {
     StmtDecl *stmt_decl = &stmt->var.stmt_decl;
     Expression *expr_value = &stmt_decl->value;
-    expr_process(preprocessor, expr_value);
+    expr_process(preprocessor, expr_value,
+                 EXPR_PROC_CTX({.decl_name = stmt_decl->name}));
 
     if (stmt_decl->comptime) {
       log_debug("[PREPROCESSOR] - processing comptime constant %s",
@@ -381,18 +405,20 @@ static ProcessResult stmt_process(PreProcessor *preprocessor, Statement *stmt,
   case STMT_TYPE_DECL: {
   } break;
   case STMT_EXPR: {
-    expr_process(preprocessor, &stmt->var.stmt_expr.expr);
+    expr_process(preprocessor, &stmt->var.stmt_expr.expr, EXPR_PROC_CTX({0}));
     break;
   }
   case STMT_RETURN: {
     if (stmt->var.stmt_return.has_ret_val) {
-      expr_process(preprocessor, &stmt->var.stmt_return.ret_val);
+      expr_process(preprocessor, &stmt->var.stmt_return.ret_val,
+                   EXPR_PROC_CTX({0}));
     }
   } break;
   case STMT_FOREIGN: {
   } break;
   case STMT_ASSIGN: {
-    expr_process(preprocessor, &stmt->var.stmt_assign.right_expr);
+    expr_process(preprocessor, &stmt->var.stmt_assign.right_expr,
+                 EXPR_PROC_CTX({0}));
   } break;
   }
   //*new_stmt = *stmt;
@@ -409,13 +435,15 @@ void preprocessor_process(PreProcessor *preprocessor) {
   }
 
   for (size_t i = 0; i < array_len(preprocessor->stmts); i++) {
-    stmt_process(preprocessor, &preprocessor->stmts[i], NULL);
+    ProcessResult res = stmt_process(preprocessor, &preprocessor->stmts[i], NULL);
   }
 }
 
 void module_preprocess(Module *module, PreProcessor *preproc, Statement *stmts,
+                       IdentArray *comptime_param_functions,
                        const PpDirective *pp_dirs) {
   preproc->pp_dirs = pp_dirs;
   preproc->stmts = stmts;
+  preproc->comptime_param_functions = comptime_param_functions;
   preprocessor_process(preproc);
 }

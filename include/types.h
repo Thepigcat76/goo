@@ -1,12 +1,12 @@
 #pragma once
 
+#include <lilc/alloc.h>
 #include <stdbool.h>
 #include <stdlib.h>
 #include "shared.h"
 #include "module_path.h"
 
 typedef enum {
-  TYPE_ARRAY_VARIANT_DYNAMIC,
   TYPE_ARRAY_VARIANT_SIZED,
   TYPE_ARRAY_VARIANT_SIZE_UNKNOWN,
 } TypeArrayVariant;
@@ -69,39 +69,14 @@ typedef struct {
 
 typedef struct {
   Ident name;
-  struct _generic *generics;
   Type *arg_types;
   Type ret_type;
 } FuncSignature;
-
-typedef struct _generic {
-  Ident name;
-  FuncSignature *bounds;
-} Generic;
-
-extern const Type UNIT_BUILTIN_TYPE;
-extern Type ANY_BUILTIN_TYPE;
-extern Type STRING_BUILTIN_TYPE;
-/* Integers */
-extern Type I8_BUILTIN_TYPE;
-extern Type I16_BUILTIN_TYPE;
-extern Type I32_BUILTIN_TYPE;
-extern Type I64_BUILTIN_TYPE;
-/* Unsigned Integers */
-extern Type U8_BUILTIN_TYPE;
-extern Type U16_BUILTIN_TYPE;
-extern Type U32_BUILTIN_TYPE;
-extern Type U64_BUILTIN_TYPE;
-extern Type BOOL_BUILTIN_TYPE;
 
 typedef struct _typed_ident {
   Ident ident;
   Type type;
 } TypedIdent;
-
-void builtin_types_init(void);
-
-void builtin_types_deinit(void);
 
 bool type_eq(const Type *a, const Type *b);
 

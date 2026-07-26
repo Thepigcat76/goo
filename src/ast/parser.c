@@ -1,5 +1,6 @@
 #include "../../include/parser.h"
 #include "../../include/preprocess.h"
+#include "../../include/builtins/types.h"
 #include "lilc/alloc.h"
 #include "lilc/array.h"
 #include "lilc/dynstr.h"
@@ -60,20 +61,23 @@ const OptionalType OPT_TYPE_EMPTY = {.present = false};
 
 #define AST_ARENA_SIZE 160000
 
+void module_parse_init(ModuleParse *mod_parse) {
+  hashmap_init(&mod_parse->custom_types, &HEAP_ALLOCATOR, Ident *, TypeExpr,
+               str_ptrv_hash, str_ptrv_eq, NULL);
+  hashmap_init(&mod_parse->custom_functions, &HEAP_ALLOCATOR, Ident *,
+               ExprFunction, str_ptrv_hash, str_ptrv_eq, NULL);
+
+  mod_parse->foreign_functions = array_new(ModulePath, &HEAP_ALLOCATOR);
+  mod_parse->imported_modules = array_new(ModulePath, &HEAP_ALLOCATOR);
+  hashmap_init(&mod_parse->imported_functions, &HEAP_ALLOCATOR, ModulePath,
+               FuncDescriptor, mod_path_ptrv_hash, mod_path_ptrv_eq, NULL);
+}
+
 void parser_init(Parser *parser) {
   if (mangled_functions._internal_map == NULL) {
     hashmap_init(&mangled_functions, &HEAP_ALLOCATOR, ModulePath, Ident,
                  mod_path_ptrv_hash, mod_path_ptrv_eq, NULL);
   }
-
-  hashmap_init(&parser->custom_types, &HEAP_ALLOCATOR, Ident *, TypeExpr,
-               str_ptrv_hash, str_ptrv_eq, NULL);
-  hashmap_init(&parser->custom_functions, &HEAP_ALLOCATOR, Ident *,
-               ExprFunction, str_ptrv_hash, str_ptrv_eq, NULL);
-  parser->foreign_functions = array_new(ModulePath, &HEAP_ALLOCATOR);
-  parser->imported_modules = array_new(ModulePath, &HEAP_ALLOCATOR);
-  hashmap_init(&parser->imported_functions, &HEAP_ALLOCATOR, ModulePath,
-               FuncDescriptor, mod_path_ptrv_hash, mod_path_ptrv_eq, NULL);
   error_sink_init(&parser->sink);
 
   bump_init(&parser->ast_arena, AST_ARENA_SIZE);
@@ -81,13 +85,7 @@ void parser_init(Parser *parser) {
 }
 
 void parser_deinit(Parser *parser) {
-  hashmap_deinit(&parser->custom_types);
-  hashmap_deinit(&parser->custom_functions);
-
   // array_free(parser->pp_dir_conditionals);
-  array_free(parser->foreign_functions);
-  array_free(parser->imported_modules);
-  hashmap_deinit(&parser->imported_functions);
 
   error_sink_deinit(&parser->sink);
 
@@ -139,7 +137,7 @@ static Type parse_type(Parser *parser) {
   case TOKEN_IDENT: {
     ModulePath ident = parse_module_path(parser);
     if (strv_eq(ident.path[0], "string")) {
-      return STRING_BUILTIN_TYPE;
+      return BUILTIN_TYPES[BUILTIN_TYPE_STRING];
     }
     return (Type){.kind = TYPE_IDENT, .var = {.type_ident = ident}};
   }
@@ -172,12 +170,7 @@ static Type parse_type(Parser *parser) {
   }
   case TOKEN_LSQUARE: {
     TypeArray type_array = {};
-    if (parser->peek_tok->kind == TOKEN_IDENT &&
-        strcmp(parser->peek_tok->var.ident, "dyn") == 0) {
-      type_array.variant = TYPE_ARRAY_VARIANT_DYNAMIC;
-      // cur_tok is ident
-      next_token(parser);
-    } else if (parser->peek_tok->kind == TOKEN_INT) {
+    if (parser->peek_tok->kind == TOKEN_INT) {
       type_array.variant = TYPE_ARRAY_VARIANT_SIZED;
       type_array.size = parser->peek_tok->var.integer;
       // cur_tok is int
@@ -206,6 +199,102 @@ static Type parse_type(Parser *parser) {
     exit(1);
   }
   }
+}
+
+static bool check_seperator_tok(Parser *parser, TokenKind seperator_tok,
+                                TokenKind end_tok) {
+  bool continue_loop = false;
+  bool can_parse_next_elem = false;
+  if (parser->peek_tok->kind == seperator_tok) {
+    // cur_tok is seperator_tok
+    next_token(parser);
+    can_parse_next_elem = true;
+  }
+
+  if (parser->peek_tok->kind == end_tok) {
+    // cur_tok is end_tok
+    next_token(parser);
+    continue_loop = false;
+  } else if (can_parse_next_elem) {
+    // cur_tok is first tok of parse_elem
+    continue_loop = true;
+  } else {
+    sink_add_err(&parser->sink, ERR_MSG({
+                                    .err_msg = "Missing end token after list",
+                                    .issue_line = parser->cur_tok->line,
+                                    .issue_pos = parser->cur_tok->begin_pos +
+                                                 parser->cur_tok->len,
+                                    .ctx_lines_amount = 1,
+                                    .ctx_first_line = parser->cur_tok->line,
+                                    .issue_len = 1,
+                                    .issue_ctx_msg = "Expected end token",
+                                }));
+  }
+
+  return continue_loop;
+}
+
+static bool init_check_end_tok(Parser *parser, TokenKind end_tok) {
+  bool continue_loop = parser->peek_tok->kind != end_tok;
+  if (!continue_loop) {
+    next_token(parser);
+  }
+  return continue_loop;
+}
+
+#define parse_list(parser_ptr, seperator_tok, end_tok)                         \
+                                                                               \
+  for (bool _continue_loop = init_check_end_tok(parser_ptr, end_tok);            \
+       _continue_loop;                                                         \
+       _continue_loop = check_seperator_tok(parser, seperator_tok, end_tok))
+
+static ParseResult parse_expr1(Parser *parser, Expression *expr,
+                               Precedence prec);
+
+// begin: cur_tok must be first ident or end
+// end: cur_tok is end
+static TypedIdentOptValue *parse_typed_ident_opt_value_list(Parser *parser,
+                                                            TokenKind end) {
+  TypedIdentOptValue *idents =
+      array_new_capacity(TypedIdentOptValue, 8, &parser->ast_arena_allocator);
+  parse_list(parser, TOKEN_COMMA, end) {
+    TypedIdentOptValue ti = {0};
+    if (parser->peek_tok->kind == TOKEN_IDENT) {
+      // cur_tok is ident
+      next_token(parser);
+      ti.ident = parser->cur_tok->var.ident;
+    } else {
+      EXPECTED_TOKEN_ERR(TOKEN_IDENT, parser->cur_tok);
+    }
+    // cur_tok is colon
+    next_token(parser);
+    if (parser->cur_tok->kind != TOKEN_COLON) {
+      EXPECTED_TOKEN_ERR(TOKEN_COLON, parser->cur_tok);
+    }
+    // cur_tok is type
+    next_token(parser);
+    ti.type = parse_type(parser);
+
+    if (parser->peek_tok->kind == TOKEN_ASSIGN) {
+      // cur_tok is assign
+      next_token(parser);
+
+      // cur_tok is first tok of optional value
+      next_token(parser);
+
+      ti.has_value = true;
+
+      Expression expr = {0};
+      ParseResult res = parse_expr1(parser, &expr, PREC_LOWEST);
+      ti.value = bump_clone(&parser->ast_arena, &expr);
+      if (!res.success) {
+        return idents;
+      }
+    }
+
+    array_add(idents, ti);
+  }
+  return idents;
 }
 
 // begin: cur_tok must be first ident or end
@@ -241,47 +330,6 @@ static TypedIdent *parse_typed_ident_list(Parser *parser, TokenKind end) {
   return idents;
 }
 
-static ParseResult parse_expr1(Parser *parser, Expression *expr,
-                               Precedence prec);
-
-static bool check_seperator_tok(Parser *parser, TokenKind seperator_tok,
-                                TokenKind end_tok) {
-  bool continue_loop = false;
-  bool can_parse_next_elem = false;
-  if (parser->peek_tok->kind == seperator_tok) {
-    // cur_tok is seperator_tok
-    next_token(parser);
-    can_parse_next_elem = true;
-  }
-
-  if (parser->peek_tok->kind == end_tok) {
-    // cur_tok is end_tok
-    next_token(parser);
-    continue_loop = false;
-  } else if (can_parse_next_elem) {
-    // cur_tok is first tok of parse_elem
-    continue_loop = true;
-  } else {
-    sink_add_err(&parser->sink, ERR_MSG({
-      .err_msg = "Missing end token after list",
-      .issue_line = parser->cur_tok->line,
-      .issue_pos = parser->cur_tok->begin_pos + parser->cur_tok->len,
-      .ctx_lines_amount = 1,
-      .ctx_first_line = parser->cur_tok->line,
-      .issue_len = 1,
-      .issue_ctx_msg = "Expected end token"
-    }));
-  }
-
-  return continue_loop;
-}
-
-#define parse_list(parser_ptr, seperator_tok, end_tok)                         \
-                                                                               \
-  for (bool _continue_loop = parser_ptr->peek_tok->kind != end_tok;             \
-       _continue_loop;                                                         \
-       _continue_loop = check_seperator_tok(parser, seperator_tok, end_tok))
-
 // begin: cur_tok must be token before first_elem or end_tok
 // end: cur_tok is end
 static LabeledExpr *parse_labeled_expr_list(Parser *parser, TokenKind end_tok) {
@@ -295,14 +343,15 @@ static LabeledExpr *parse_labeled_expr_list(Parser *parser, TokenKind end_tok) {
       le.field = parser->cur_tok->var.ident;
     } else {
       sink_add_err(&parser->sink, ERR_MSG({
-        .err_msg = "Expected field or '}'",
-        .issue_line = parser->cur_tok->line,
-        .issue_pos = parser->cur_tok->begin_pos + parser->cur_tok->len,
-        .ctx_lines_amount = 1,
-        .ctx_first_line = parser->cur_tok->line,
-        .issue_ctx_msg = "Add field or '}'",
-        .issue_len = 1,
-      }));
+                                      .err_msg = "Expected field or '}'",
+                                      .issue_line = parser->cur_tok->line,
+                                      .issue_pos = parser->cur_tok->begin_pos +
+                                                   parser->cur_tok->len,
+                                      .ctx_lines_amount = 1,
+                                      .ctx_first_line = parser->cur_tok->line,
+                                      .issue_ctx_msg = "Add field or '}'",
+                                      .issue_len = 1,
+                                  }));
       return labels;
     }
 
@@ -327,7 +376,6 @@ static LabeledExpr *parse_labeled_expr_list(Parser *parser, TokenKind end_tok) {
     }
 
     array_add(labels, le);
-  
   }
 
   return labels;
@@ -447,49 +495,116 @@ static FuncSignature parse_func_signature(Parser *parser) {
   return signature;
 }
 
-// begin: cur_tok must be generic name
-// end: cur_tok is end of func descriptor or generic ident
-static Generic parse_generic(Parser *parser) {
-  Generic generic = {.name = parser->cur_tok->var.ident};
-  if (parser->peek_tok->kind == TOKEN_COLON) {
-    // cur_tok is colon
-    next_token(parser);
-    // cur_tok is first tok of func descriptor
-    next_token(parser);
-    generic.bounds = array_new(FuncSignature, &HEAP_ALLOCATOR);
-    while (parser->cur_tok->kind != TOKEN_COMMA &&
-           parser->cur_tok->kind != TOKEN_RANGLE) {
-      FuncSignature signature = parse_func_signature(parser);
-      array_add(generic.bounds, signature);
+//// begin: cur_tok must be generic name
+//// end: cur_tok is end of func descriptor or generic ident
+//static Generic parse_generic(Parser *parser) {
+//  Generic generic = {.name = parser->cur_tok->var.ident};
+//  if (parser->peek_tok->kind == TOKEN_COLON) {
+//    // cur_tok is colon
+//    next_token(parser);
+//    // cur_tok is first tok of func descriptor
+//    next_token(parser);
+//    generic.bounds = array_new(FuncSignature, &HEAP_ALLOCATOR);
+//    while (parser->cur_tok->kind != TOKEN_COMMA &&
+//           parser->cur_tok->kind != TOKEN_RANGLE) {
+//      FuncSignature signature = parse_func_signature(parser);
+//      array_add(generic.bounds, signature);
+//
+//      if (parser->peek_tok->kind == TOKEN_PLUS) {
+//        // cur_tok is plus
+//        next_token(parser);
+//      } else if (parser->peek_tok->kind == TOKEN_RANGLE) {
+//        break;
+//      }
+//
+//      // next token is next function name or comma or rangle
+//      next_token(parser);
+//    }
+//  }
+//  return generic;
+//}
 
-      if (parser->peek_tok->kind == TOKEN_PLUS) {
-        // cur_tok is plus
-        next_token(parser);
-      } else if (parser->peek_tok->kind == TOKEN_RANGLE) {
-        break;
-      }
+static ParseResult parse_arg(Parser *parser, Argument *arg) {
+  next_token(parser);
 
-      // next token is next function name or comma or rangle
-      next_token(parser);
-    }
+  if (parser->cur_tok->kind == TOKEN_HASH &&
+      parser->peek_tok->kind == TOKEN_COMPTIME) {
+    // cur_tok is ident
+    next_token(parser);
+
+    // cur_tok is first tok of arg
+    next_token(parser);
+
+    arg->comptime = true;
   }
-  return generic;
+
+  if (parser->cur_tok->kind != TOKEN_IDENT) {
+    // TODO: Error
+    return PARSE_RESULT(
+        {.error_msg = str_fmt_temp("Expected arg name, received: %d",
+                                   parser->cur_tok->kind)});
+  }
+
+  arg->arg_name = parser->cur_tok->var.ident;
+
+  // cur_tok is colon
+  next_token(parser);
+
+  if (parser->cur_tok->kind != TOKEN_COLON) {
+    // TODO: Error
+    return PARSE_RESULT({.error_msg = "Expected colon after arg name"});
+  }
+
+  // cur_tok is type
+  next_token(parser);
+
+  if (parser->cur_tok->kind == TOKEN_IDENT &&
+      strv_eq(parser->cur_tok->var.ident, "type")) {
+    arg->kind = ARG_TYPE_ARG;
+
+    return PARSE_RESULT_SUCCESS;
+  } else if (parser->cur_tok->kind == TOKEN_RANGE) {
+    arg->kind = ARG_VARARG;
+
+    next_token(parser);
+  } else {
+    arg->kind = ARG_REGULAR_ARG;
+  }
+
+  arg->arg_type = parse_type(parser);
+
+  return PARSE_RESULT_SUCCESS;
+}
+
+// begin: cur_tok must be first ident or end
+// end: cur_tok is end
+static ParseResult parse_arg_list(Parser *parser, TokenKind end,
+                                  Argument **args) {
+  parse_list(parser, TOKEN_COMMA, end) {
+    Argument arg = {0};
+
+    ParseResult res = parse_arg(parser, &arg);
+    if (!res.success) {
+      panic("error while parsing arg");
+      return res;
+    }
+
+    array_add(*args, arg);
+  }
+
+  return PARSE_RESULT_SUCCESS;
 }
 
 // TODO: Generic functions
 // begin: cur_tok must be left parenthesis
 // end: cur_tok is return_type ident or right parenthesis
 static ParseResult parse_func_desc(Parser *parser, FuncDescriptor *desc) {
-  // cur_tok is first ident or end of args
-  next_token(parser);
-  TypedIdent *typed_ident_args = parse_typed_ident_list(parser, TOKEN_RPAREN);
-  desc->args = array_new_capacity(Argument, array_len(typed_ident_args),
-                                  &parser->ast_arena_allocator);
-  for (size_t i = 0; i < array_len(typed_ident_args); i++) {
-    array_add(desc->args,
-              (Argument){.kind = ARG_TYPED_ARG,
-                         .var = {.typed_arg = typed_ident_args[i]}});
-  }
+  desc->args = array_new(Argument, &parser->ast_arena_allocator);
+
+  ParseResult res = parse_arg_list(parser, TOKEN_RPAREN, &desc->args);
+  if (!res.success)
+    return res;
+
   bool has_ret_type = parser->peek_tok->kind == TOKEN_ARROW;
   if (has_ret_type) {
     // cur_tok is arrow
@@ -500,11 +615,12 @@ static ParseResult parse_func_desc(Parser *parser, FuncDescriptor *desc) {
   }
   desc->has_ret_type = has_ret_type;
 
-  return (ParseResult){.success = true};
+  return PARSE_RESULT_SUCCESS;
 }
 
 static bool ident_is_struct(Parser *parser, Ident *struct_name) {
-  TypeExpr *type_expr = hashmap_value(&parser->custom_types, struct_name);
+  TypeExpr *type_expr =
+      hashmap_value(&parser->cur_mod_parse.custom_types, struct_name);
   return type_expr != NULL && type_expr->kind == TYPE_EXPR_STRUCT;
 }
 
@@ -567,9 +683,9 @@ static bool is_func_desc(Parser *parser) {
 
 static ModulePath module_path_resolve(Parser *parser, const ModulePath *path,
                                       Allocator *alloc) {
-  size_t modules_len = array_len(parser->imported_modules);
+  size_t modules_len = array_len(parser->cur_mod_parse.imported_modules);
   for (size_t i = 0; i < modules_len; i++) {
-    ModulePath imported_path = parser->imported_modules[i];
+    ModulePath imported_path = parser->cur_mod_parse.imported_modules[i];
     size_t path_len = array_len(imported_path.path);
     Ident last_path_segment = imported_path.path[path_len - 1];
 
@@ -630,7 +746,9 @@ static ParseResult parse_expr(Parser *parser, Expression *expr) {
   case TOKEN_LPAREN: {
     if (is_func_desc(parser)) {
       FuncDescriptor desc = {0};
-      parse_func_desc(parser, &desc);
+      ParseResult res = parse_func_desc(parser, &desc);
+      if (!res.success)
+        return res;
       ExprBlock *block_expr = bump_alloc(&parser->ast_arena, sizeof(ExprBlock));
 
       if (parser->peek_tok->kind == TOKEN_LCURLY) {
@@ -643,6 +761,7 @@ static ParseResult parse_expr(Parser *parser, Expression *expr) {
         ExprBlock block = {.statements = stmts};
         memcpy(block_expr, &block, sizeof(ExprBlock));
       } else {
+        printf("%s:%d:%d \n", parser->cur_module->filename, parser->cur_tok->line, parser->cur_tok->begin_pos);
         EXPECTED_TOKEN_ERR(TOKEN_LCURLY, parser->peek_tok);
       }
 
@@ -771,66 +890,66 @@ static ParseResult parse_expr(Parser *parser, Expression *expr) {
     };
     return PARSE_RESULT_SUCCESS;
   }
-  case TOKEN_LANGLE: {
-    Generic *generics;
-    if (parser->peek_tok->kind == TOKEN_RANGLE) {
-      generics = NULL;
-    } else {
-      generics = array_new(Generic, &HEAP_ALLOCATOR);
-      if (parser->peek_tok->kind == TOKEN_IDENT) {
-        // cur_tok is generic name
-        next_token(parser);
-
-        while (parser->cur_tok->kind != TOKEN_RANGLE) {
-          Generic generic = parse_generic(parser);
-          array_add(generics, generic);
-          if (parser->peek_tok->kind == TOKEN_COMMA) {
-            // cur_tok is comma
-            next_token(parser);
-            if (parser->peek_tok->kind == TOKEN_IDENT) {
-              // cur_tok is ident
-              next_token(parser);
-            } else if (parser->peek_tok->kind == TOKEN_RANGLE) {
-              break;
-            }
-          } else if (parser->peek_tok->kind == TOKEN_RANGLE) {
-            // cur_tok is rangle
-            next_token(parser);
-            break;
-          }
-        }
-      } else {
-        fprintf(stderr, "Expected token after left angle bracket to be generic "
-                        "name or right angle bracket\n");
-        exit(1);
-      }
-    }
-    // cur_tok is left paren
-    next_token(parser);
-    FuncDescriptor desc = {0};
-    parse_func_desc(parser, &desc);
-    desc.generics = generics;
-    ExprBlock *block_expr = malloc(sizeof(ExprBlock));
-
-    if (parser->peek_tok->kind == TOKEN_LCURLY) {
-      // cur_tok is left curly
-      next_token(parser);
-      // cur_tok is first stmt
-      next_token(parser);
-
-      Statement *stmts = parse_block_statements(parser, TOKEN_RCURLY);
-      ExprBlock block = {.statements = stmts};
-      memcpy(block_expr, &block, sizeof(ExprBlock));
-    } else {
-      EXPECTED_TOKEN_ERR(TOKEN_LCURLY, parser->peek_tok);
-    }
-
-    // cur_tok is rcurly
-    *expr = (Expression){
-        .kind = EXPR_FUNCTION,
-        .var = {.expr_function = {.desc = desc, .block = block_expr}}};
-    return PARSE_RESULT_SUCCESS;
-  }
+  //case TOKEN_LANGLE: {
+  //  Generic *generics;
+  //  if (parser->peek_tok->kind == TOKEN_RANGLE) {
+  //    generics = NULL;
+  //  } else {
+  //    generics = array_new(Generic, &HEAP_ALLOCATOR);
+  //    if (parser->peek_tok->kind == TOKEN_IDENT) {
+  //      // cur_tok is generic name
+  //      next_token(parser);
+//
+  //      while (parser->cur_tok->kind != TOKEN_RANGLE) {
+  //        Generic generic = parse_generic(parser);
+  //        array_add(generics, generic);
+  //        if (parser->peek_tok->kind == TOKEN_COMMA) {
+  //          // cur_tok is comma
+  //          next_token(parser);
+  //          if (parser->peek_tok->kind == TOKEN_IDENT) {
+  //            // cur_tok is ident
+  //            next_token(parser);
+  //          } else if (parser->peek_tok->kind == TOKEN_RANGLE) {
+  //            break;
+  //          }
+  //        } else if (parser->peek_tok->kind == TOKEN_RANGLE) {
+  //          // cur_tok is rangle
+  //          next_token(parser);
+  //          break;
+  //        }
+  //      }
+  //    } else {
+  //      fprintf(stderr, "Expected token after left angle bracket to be generic "
+  //                      "name or right angle bracket\n");
+  //      exit(1);
+  //    }
+  //  }
+  //  // cur_tok is left paren
+  //  next_token(parser);
+  //  FuncDescriptor desc = {0};
+  //  parse_func_desc(parser, &desc);
+  //  desc.generics = generics;
+  //  ExprBlock *block_expr = malloc(sizeof(ExprBlock));
+//
+  //  if (parser->peek_tok->kind == TOKEN_LCURLY) {
+  //    // cur_tok is left curly
+  //    next_token(parser);
+  //    // cur_tok is first stmt
+  //    next_token(parser);
+//
+  //    Statement *stmts = parse_block_statements(parser, TOKEN_RCURLY);
+  //    ExprBlock block = {.statements = stmts};
+  //    memcpy(block_expr, &block, sizeof(ExprBlock));
+  //  } else {
+  //    EXPECTED_TOKEN_ERR(TOKEN_LCURLY, parser->peek_tok);
+  //  }
+//
+  //  // cur_tok is rcurly
+  //  *expr = (Expression){
+  //      .kind = EXPR_FUNCTION,
+  //      .var = {.expr_function = {.desc = desc, .block = block_expr}}};
+  //  return PARSE_RESULT_SUCCESS;
+  //}
   case TOKEN_LSQUARE: {
     printf("Left square tok :3\n");
     Type type = parse_type(parser);
@@ -902,16 +1021,16 @@ static ParseResult parse_expr(Parser *parser, Expression *expr) {
 
     if (result.success) {
       if (parser->peek_tok->kind != TOKEN_LCURLY) {
-        sink_add_err(&parser->sink,
-                     ERR_MSG({
-                         .ctx_first_line = parser->cur_tok->line,
-                         .ctx_lines_amount = 1,
-                         .issue_line = parser->cur_tok->line,
-                         .issue_pos = parser->cur_tok->begin_pos +
-                                      parser->custom_types.len,
-                         .err_msg = result.error_msg,
-                         .issue_ctx_msg = "{",
-                     }));
+        sink_add_err(
+            &parser->sink,
+            ERR_MSG({
+                .ctx_first_line = parser->cur_tok->line,
+                .ctx_lines_amount = 1,
+                .issue_line = parser->cur_tok->line,
+                .issue_pos = parser->cur_tok->begin_pos + parser->cur_tok->len,
+                .err_msg = result.error_msg,
+                .issue_ctx_msg = "{",
+            }));
       }
 
       // cur_tok is left curly
@@ -950,7 +1069,7 @@ static ParseResult parse_expr(Parser *parser, Expression *expr) {
                                       .ctx_lines_amount = 1,
                                       .issue_line = result.line,
                                       .issue_pos = parser->cur_tok->begin_pos +
-                                                   parser->custom_types.len,
+                                                   parser->cur_tok->len,
                                       .err_msg = result.error_msg,
                                   }));
     }
@@ -973,7 +1092,7 @@ static ParseResult parse_expr(Parser *parser, Expression *expr) {
                                       .ctx_lines_amount = 1,
                                       .issue_line = result.line,
                                       .issue_pos = parser->cur_tok->begin_pos +
-                                                   parser->custom_types.len,
+                                                   parser->cur_tok->len,
                                       .err_msg = result.error_msg,
                                   }));
     }
@@ -1338,7 +1457,6 @@ static ParseResult parse_expr1(Parser *parser, Expression *expr,
                                Precedence prec) {
   Expression expr1 = {0};
   ParseResult result = parse_expr(parser, &expr1);
-
   if (!result.success)
     return result;
 
@@ -1372,7 +1490,7 @@ static ParseResult parse_expr1(Parser *parser, Expression *expr,
 
 static TypeExpr parse_type_expr(Parser *parser) {
   if (parser->cur_tok->kind == TOKEN_IDENT &&
-      hashmap_contains(&parser->custom_functions,
+      hashmap_contains(&parser->cur_mod_parse.custom_functions,
                        &parser->cur_tok->var.ident)) {
     token_debug_print(parser->peek_tok);
     Ident *idents = array_new(Ident, &HEAP_ALLOCATOR);
@@ -1397,12 +1515,12 @@ static TypeExpr parse_type_expr(Parser *parser) {
     if (parser->peek_tok->kind == TOKEN_LCURLY) {
       // cur_tok is TOKEN_LCURLY
       next_token(parser);
-      // cur_tok is first ident of fields
-      next_token(parser);
-      TypedIdent *fields = parse_typed_ident_list(parser, TOKEN_RCURLY);
+      TypedIdentOptValue *fields =
+          parse_typed_ident_opt_value_list(parser, TOKEN_RCURLY);
       return (TypeExpr){
           .kind = TYPE_EXPR_STRUCT,
-          .var = {.type_expr_struct = {.generics = NULL, .fields = fields}}};
+          .var.type_expr_struct.fields = fields,
+      };
     } else {
       EXPECTED_TOKEN_ERR(TOKEN_LCURLY, parser->peek_tok);
     }
@@ -1413,7 +1531,7 @@ static TypeExpr parse_type_expr(Parser *parser) {
 
 static ExpressionVariant parse_expr_var(Parser *parser) {
   if (parser->cur_tok == TOKEN_IDENT &&
-      hashmap_contains(&parser->custom_functions,
+      hashmap_contains(&parser->cur_mod_parse.custom_functions,
                        &parser->cur_tok->var.ident)) {
     TypeExpr ty_expr = parse_type_expr(parser);
     return EXPR_VAR_TYPE(ty_expr);
@@ -1436,6 +1554,7 @@ static StmtKind parse_decl_stmt(Parser *parser, bool typed, StmtDecl *stmt_decl,
                                 StmtTypeDecl *stmt_ty_decl) {
   Ident name = parser->cur_tok->var.ident;
   stmt_decl->name = name;
+  stmt_decl->has_value = true;
   stmt_ty_decl->name = name;
 
   if (typed) {
@@ -1454,20 +1573,21 @@ static StmtKind parse_decl_stmt(Parser *parser, bool typed, StmtDecl *stmt_decl,
       next_token(parser);
 
       stmt_decl->mut = parser->cur_tok->kind == TOKEN_ASSIGN;
+
+      next_token(parser);
+      Expression value;
+      ParseResult result = parse_expr1(parser, &value, PREC_LOWEST);
+      if (!result.success) {
+        fprintf(stderr, "Failed to parse decl stmt value, error message: %s",
+                result.error_msg);
+        exit(1);
+      }
+      stmt_decl->value = value;
+      stmt_decl->has_value = true;
     } else {
-      EXPECTED_TOKEN_ERR(TOKEN_ASSIGN | TOKEN_COLON, parser->peek_tok);
+      stmt_decl->has_value = false;
     }
 
-    next_token(parser);
-    Expression value;
-    ParseResult result = parse_expr1(parser, &value, PREC_LOWEST);
-    if (!result.success) {
-      fprintf(stderr, "Failed to parse decl stmt value, error message: %s",
-              result.error_msg);
-      exit(1);
-    }
-
-    stmt_decl->value = value;
     return STMT_DECL;
   } else {
     bool mutable = parser->peek_tok->kind == TOKEN_DECL_VAR;
@@ -1482,7 +1602,7 @@ static StmtKind parse_decl_stmt(Parser *parser, bool typed, StmtDecl *stmt_decl,
     switch (expr_var.kind) {
     case EXPR_VAR_TYPE_EXPR: {
       stmt_ty_decl->value = expr_var.var.expr_var_type_expr;
-      hashmap_insert(&parser->custom_types, &name,
+      hashmap_insert(&parser->cur_mod_parse.custom_types, &name,
                      &expr_var.var.expr_var_type_expr);
       return STMT_TYPE_DECL;
     } break;
@@ -1589,8 +1709,8 @@ static PpDirective parse_pp_dir(Parser *parser) {
       exit(1);
     }
 
-    array_add(parser->pp_dir_conditionals,
-              array_len(parser->pp_dir_conditionals));
+    array_add(parser->cur_mod_parse.pp_dir_conditionals,
+              array_len(parser->cur_mod_parse.pp_dir_conditionals));
     return (PpDirective){.kind = PP_DIR_IF,
                          .var = {.pp_dir_if = {.condition = expr}}};
   }
@@ -1700,7 +1820,7 @@ static bool parse_stmt(Parser *parser, Statement *out_stmt) {
     next_token(parser);
     FuncDescriptor desc = {0};
     parse_func_desc(parser, &desc);
-    array_add(parser->foreign_functions, mod_path);
+    array_add(parser->cur_mod_parse.foreign_functions, mod_path);
     *out_stmt = (Statement){
         .kind = STMT_FOREIGN,
         .var = {.stmt_foreign = {.name = mod_path, .desc = desc}},
@@ -1791,7 +1911,7 @@ static bool parse_stmt(Parser *parser, Statement *out_stmt) {
           .kind = PP_DIR_COMPTIME,
       };
       if (parse_stmt(parser, &pp_dir.var.pp_dir_comptime.stmt)) {
-        array_add(*parser->pp_dirs, pp_dir);
+        array_add(*parser->cur_mod_parse.pp_dirs, pp_dir);
       }
       return false;
     } else if (parser->peek_tok->kind == TOKEN_IDENT) {
@@ -1823,7 +1943,7 @@ static bool parse_stmt(Parser *parser, Statement *out_stmt) {
         ModulePath mod_path =
             mod_path_parse_str(module_name, &parser->ast_arena_allocator);
 
-        array_add(parser->imported_modules, mod_path);
+        array_add(parser->cur_mod_parse.imported_modules, mod_path);
 
         dyn_string_t file_content =
             file_read_to_string(path.string, &HEAP_ALLOCATOR);
@@ -1847,7 +1967,7 @@ static bool parse_stmt(Parser *parser, Statement *out_stmt) {
         ModulePath *key;
         FuncDescriptor *val;
         hashmap_foreach(&mod.functions, key, val) {
-          hashmap_insert(&parser->imported_functions, key, val);
+          hashmap_insert(&parser->cur_mod_parse.imported_functions, key, val);
         }
 
         module_deinit(&mod);
@@ -1859,9 +1979,10 @@ static bool parse_stmt(Parser *parser, Statement *out_stmt) {
       }
     } else if (parser->peek_tok->kind == TOKEN_RCURLY) {
       size_t last_pp_cond_idx =
-          parser
-              ->pp_dir_conditionals[array_len(parser->pp_dir_conditionals) - 1];
-      PpDirective *pp_dir = &((*parser->pp_dirs)[last_pp_cond_idx]);
+          parser->cur_mod_parse.pp_dir_conditionals
+              [array_len(parser->cur_mod_parse.pp_dir_conditionals) - 1];
+      PpDirective *pp_dir =
+          &((*parser->cur_mod_parse.pp_dirs)[last_pp_cond_idx]);
       pp_dir->var.pp_dir_if.lines_amount = line - pp_dir->line;
 
       log_debug("[PARSER] Found end of conditional pre processor directive in "
@@ -1874,7 +1995,7 @@ static bool parse_stmt(Parser *parser, Statement *out_stmt) {
     }
     PpDirective pp_dir = parse_pp_dir(parser);
     pp_dir.line = line;
-    array_add(*parser->pp_dirs, pp_dir);
+    array_add(*parser->cur_mod_parse.pp_dirs, pp_dir);
     exit(1);
   }
   default: {
@@ -1887,8 +2008,11 @@ static bool parse_stmt(Parser *parser, Statement *out_stmt) {
             .ctx_lines_amount = 1,
             .issue_line = parser->cur_tok->line,
             .issue_pos = parser->cur_tok->begin_pos,
-            .err_msg = dyn_string_makef(&parser->ast_arena_allocator, 
-                "Illegal Token %s at beginning of statement", cur_tok_buf).string,
+            .err_msg =
+                dyn_string_makef(&parser->ast_arena_allocator,
+                                 "Illegal Token %s at beginning of statement",
+                                 cur_tok_buf)
+                    .string,
             .issue_ctx_msg = cur_tok_buf,
         }));
   } break;
@@ -1896,8 +2020,8 @@ static bool parse_stmt(Parser *parser, Statement *out_stmt) {
 }
 
 bool parser_parse(Parser *parser) {
-  parser->cur_tok = parser->tokens;
-  parser->peek_tok = parser->tokens + 1;
+  parser->cur_tok = parser->cur_mod_parse.tokens;
+  parser->peek_tok = parser->cur_mod_parse.tokens + 1;
 
   if (debug_flags.print_parse_info) {
     log_info("[Parser] Start parsing file %s", parser->cur_module->filename);
@@ -1906,51 +2030,35 @@ bool parser_parse(Parser *parser) {
   while (parser->cur_tok->kind != TOKEN_EOF) {
     Statement stmt;
     if (parse_stmt(parser, &stmt)) {
-      array_add(*parser->statements, stmt);
+      array_add(*parser->cur_mod_parse.stmts, stmt);
     }
     next_token(parser);
   }
 
   bool errors = array_len(parser->sink.msgs) > 0;
 
-  sink_print_errors(parser->lines, parser->cur_module->filename, &parser->sink);
+  sink_print_errors(parser->cur_mod_parse.lines, parser->cur_module->filename,
+                    &parser->sink);
 
   return !errors;
 }
 
 static void parser_reset(Parser *parser) {
   parser->cur_module = NULL;
-  parser->tokens = NULL;
-  parser->cur_tok = NULL;
-  parser->peek_tok = NULL;
+  parser->cur_mod_parse = (ModuleParse){0};
 
-  parser->lines = NULL;
-  parser->pp_dirs = NULL;
-  parser->pp_dir_conditionals = NULL;
-
-  array_clear(parser->foreign_functions);
-
-  array_clear(parser->sink.msgs);
-
-  parser->statements = NULL;
+  error_sink_reset(&parser->sink);
 
   bump_reset(&parser->ast_arena);
 
   // TODO: Clear hashmaps
 }
 
-bool module_parse(Module *module, Parser *parser, Statement **out_stmts,
-                  PpDirective **out_pp_dirs, const TokenStream tokens,
-                  const SourceLines lines) {
+bool module_parse(Module *module, Parser *parser, ModuleParse mod_parse) {
   parser_reset(parser);
 
   parser->cur_module = module;
-  parser->tokens = tokens;
-  parser->lines = lines;
-
-  parser->lines = lines;
-  parser->pp_dirs = out_pp_dirs;
-  parser->statements = out_stmts;
+  parser->cur_mod_parse = mod_parse;
 
   return parser_parse(parser);
 }

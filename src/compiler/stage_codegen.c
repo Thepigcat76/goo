@@ -12,36 +12,39 @@ int32_t cmp_size_t(const void *a, const void *b) {
 }
 
 void compiler_generate(Compiler *compiler) {
-  if (compiler->step != COMPILE_STEP_COMPILE_SRC)
+  if (compiler->cur_step != COMPILE_STEP_COMPILE_SRC)
     return;
-  compiler->step = COMPILE_STEP_GENERATE_MACHINE;
+  compiler->cur_step = COMPILE_STEP_GENERATE_MACHINE;
+
+  ModuleCompileInfo *info = &compiler->cur_mod_compile_info;
+  ModuleCompile *mod_compile = &compiler->cur_mod_compile;
 
   if (debug_flags.print_compile_info) {
     log_info("[COMPILER] Start generating machine code");
   }
 
-  compiler->program_data_capacity = 512;
-  compiler->program_data = malloc(compiler->program_data_capacity);
+  info->program_data_capacity = 512;
+  info->program_data = malloc(info->program_data_capacity);
   size_t program_data_offset = 0;
 
-  for (size_t i = 0; i < array_len(compiler->insns); i++) {
-    Instruction ins = compiler->insns[i];
+  for (size_t i = 0; i < array_len(*mod_compile->insns); i++) {
+    Instruction ins = (*mod_compile->insns)[i];
     uint8_t insn_bytes[16] = {0};
 
     size_t ins_len = ins_gen(&ins, insn_bytes);
 
-    if (program_data_offset + ins_len > compiler->program_data_capacity) {
-      compiler->program_data =
-          realloc(compiler->program_data, compiler->program_data_capacity *= 2);
+    if (program_data_offset + ins_len > info->program_data_capacity) {
+      info->program_data =
+          realloc(info->program_data, info->program_data_capacity *= 2);
     }
 
-    memcpy(compiler->program_data + program_data_offset, insn_bytes, ins_len);
+    memcpy(info->program_data + program_data_offset, insn_bytes, ins_len);
 
     program_data_offset += ins_len;
   }
 
-  for (size_t i = 0; i < array_len(compiler->relocations); i++) {
-    Relocation reloc = compiler->relocations[i];
+  for (size_t i = 0; i < array_len(*mod_compile->relocs); i++) {
+    Relocation reloc = (*mod_compile->relocs)[i];
     Elf64_Relocation elf64_reloc;
     if (reloc.symbol != NULL && reloc.sec == SECTION_TYPE_TEXT) {
       elf64_reloc.rel_type = RELOCATION_FUNCTION;
@@ -61,8 +64,8 @@ void compiler_generate(Compiler *compiler) {
     }
     elf64_reloc.program_offset = reloc.program_offset;
     elf64_reloc.r_offset = reloc.r_offset;
-    array_add(compiler->elf64_relocations, elf64_reloc);
+    array_add(info->elf64_relocations, elf64_reloc);
   }
 
-  compiler->program_data_size = program_data_offset;
+  info->program_data_size = program_data_offset;
 }

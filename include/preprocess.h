@@ -66,12 +66,14 @@ typedef struct {
   Hashmap valid_lines; // size_t -> size_t
   ssize_t pp_dir_cond_line;
   Hashmap comptime_functions; // Ident -> ComptimeBuiltinFunction
+
+  IdentArray *comptime_param_functions;
 } PreProcessor;
 
 void preprocessor_init(PreProcessor *preprocessor);
 
 void preprocessor_deinit(PreProcessor *pp);
 
-void module_preprocess(Module *module, PreProcessor *preproc, Statement *stms, const PpDirective *pp_dirs);
+void module_preprocess(Module *module, PreProcessor *preproc, Statement *stmts, IdentArray *comptime_param_functions, const PpDirective *pp_dirs);
 
 void preprocessor_process(PreProcessor *preprocessor);

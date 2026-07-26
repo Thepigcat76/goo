@@ -13,6 +13,8 @@
 
 typedef char *Ident;
 
+typedef Ident *IdentArray;
+
 struct debug_flags {
   bool print_tokens;
   bool print_ast;

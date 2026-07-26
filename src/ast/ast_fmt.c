@@ -98,15 +98,12 @@ static dyn_string_t func_args_format(AstFormatter *fmt, Argument *args) {
 
   Argument *arg;
   array_foreach(args, arg) {
-    if (arg->kind == ARG_TYPED_ARG) {
-      dyn_string_add_str(&str,
-                         str_fmt_temp("%s: %s", arg->var.typed_arg.ident,
-                                      type_format(&TYPE_FORMATTER_DEFAULT,
-                                                  &arg->var.typed_arg.type)
-                                          .string));
-    } else if (arg->kind == ARG_VARARG) {
-      dyn_string_add_str(&str, str_fmt_temp("%s: ...", arg->var.vararg));
-    }
+    dyn_string_add_str(
+        &str,
+        str_fmt_temp(
+            "%s%s: %s%s", arg->comptime ? "#comptime " : "", arg->arg_name, arg->kind == ARG_VARARG ? ".." : "",
+            arg->kind == ARG_TYPE_ARG
+                ? "type" : type_format(&TYPE_FORMATTER_DEFAULT, &arg->arg_type).string));
 
     if (_arr_foreach_idx < array_len(args) - 1) {
       dyn_string_add_str(&str, ", ");
@@ -311,23 +308,23 @@ static dyn_string_t expr_list_format(AstFormatter *fmt,
   return str;
 }
 
-static dyn_string_t typed_ident_list_format(AstFormatter *fmt, const TypedIdent *typed_idents) {
+static dyn_string_t typed_ident_list_format(AstFormatter *fmt,
+                                            const TypedIdent *typed_idents) {
   dyn_string_t str = {0};
   dyn_string_init(&str, &fmt->fmt_allocator);
 
   const TypedIdent *ti;
-  array_foreach((TypedIdent *) typed_idents, ti) {
+  array_foreach((TypedIdent *)typed_idents, ti) {
     dyn_string_t type_str = type_format(&TYPE_FORMATTER_DEFAULT, &ti->type);
     dyn_string_add_str(&str, ti->ident);
     dyn_string_add_str(&str, ": ");
     dyn_string_add_str(&str, type_str.string);
-  
+
     dyn_string_free(&type_str);
 
     if (_arr_foreach_idx < array_len(ti)) {
       dyn_string_add_str(&str, ", ");
     }
-
   }
 
   return str;
@@ -340,8 +337,9 @@ static dyn_string_t type_expr_format(AstFormatter *fmt,
 
   switch (type_expr->kind) {
   case TYPE_EXPR_STRUCT: {
-    dyn_string_t fields = typed_ident_list_format(fmt, type_expr->var.type_expr_struct.fields);
-    dyn_string_printf(&str, "TypeExprStruct{fields=[%s]}", fields.string);
+    // dyn_string_t fields = typed_ident_list_format(fmt,
+    // type_expr->var.type_expr_struct.fields);
+    dyn_string_printf(&str, "TypeExprStruct{fields=[%s]}", "");
   } break;
   case TYPE_EXPR_OVERLOAD_SET: {
     TODO();
@@ -362,11 +360,15 @@ static dyn_string_t stmt_format(AstFormatter *fmt, const Statement *stmt) {
   case STMT_DECL: {
     dyn_string_printf(&str, "%sStmtDecl{name=%s, val=%s}", indent_buf,
                       stmt->var.stmt_decl.name,
-                      expr_format0(fmt, &stmt->var.stmt_decl.value).string);
+                      stmt->var.stmt_decl.has_value
+                          ? expr_format0(fmt, &stmt->var.stmt_decl.value).string
+                          : "<no-value>");
   } break;
   case STMT_TYPE_DECL: {
-    dyn_string_printf(&str, "%sStmtTypeDecl{name=%s, val=%s}", indent_buf,
-                      stmt->var.stmt_type_decl.name, type_expr_format(fmt, &stmt->var.stmt_type_decl.value).string);
+    dyn_string_printf(
+        &str, "%sStmtTypeDecl{name=%s, val=%s}", indent_buf,
+        stmt->var.stmt_type_decl.name,
+        type_expr_format(fmt, &stmt->var.stmt_type_decl.value).string);
   } break;
   case STMT_EXPR: {
     dyn_string_printf(&str, "%sStmtExpr{expr=%s}", indent_buf,

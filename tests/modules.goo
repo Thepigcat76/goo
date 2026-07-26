@@ -3,16 +3,14 @@ foreign print_int(i: i32)
 #comptime TEST_NUMBER: i32 : 200
 
 Vec2i :: struct {
-  x: i32,
-  y: i32,
+  x: i32 = 0,
+  y: i32 = 0,
 }
 
 main :: () {
-  x :: []i32{0, 1, 2, 3}
+  vec := Vec2i { x: 100, y: 200}
 
-  vec :: Vec2i {x: 200, y: 20}
+  x := 10
 
-  for i in 0..4 {
-    print_int(x[i])
-  }
+  print_int(x)
 }

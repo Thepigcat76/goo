@@ -1,0 +1,37 @@
+Vec2i :: struct {
+  x: i32,
+  y: i32,
+}
+
+vec2i_bar :: (v: Vec2i) -> string {
+  return "Vec2i"
+}
+
+i32_bar :: (i: i32) -> string {
+  return "i32"
+}
+
+vec2i_add :: (a: Vec2i, b: Vec2i) -> i32 {
+  return 200
+}
+
+// We create a overload for 'bar' and 'add' for all types that support it
+bar :: vec2i_bar, i32_bar
+
+add :: vec2i_add
+
+foo :: (#comptime T: type, val: T) -> string
+// We specify that we can only accept a type T that has an overload of bar with the first and only argument being of 
+where T: bar(T) + add(T, _) {
+  return bar(val)
+}
+
+// -- Different idea --
+
+bar :: overload(a, b) -> i32
+
+// Might cause orphan rule like issues?
+@overload(bar)
+vec2i_bar :: (a: Vec2i, b: Vec2i) {
+
+}
